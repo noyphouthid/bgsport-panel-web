@@ -157,7 +157,7 @@ export default function NewOrderPage() {
   };
 
   return (
-    <div>
+    <div className="text-slate-900">
       {err && (
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 p-3 rounded text-sm">
           Error: {err}
@@ -166,17 +166,17 @@ export default function NewOrderPage() {
 
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold">ເພີ່ມອໍເດີ້ໃໝ່</h1>
-          <div className="text-sm text-gray-500">ບັນທຶກອໍເດີ້ (ດຶງລາຄາຜ້າຈາກ Supabase)</div>
+          <h1 className="text-2xl font-bold text-slate-800">ເພີ່ມອໍເດີ້ໃໝ່</h1>
+          <div className="text-sm text-slate-500 font-medium">ບັນທຶກອໍເດີ້ (ດຶງລາຄາຜ້າຈາກ Supabase)</div>
         </div>
 
         <div className="flex gap-2">
-          <Link href="/orders" className="border px-4 py-2 rounded text-sm font-semibold hover:bg-white">
+          <Link href="/orders" className="border border-slate-300 px-4 py-2 rounded text-sm font-bold text-slate-700 hover:bg-white shadow-sm transition-all">
             ກັບຄືນ
           </Link>
           <button
             onClick={handleSave}
-            className="bg-green-600 text-white px-4 py-2 rounded text-sm font-semibold hover:bg-green-700"
+            className="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-emerald-700 shadow-sm transition-all"
           >
             ບັນທຶກ
           </button>
@@ -187,46 +187,46 @@ export default function NewOrderPage() {
         {/* Left */}
         <div className="lg:col-span-2 space-y-4">
           {/* Basic */}
-          <div className="bg-white rounded shadow p-4">
-            <div className="font-semibold text-gray-700 mb-3">1) ຂໍ້ມູນພື້ນຖານ</div>
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">1) ຂໍ້ມູນພື້ນຖານ</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-gray-600">ວັນທີສັ່ງຊື້</label>
-                <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="w-full border rounded px-3 py-2 text-sm" />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ວັນທີສັ່ງຊື້</label>
+                <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-600">ລະຫັດອໍເດີ້</label>
-                <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="PKF26-001" className="w-full border rounded px-3 py-2 text-sm" />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ລະຫັດອໍເດີ້</label>
+                <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="PKF26-001" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold placeholder-slate-300" />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-600">ເບີໂທລູກຄ້າ (ຖ້າມີ)</label>
-                <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="020xxxxxxxx" className="w-full border rounded px-3 py-2 text-sm" />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ເບີໂທລູກຄ້າ (ຖ້າມີ)</label>
+                <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="020xxxxxxxx" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-600">ບິນໂຮງງານ (ບໍ່ບັງຄັບ)</label>
-                <input value={factoryBillCode} onChange={(e) => setFactoryBillCode(e.target.value)} placeholder="ສາມາດເພີ່ມພາຍຫຼັງໄດ້" className="w-full border rounded px-3 py-2 text-sm" />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ບິນໂຮງງານ (ບໍ່ບັງຄັບ)</label>
+                <input value={factoryBillCode} onChange={(e) => setFactoryBillCode(e.target.value)} placeholder="ສາມາດເພີ່ມພາຍຫຼັງໄດ້" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
               </div>
 
               <div className="md:col-span-2">
-                <label className="text-xs font-semibold text-gray-600">ປະເພດຜ້າ</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ປະເພດຜ້າ</label>
                 <select
                   value={fabricId}
                   onChange={(e) => setFabricId(e.target.value)}
-                  className="w-full border rounded px-3 py-2 text-sm"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold bg-white"
                   disabled={loadingFabrics}
                 >
                   {loadingFabrics ? (
                     <option>ກຳລັງໂຫຼດ...</option>
                   ) : fabrics.length === 0 ? (
-                    <option>ບໍ່ມີຜ້າ (ໄປເພີ່ມທີ່ ລາຄາຜ້າ)</option>
+                    <option>ບໍ່ມີຜ້າ (ໄປເພີ່ມທີ່ ລາຄาຜ້າ)</option>
                   ) : (
                     fabrics.map((f) => (
                       <option key={f.id} value={f.id}>
-                        {f.name} (ແຂນສັ້ນ:{f.short_price.toLocaleString()} / ແຂນຍາວ:{f.long_price.toLocaleString()})
+                        {f.name} (ສັ້ນ:{f.short_price.toLocaleString()} / ຍາວ:{f.long_price.toLocaleString()})
                       </option>
                     ))
                   )}
@@ -236,77 +236,77 @@ export default function NewOrderPage() {
           </div>
 
           {/* Qty */}
-          <div className="bg-white rounded shadow p-4">
-            <div className="font-semibold text-gray-700 mb-3">2) ຈຳນວນ & ຂະໜາດ</div>
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">2) ຈຳນວນ & ຂະໜາດ</div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
-                <label className="text-xs font-semibold text-gray-600">ແຂນສັ້ນ</label>
-                <input type="number" value={shortQty} onChange={(e) => setShortQty(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ແຂນສັ້ນ</label>
+                <input type="number" value={shortQty} onChange={(e) => setShortQty(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold" min={0} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-600">ແຂນຍາວ</label>
-                <input type="number" value={longQty} onChange={(e) => setLongQty(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ແຂນຍາວ</label>
+                <input type="number" value={longQty} onChange={(e) => setLongQty(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold" min={0} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-600">ແຖມ (ບໍ່ຄິດເງິນ)</label>
-                <input type="number" value={freeQty} onChange={(e) => setFreeQty(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ແຖມ (ບໍ່ຄິດເງິນ)</label>
+                <input type="number" value={freeQty} onChange={(e) => setFreeQty(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold text-orange-600" min={0} />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
               <div>
-                <label className="text-xs font-semibold text-gray-600">3XL</label>
-                <input type="number" value={qty3XL} onChange={(e) => setQty3XL(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">3XL</label>
+                <input type="number" value={qty3XL} onChange={(e) => setQty3XL(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-medium" min={0} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-600">4XL</label>
-                <input type="number" value={qty4XL} onChange={(e) => setQty4XL(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">4XL</label>
+                <input type="number" value={qty4XL} onChange={(e) => setQty4XL(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-medium" min={0} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-600">5XL</label>
-                <input type="number" value={qty5XL} onChange={(e) => setQty5XL(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">5XL</label>
+                <input type="number" value={qty5XL} onChange={(e) => setQty5XL(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-medium" min={0} />
               </div>
             </div>
 
-            <div className="mt-3 text-xs text-gray-500">
-              ຈຳນວນຜະລິດ (ລວມແຖມ): <span className="font-semibold">{totalProductionQty}</span> | ຈຳນວນຄິດເງິນ:{" "}
-              <span className="font-semibold">{billableQty}</span>
+            <div className="mt-4 p-2 bg-slate-50 rounded-lg text-[11px] font-bold text-slate-500 uppercase tracking-tight">
+              ຈຳນວນຜະລິດ (ລວມແຖມ): <span className="text-slate-900">{totalProductionQty}</span> | ຈຳນວນຄິດເງິນ:{" "}
+              <span className="text-blue-600">{billableQty}</span>
             </div>
           </div>
 
           {/* Finance */}
-          <div className="bg-white rounded shadow p-4">
-            <div className="font-semibold text-gray-700 mb-3">3) ການເງິນ & ຄ່າທຳນຽມ</div>
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">3) ການເງິນ & ຄ່າທຳນຽມ</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-gray-600">ຄ່າເພີ່ມເຕີມ</label>
-                <input type="number" value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ຄ່າເພີ່ມເຕີມ</label>
+                <input type="number" value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold" min={0} />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-600">ມັດຈຳຄ່າແບບ (ຫັກ)</label>
-                <input type="number" value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ມັດຈຳຄ່າແບບ (ຫັກ)</label>
+                <input type="number" value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-red-600 font-bold" min={0} />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-600">ມັດຈຳເບື້ອງຕົ້ນ</label>
-                <input type="number" value={initialDeposit} onChange={(e) => setInitialDeposit(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ມັດຈຳເບື້ອງຕົ້ນ</label>
+                <input type="number" value={initialDeposit} onChange={(e) => setInitialDeposit(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-emerald-600 font-bold" min={0} />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-600">ຕົ້ນທຶນໂຮງງານ</label>
-                <input type="number" value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} className="w-full border rounded px-3 py-2 text-sm" min={0} />
+                <label className="text-xs font-bold text-slate-700 block mb-1">ຕົ້ນທຶນໂຮງງານ</label>
+                <input type="number" value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold" min={0} />
               </div>
             </div>
           </div>
 
           <div className="flex gap-2">
-            <button onClick={handleSave} className="bg-green-600 text-white px-5 py-2 rounded text-sm font-semibold hover:bg-green-700">
-              ບັນທຶກ
+            <button onClick={handleSave} className="bg-emerald-600 text-white px-8 py-2.5 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95">
+              ບັນທຶກອໍເດີ້
             </button>
-            <button onClick={resetForm} className="bg-gray-200 text-gray-700 px-5 py-2 rounded text-sm font-semibold hover:bg-gray-300">
+            <button onClick={resetForm} className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-slate-200 border border-slate-200 transition-all">
               ຍົກເລີກ / ລ້າງ
             </button>
           </div>
@@ -314,60 +314,60 @@ export default function NewOrderPage() {
 
         {/* Right summary */}
         <div className="space-y-4">
-          <div className="bg-white rounded shadow p-4">
-            <div className="font-semibold text-gray-700 mb-3">4) ສະຫຼຸບ (ຄຳນວນທັນທີ)</div>
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 sticky top-4">
+            <div className="font-bold text-slate-800 mb-4 uppercase text-xs tracking-widest border-b pb-3 border-slate-50">4) ສະຫຼຸບອໍເດີ້</div>
 
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600">ຜ້າ:</span>
-                <span className="font-semibold">{selectedFabric?.name ?? "—"}</span>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ຜ້າ:</span>
+                <span className="font-bold text-slate-900">{selectedFabric?.name ?? "—"}</span>
               </div>
 
-              <div className="flex justify-between">
-                <span className="text-gray-600">ຄ່າເສື້ອ:</span>
-                <span className="font-semibold">{shirtsTotal.toLocaleString()}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ຄ່າເສື້ອ:</span>
+                <span className="font-bold text-slate-800">{shirtsTotal.toLocaleString()}</span>
               </div>
 
-              <div className="flex justify-between">
-                <span className="text-gray-600">ບວກໄຊສ໌ໃຫຍ່:</span>
-                <span className="font-semibold">{plusSizeTotal.toLocaleString()}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ບວກໄຊສ໌ໃຫຍ່:</span>
+                <span className="font-bold text-slate-800">{plusSizeTotal.toLocaleString()}</span>
               </div>
 
-              <div className="flex justify-between">
-                <span className="text-gray-600">ຄ່າເພີ່ມເຕີມ:</span>
-                <span className="font-semibold">{extraCharge.toLocaleString()}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ຄ່າເພີ່ມເຕີມ:</span>
+                <span className="font-bold text-slate-800">{extraCharge.toLocaleString()}</span>
               </div>
 
-              <div className="flex justify-between">
-                <span className="text-gray-600">ຫັກຄ່າແບບ:</span>
-                <span className="font-semibold text-red-600">-{designDeposit.toLocaleString()}</span>
+              <div className="flex justify-between items-center bg-red-50/50 p-2 rounded-lg">
+                <span className="text-red-600 font-bold">ຫັກຄ່າແບບ:</span>
+                <span className="font-bold text-red-600">-{designDeposit.toLocaleString()}</span>
               </div>
 
-              <div className="border-t pt-2 flex justify-between">
-                <span className="text-gray-700 font-semibold">ຍອດສຸດທິ:</span>
-                <span className="text-lg font-bold">{netTotal.toLocaleString()}</span>
+              <div className="border-t border-dashed pt-3 flex justify-between items-center">
+                <span className="text-slate-800 font-extrabold uppercase text-xs">ຍອດສຸດທິ:</span>
+                <span className="text-xl font-black text-slate-900">{netTotal.toLocaleString()}</span>
               </div>
 
-              <div className="flex justify-between">
-                <span className="text-gray-600">ຈ່າຍແລ້ວ:</span>
-                <span className="font-semibold text-green-700">{initialDeposit.toLocaleString()}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-bold">ຈ່າຍແລ້ວ:</span>
+                <span className="font-bold text-emerald-600">+{initialDeposit.toLocaleString()}</span>
               </div>
 
-              <div className="border-t pt-2 flex justify-between">
-                <span className="text-gray-700 font-semibold">ຍອດຄ້າງ:</span>
-                <span className="text-lg font-bold text-red-600">{balance.toLocaleString()}</span>
+              <div className="border-t-2 border-slate-100 pt-3 flex justify-between items-center">
+                <span className="text-slate-800 font-extrabold uppercase text-xs">ຍອດຄ້າງ:</span>
+                <span className="text-xl font-black text-rose-600">{balance.toLocaleString()}</span>
               </div>
 
-              <div className="border-t pt-2 flex justify-between">
-                <span className="text-gray-600">ກຳໄລ (ຕົວຢ່າງ):</span>
-                <span className={`font-bold ${profitPreview >= 0 ? "text-green-700" : "text-red-600"}`}>
+              <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ກຳໄລ (ຕົວຢ່າງ):</span>
+                <span className={`text-lg font-black ${profitPreview >= 0 ? "text-blue-600" : "text-red-600"}`}>
                   {profitPreview.toLocaleString()}
                 </span>
               </div>
             </div>
 
-            <div className="mt-3 text-xs text-gray-500">
-              * ກຳໄລຈະນັບເມື່ອປິດງານ (Completed) ແລະ ຈ່າຍຄົບ 100% ເທົ່ານັ້ນ
+            <div className="mt-6 p-3 bg-amber-50 rounded-xl text-[10px] text-amber-700 font-bold leading-relaxed border border-amber-100">
+              ⚠️ ກຳໄລຈະນັບເມື່ອປິດງານ (Completed) ແລະ ຈ່າຍຄົບ 100% ເທົ່ານັ້ນ
             </div>
           </div>
         </div>
