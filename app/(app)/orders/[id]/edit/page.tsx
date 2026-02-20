@@ -434,11 +434,11 @@ export default function EditOrderPage() {
 
           {/* Finance */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2">3) ການເງິນ & ຄ່າທຳນຽມ</div>
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2"> ລາຍການບວກເພີ່ມ & ຮູບແບບການມັດຈຳ</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ຄ່າເພີ່ມເຕີມ</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ບວກເພີ່ມ (ງານດ່ວນ,ອື່ນໆ)</label>
                 <input type="number" value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-black" min={0} />
               </div>
 
@@ -448,7 +448,7 @@ export default function EditOrderPage() {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ມັດຈຳເບື້ອງຕົ້ນ (ຮັບແລ້ວ)</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ມັດຈຳສັ່ງຜະລິດກ່ອນ (ຮັບແລ້ວ)</label>
                 <div className="flex gap-2">
                   <input type="number" value={initialDeposit} onChange={(e) => setInitialDeposit(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-emerald-600 font-black" min={0} />
                   <button onClick={() => setShowPaymentModal(true)} className="bg-blue-600 text-white px-3 rounded-lg text-sm font-bold hover:bg-blue-700" disabled={balance === 0}>
