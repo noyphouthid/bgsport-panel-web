@@ -13,10 +13,19 @@ type FabricRow = {
   is_active: boolean;
 };
 
+type UserOption = {
+  id: string;
+  full_name: string;
+  role: "admin" | "manager" | "staff" | "graphic" | "accountant";
+  is_active: boolean;
+};
+
 export default function NewOrderPage() {
   // Fabrics from DB
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
+  const [users, setUsers] = useState<UserOption[]>([]);
   const [loadingFabrics, setLoadingFabrics] = useState(true);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   // ===== 1) ຂໍ້ມູນພື້ນຖານ =====
@@ -25,6 +34,8 @@ export default function NewOrderPage() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [factoryBillCode, setFactoryBillCode] = useState(""); // optional
   const [fabricId, setFabricId] = useState<string>("");
+  const [adminUserId, setAdminUserId] = useState<string>("");
+  const [graphicUserId, setGraphicUserId] = useState<string>("");
 
   // ===== 2) ຈຳນວນ & ຂະໜາດ =====
   const [shortQty, setShortQty] = useState<number>(0);
@@ -67,12 +78,36 @@ export default function NewOrderPage() {
     if (!fabricId && rows.length > 0) setFabricId(rows[0].id);
   };
 
+  const loadUsers = async () => {
+    setLoadingUsers(true);
+    const { data, error } = await supabase
+      .from("users")
+      .select("id,full_name,role,is_active")
+      .eq("is_active", true)
+      .in("role", ["admin", "graphic"])
+      .order("full_name", { ascending: true });
+
+    if (error) {
+      setErr(error.message);
+      setUsers([]);
+      setLoadingUsers(false);
+      return;
+    }
+
+    const rows = (data ?? []) as UserOption[];
+    setUsers(rows);
+    setLoadingUsers(false);
+  };
+
   useEffect(() => {
     loadFabrics();
+    loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
+  const adminOptions = useMemo(() => users.filter((u) => u.role === "admin"), [users]);
+  const graphicOptions = useMemo(() => users.filter((u) => u.role === "graphic"), [users]);
 
   const totalProductionQty = useMemo(() => shortQty + longQty + freeQty, [shortQty, longQty, freeQty]);
   const billableQty = useMemo(() => shortQty + longQty, [shortQty, longQty]);
@@ -94,6 +129,8 @@ export default function NewOrderPage() {
     setOrderCode("");
     setCustomerPhone("");
     setFactoryBillCode("");
+    setAdminUserId("");
+    setGraphicUserId("");
     if (fabrics.length > 0) setFabricId(fabrics[0].id);
     setShortQty(0);
     setLongQty(0);
@@ -110,6 +147,8 @@ export default function NewOrderPage() {
   const handleSave = async () => {
     setErr(null);
 
+    if (!adminUserId) return alert("Please select admin");
+    if (!graphicUserId) return alert("Please select graphic");
     if (!orderCode.trim()) return alert("ກະລຸນາປ້ອນລະຫັດອໍເດີ້");
     if (!selectedFabric) return alert("ກະລຸນາເລືອກຜ້າ");
 
@@ -118,6 +157,8 @@ export default function NewOrderPage() {
       order_date: orderDate,
       customer_phone: customerPhone.trim() || null,
       factory_bill_code: factoryBillCode.trim() || null,
+      admin_user_id: adminUserId || null,
+      graphic_user_id: graphicUserId || null,
 
       fabric_id: selectedFabric.id,
       // snapshot (สำคัญ)
@@ -188,11 +229,11 @@ export default function NewOrderPage() {
         <div className="lg:col-span-2 space-y-4">
           {/* Basic */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">1) ຂໍ້ມູນພື້ນຖານ</div>
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">1) ກ່ຽວກັບອໍເດີ້ </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ວັນທີສັ່ງຊື້</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ວັນທີມັດຈຳສັ່ງຜະລິດ</label>
                 <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
               </div>
 
@@ -202,13 +243,47 @@ export default function NewOrderPage() {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ເບີໂທລູກຄ້າ (ຖ້າມີ)</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ເບີໂທລູກຄ້າ ຫຼື FB (ຖ້າມີ)</label>
                 <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="020xxxxxxxx" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
               </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">ບິນໂຮງງານ (ບໍ່ບັງຄັບ)</label>
                 <input value={factoryBillCode} onChange={(e) => setFactoryBillCode(e.target.value)} placeholder="ສາມາດເພີ່ມພາຍຫຼັງໄດ້" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Admin</label>
+                <select
+                  value={adminUserId}
+                  onChange={(e) => setAdminUserId(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold bg-white"
+                  disabled={loadingUsers}
+                >
+                  <option value="">Select admin</option>
+                  {adminOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Graphic</label>
+                <select
+                  value={graphicUserId}
+                  onChange={(e) => setGraphicUserId(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold bg-white"
+                  disabled={loadingUsers}
+                >
+                  <option value="">Select graphic</option>
+                  {graphicOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="md:col-span-2">
@@ -222,11 +297,11 @@ export default function NewOrderPage() {
                   {loadingFabrics ? (
                     <option>ກຳລັງໂຫຼດ...</option>
                   ) : fabrics.length === 0 ? (
-                    <option>ບໍ່ມີຜ້າ (ໄປເພີ່ມທີ່ ລາຄาຜ້າ)</option>
+                    <option>ບໍ່ມີຜ້າ (ໄປເພີ່ມທີ່ ລາຄາຜ້າ)</option>
                   ) : (
                     fabrics.map((f) => (
                       <option key={f.id} value={f.id}>
-                        {f.name} (ສັ້ນ:{f.short_price.toLocaleString()} / ຍາວ:{f.long_price.toLocaleString()})
+                        {f.name} (ແຂນສັ້ນ:{f.short_price.toLocaleString()})
                       </option>
                     ))
                   )}
@@ -237,7 +312,7 @@ export default function NewOrderPage() {
 
           {/* Qty */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">2) ຈຳນວນ & ຂະໜາດ</div>
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">2) ຈຳນວນ & ບວກເພີ່ມໄຊທ໌</div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
@@ -249,7 +324,7 @@ export default function NewOrderPage() {
                 <input type="number" value={longQty} onChange={(e) => setLongQty(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold" min={0} />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ແຖມ (ບໍ່ຄິດເງິນ)</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ຈຳນວນແຖມ (ບໍ່ຄິດເງິນ)</label>
                 <input type="number" value={freeQty} onChange={(e) => setFreeQty(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold text-orange-600" min={0} />
               </div>
             </div>
@@ -277,21 +352,21 @@ export default function NewOrderPage() {
 
           {/* Finance */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">3) ການເງິນ & ຄ່າທຳນຽມ</div>
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">3) ຮູບແບບມັດຈຳ & ລາຍການບວກເພີ່ມ</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ຄ່າເພີ່ມເຕີມ</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ບວກເພີ່ມ (ງານດ່ວນ,ອື່ນໆ)</label>
                 <input type="number" value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold" min={0} />
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ມັດຈຳຄ່າແບບ (ຫັກ)</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ຫັກຄ່າແບບ-ສ່ວນຫຼຸດ</label>
                 <input type="number" value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-red-600 font-bold" min={0} />
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ມັດຈຳເບື້ອງຕົ້ນ</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ມັດຈຳສັ່ງຜະລິດ</label>
                 <input type="number" value={initialDeposit} onChange={(e) => setInitialDeposit(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-emerald-600 font-bold" min={0} />
               </div>
 
@@ -319,12 +394,12 @@ export default function NewOrderPage() {
 
             <div className="space-y-3 text-sm">
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຜ້າ:</span>
+                <span className="text-slate-500 font-medium">ປະເພດຜ້າ:</span>
                 <span className="font-bold text-slate-900">{selectedFabric?.name ?? "—"}</span>
               </div>
 
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຄ່າເສື້ອ:</span>
+                <span className="text-slate-500 font-medium">ຄ່າເສື້ອທັງໝົດ:</span>
                 <span className="font-bold text-slate-800">{shirtsTotal.toLocaleString()}</span>
               </div>
 
@@ -334,12 +409,12 @@ export default function NewOrderPage() {
               </div>
 
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຄ່າເພີ່ມເຕີມ:</span>
+                <span className="text-slate-500 font-medium">ບວກເພີ່ມ (ງານດ່ວນ,ອື່ນໆ):</span>
                 <span className="font-bold text-slate-800">{extraCharge.toLocaleString()}</span>
               </div>
 
               <div className="flex justify-between items-center bg-red-50/50 p-2 rounded-lg">
-                <span className="text-red-600 font-bold">ຫັກຄ່າແບບ:</span>
+                <span className="text-red-600 font-bold">ຫັກຄ່າແບບ-ສ່ວນຫຼຸດ:</span>
                 <span className="font-bold text-red-600">-{designDeposit.toLocaleString()}</span>
               </div>
 
@@ -349,12 +424,12 @@ export default function NewOrderPage() {
               </div>
 
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-bold">ຈ່າຍແລ້ວ:</span>
+                <span className="text-slate-500 font-bold">ມັດຈຳສັ່ງຜະລິດກ່ອນ:</span>
                 <span className="font-bold text-emerald-600">+{initialDeposit.toLocaleString()}</span>
               </div>
 
               <div className="border-t-2 border-slate-100 pt-3 flex justify-between items-center">
-                <span className="text-slate-800 font-extrabold uppercase text-xs">ຍອດຄ້າງ:</span>
+                <span className="text-slate-800 font-extrabold uppercase text-xs">ຍອດຄ້າງຈ່າຍ:</span>
                 <span className="text-xl font-black text-rose-600">{balance.toLocaleString()}</span>
               </div>
 

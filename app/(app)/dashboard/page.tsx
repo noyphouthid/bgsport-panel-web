@@ -91,7 +91,7 @@ export default function DashboardPage() {
     try {
       let query = supabase
         .from("orders")
-        .select("id,order_code,order_date,fabric_name,net_total,balance,factory_cost,profit,status, short_qty, long_qty, free_qty");
+        .select("id,order_code,order_date,fabric_name,net_total,balance,factory_cost,status,production_completed_at, short_qty, long_qty, free_qty");
 
       if (startDate) {
         query = query.gte("order_date", startDate);
@@ -103,10 +103,22 @@ export default function DashboardPage() {
       const { data: orders, error: ordersError } = await query;
       if (ordersError) throw ordersError;
 
-      const completed = orders?.filter((o) => o.status === "completed") || [];
+      let profitQuery = supabase
+        .from("orders")
+        .select("id,net_total,factory_cost,production_completed_at")
+        .not("production_completed_at", "is", null);
+      if (startDate) profitQuery = profitQuery.gte("production_completed_at", `${startDate}T00:00:00`);
+      if (endDate) profitQuery = profitQuery.lte("production_completed_at", `${endDate}T23:59:59`);
+      const { data: profitOrders, error: profitError } = await profitQuery;
+      if (profitError) throw profitError;
+
       const inProgress = orders?.filter((o) => o.status === "in_progress") || [];
 
-      const totalProfit = completed.reduce((sum, o) => sum + (o.profit || 0), 0);
+      const totalProfit =
+        profitOrders?.reduce(
+          (sum, o) => sum + ((Number(o.net_total) || 0) - (Number(o.factory_cost) || 0)),
+          0
+        ) || 0;
       const customerBalance = orders?.reduce((sum, o) => sum + (o.balance || 0), 0) || 0;
       const factoryBalance = inProgress.reduce((sum, o) => sum + (o.factory_cost || 0), 0);
 
@@ -121,7 +133,7 @@ export default function DashboardPage() {
         customerBalance,
         factoryBalance,
         inProgressOrders: inProgress.length,
-        completedOrders: completed.length,
+        completedOrders: profitOrders?.length || 0,
         totalOrders: orders?.length || 0,
         totalShirts,
         shortSleeves,
@@ -143,8 +155,9 @@ export default function DashboardPage() {
       if (recentError) throw recentError;
 
       setRecentOrders((recent as RecentOrder[]) || []);
-    } catch (error: any) {
-      setErr(error.message);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to load dashboard";
+      setErr(message);
     } finally {
       setLoading(false);
     }
