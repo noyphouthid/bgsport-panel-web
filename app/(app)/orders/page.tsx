@@ -28,6 +28,8 @@ export default function OrdersPage() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
 
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
@@ -81,6 +83,11 @@ export default function OrdersPage() {
     load();
   }, [page]);
 
+  const allSelectedOnPage = useMemo(() => {
+    if (rows.length === 0) return false;
+    return rows.every((r) => selectedIds.includes(r.id));
+  }, [rows, selectedIds]);
+
   const runSearch = () => {
     setPage(1);
     load();
@@ -96,9 +103,40 @@ export default function OrdersPage() {
     setTimeout(load, 0);
   };
 
+  const toggleSelectRow = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAllOnPage = () => {
+    const pageIds = rows.map((r) => r.id);
+    setSelectedIds((prev) => {
+      if (pageIds.every((id) => prev.includes(id))) {
+        return prev.filter((id) => !pageIds.includes(id));
+      }
+      return [...new Set([...prev, ...pageIds])];
+    });
+  };
+
+  const deleteSelected = async () => {
+    if (selectedIds.length === 0) return;
+    const ok = confirm(`ຢືນຢັນລົບ ${selectedIds.length} ອໍເດີ?`);
+    if (!ok) return;
+
+    setDeleting(true);
+    setErr(null);
+    const { error } = await supabase.from("orders").delete().in("id", selectedIds);
+    setDeleting(false);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    setSelectedIds([]);
+    await load();
+  };
+
   const markCompleted = async (id: string) => {
     setErr(null);
-    const ok = confirm("ຢືນຢັນ: ປິດງານ (Completed)?\n* ຕ້ອງ Balance = 0 ກ່ອນ");
+    const ok = confirm("ຢືນຢັນປິດງານ? (Completed)\n* ຕ້ອງໃຫ້ຍອດຄ້າງ = 0 ກ່ອນ");
     if (!ok) return;
 
     const { error } = await supabase
@@ -126,24 +164,22 @@ export default function OrdersPage() {
 
   return (
     <div className="text-slate-900 antialiased">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">ອໍເດີ້</h1>
+        <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">ອໍເດີ</h1>
         <Link
           href="/orders/new"
           className="bg-emerald-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95"
         >
-          + ເພີ່ມອໍເດີ້
+          + ເພີ່ມອໍເດີ
         </Link>
       </div>
 
       {err && (
         <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl text-sm font-medium">
-          Error: {err}
+          ຂໍ້ຜິດພາດ: {err}
         </div>
       )}
 
-      {/* Filters Section */}
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
           <div>
@@ -180,7 +216,7 @@ export default function OrdersPage() {
             <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ກຸ່ມລະຫັດ</label>
             <select
               value={prefix}
-              onChange={(e) => setPrefix(e.target.value as any)}
+              onChange={(e) => setPrefix(e.target.value as Prefix | "ALL")}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white"
             >
               <option value="ALL">ທັງໝົດ</option>
@@ -213,19 +249,30 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* Table Section - Dashboard Style */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-4 flex items-center justify-between border-b border-slate-50 bg-slate-50/50">
-          <div className="text-sm font-bold text-slate-700 uppercase tracking-widest">ລາຍການອໍເດີ້ທັງໝົດ</div>
-          <div className="text-xs text-slate-500 font-bold">{loading ? "ກຳລັງໂຫຼດ..." : `ສະແດง ${rows.length} ລາຍການ`}</div>
+          <div className="text-sm font-bold text-slate-700 uppercase tracking-widest">ລາຍການອໍເດີທັງໝົດ</div>
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-slate-500 font-bold">{loading ? "ກຳລັງໂຫຼດ..." : `ສະແດງ ${rows.length} ລາຍການ`}</div>
+            <button
+              onClick={deleteSelected}
+              disabled={deleting || selectedIds.length === 0}
+              className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-700 disabled:opacity-50 transition-colors"
+            >
+              {deleting ? "ກຳລັງລົບ..." : `ລົບທີ່ເລືອກ (${selectedIds.length})`}
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="text-slate-700 border-b border-slate-100">
+                <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">
+                  <input type="checkbox" checked={allSelectedOnPage} onChange={toggleSelectAllOnPage} aria-label="select all on page" />
+                </th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ວັນທີ</th>
-                <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ລະຫັດອໍເດີ້</th>
+                <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ລະຫັດອໍເດີ</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ບິນໂຮງງານ</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ເບີໂທ</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ຜ້າ</th>
@@ -238,17 +285,25 @@ export default function OrdersPage() {
             <tbody className="divide-y divide-slate-50">
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={9}>
+                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={10}>
                     ບໍ່ພົບຂໍ້ມູນໃນລະບົບ
                   </td>
                 </tr>
               ) : (
                 rows.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/80 transition-colors group">
+                    <td className="p-4 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(r.id)}
+                        onChange={() => toggleSelectRow(r.id)}
+                        aria-label={`select ${r.order_code}`}
+                      />
+                    </td>
                     <td className="p-4 text-slate-600 font-medium">{r.order_date}</td>
                     <td className="p-4 font-bold text-slate-600">{r.order_code}</td>
-                    <td className="p-4 text-slate-500">{r.factory_bill_code?.trim() ? r.factory_bill_code : "—"}</td>
-                    <td className="p-4 font-semibold text-slate-700">{r.customer_phone ?? "—"}</td>
+                    <td className="p-4 text-slate-500">{r.factory_bill_code?.trim() ? r.factory_bill_code : "-"}</td>
+                    <td className="p-4 font-semibold text-slate-700">{r.customer_phone ?? "-"}</td>
                     <td className="p-4 text-slate-600 font-medium">{r.fabric_name}</td>
                     <td className="p-4 text-right font-bold text-slate-600">{r.net_total.toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-rose-600 bg-rose-50/30">{r.balance.toLocaleString()}</td>
@@ -275,7 +330,6 @@ export default function OrdersPage() {
           </table>
         </div>
 
-        {/* Pagination - Dashboard Style */}
         <div className="p-4 flex items-center justify-between border-t border-slate-100 bg-slate-50/30">
           <div className="text-xs font-bold text-slate-400 uppercase tracking-tighter">ໜ້າທີ: {page}</div>
           <div className="flex gap-2">
@@ -298,3 +352,4 @@ export default function OrdersPage() {
     </div>
   );
 }
+

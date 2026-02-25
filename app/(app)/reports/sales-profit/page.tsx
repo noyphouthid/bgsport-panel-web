@@ -20,6 +20,11 @@ type ReportOrder = {
 
 type StatusFilter = "all" | "in_progress" | "completed";
 
+function getStatusLabel(status: ReportOrder["status"]) {
+  if (status === "in_progress") return "ກຳລັງດຳເນີນການ";
+  return "ສຳເລັດແລ້ວ";
+}
+
 export default function SalesProfitReportPage() {
   const now = new Date();
   const [month, setMonth] = useState<MonthFilter>(now.getMonth() + 1);
@@ -103,7 +108,7 @@ export default function SalesProfitReportPage() {
       "ຍອດຂາຍສຸດທິ": Number(r.net_total) || 0,
       "ຕົ້ນທຶນໂຮງງານ": Number(r.factory_cost) || 0,
       "ກຳໄລ": (Number(r.net_total) || 0) - (Number(r.factory_cost) || 0),
-      "ສະຖານະ": r.status,
+      "ສະຖານະ": getStatusLabel(r.status),
     }));
 
     exportRows.push({
@@ -213,7 +218,7 @@ export default function SalesProfitReportPage() {
                     <td className="p-3 text-right text-slate-800">{(Number(r.net_total) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(r.factory_cost) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-blue-600 font-bold">{((Number(r.net_total) || 0) - (Number(r.factory_cost) || 0)).toLocaleString()}</td>
-                    <td className="p-3 text-slate-800 font-medium">{r.status}</td>
+                    <td className="p-3 text-slate-800 font-medium">{getStatusLabel(r.status)}</td>
                   </tr>
                 ))
               )}
@@ -224,4 +229,3 @@ export default function SalesProfitReportPage() {
     </div>
   );
 }
-
