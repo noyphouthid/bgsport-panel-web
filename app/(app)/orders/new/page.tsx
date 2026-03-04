@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import Swal from "sweetalert2";
+import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 
 type FabricRow = {
@@ -21,6 +23,7 @@ type UserOption = {
 };
 
 export default function NewOrderPage() {
+  const router = useRouter();
   // Fabrics from DB
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
@@ -144,13 +147,55 @@ export default function NewOrderPage() {
     setFactoryCost(0);
   };
 
+  const handleCancelReset = async () => {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "ຢືນຢັນການຍົກເລີກ?",
+      text: "ຂໍ້ມູນທີ່ປ້ອນຈະຖືກລ້າງທັງໝົດ",
+      showCancelButton: true,
+      confirmButtonText: "ຢືນຢັນ",
+      cancelButtonText: "ກັບຄືນ",
+      reverseButtons: true,
+    });
+    if (!result.isConfirmed) return;
+    resetForm();
+    toast("ລ້າງຟອມແລ້ວ");
+  };
+
+  const handleCancelBack = async () => {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "ອອກຈາກໜ້ານີ້?",
+      text: "ຂໍ້ມູນທີ່ຍັງບໍ່ບັນທຶກຈະຫາຍ",
+      showCancelButton: true,
+      confirmButtonText: "ອອກ",
+      cancelButtonText: "ຢູ່ຕໍ່",
+      reverseButtons: true,
+    });
+    if (!result.isConfirmed) return;
+    toast("ຍົກເລີກການສ້າງອໍເດີ");
+    router.push("/orders");
+  };
+
   const handleSave = async () => {
     setErr(null);
 
-    if (!adminUserId) return alert("Please select admin");
-    if (!graphicUserId) return alert("Please select graphic");
-    if (!orderCode.trim()) return alert("ກະລຸນາປ້ອນລະຫັດອໍເດີ້");
-    if (!selectedFabric) return alert("ກະລຸນາເລືອກຜ້າ");
+    if (!adminUserId) {
+      toast.error("ກະລຸນາເລືອກ Admin");
+      return;
+    }
+    if (!graphicUserId) {
+      toast.error("ກະລຸນາເລືອກ Graphic");
+      return;
+    }
+    if (!orderCode.trim()) {
+      toast.error("ກະລຸນາປ້ອນລະຫັດອໍເດີ");
+      return;
+    }
+    if (!selectedFabric) {
+      toast.error("ກະລຸນາເລືອກຜ້າ");
+      return;
+    }
 
     const payload = {
       order_code: orderCode.trim(),
@@ -161,7 +206,7 @@ export default function NewOrderPage() {
       graphic_user_id: graphicUserId || null,
 
       fabric_id: selectedFabric.id,
-      // snapshot (สำคัญ)
+      // snapshot
       fabric_name: selectedFabric.name,
       fabric_short_price: selectedFabric.short_price,
       fabric_long_price: selectedFabric.long_price,
@@ -187,13 +232,25 @@ export default function NewOrderPage() {
       status: "in_progress",
     };
 
+    const confirm = await Swal.fire({
+      icon: "question",
+      title: "ຢືນຢັນການບັນທຶກ?",
+      html: `ລະຫັດອໍເດີ: <b>${payload.order_code}</b><br/>ຍອດສຸດທິ: <b>${netTotal.toLocaleString()}</b>`,
+      showCancelButton: true,
+      confirmButtonText: "ບັນທຶກ",
+      cancelButtonText: "ຍົກເລີກ",
+      reverseButtons: true,
+    });
+    if (!confirm.isConfirmed) return;
+
     const { error } = await supabase.from("orders").insert(payload);
     if (error) {
       setErr(error.message);
+      toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error.message}`);
       return;
     }
 
-    alert("ບັນທຶກອໍເດີ້ແລ້ວ");
+    toast.success("ບັນທຶກອໍເດີສຳເລັດ");
     resetForm();
   };
 
@@ -212,9 +269,12 @@ export default function NewOrderPage() {
         </div>
 
         <div className="flex gap-2">
-          <Link href="/orders" className="border border-slate-300 px-4 py-2 rounded text-sm font-bold text-slate-700 hover:bg-white shadow-sm transition-all">
-            ກັບຄືນ
-          </Link>
+          <button
+            onClick={handleCancelBack}
+            className="border border-slate-300 px-4 py-2 rounded text-sm font-bold text-slate-700 hover:bg-white shadow-sm transition-all"
+          >
+            ຍົກເລີກ
+          </button>
           <button
             onClick={handleSave}
             className="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-emerald-700 shadow-sm transition-all"
@@ -381,7 +441,7 @@ export default function NewOrderPage() {
             <button onClick={handleSave} className="bg-emerald-600 text-white px-8 py-2.5 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95">
               ບັນທຶກອໍເດີ້
             </button>
-            <button onClick={resetForm} className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-slate-200 border border-slate-200 transition-all">
+            <button onClick={handleCancelReset} className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-slate-200 border border-slate-200 transition-all">
               ຍົກເລີກ / ລ້າງ
             </button>
           </div>

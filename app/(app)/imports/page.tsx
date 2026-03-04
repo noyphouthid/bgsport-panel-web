@@ -3,6 +3,8 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { CheckCircle2, Download, FileSpreadsheet, Upload } from "lucide-react";
+import Swal from "sweetalert2";
+import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 
 type FabricRow = {
@@ -90,11 +92,13 @@ export default function ImportExcelPage() {
 
     if (fabricError) {
       setErr(fabricError.message);
+      toast.error(`ໂຫຼດຂໍ້ມູນຜ້າບໍ່ສຳເລັດ: ${fabricError.message}`);
       setLoading(false);
       return;
     }
     if (userError) {
       setErr(userError.message);
+      toast.error(`ໂຫຼດຂໍ້ມູນຜູ້ໃຊ້ບໍ່ສຳເລັດ: ${userError.message}`);
       setLoading(false);
       return;
     }
@@ -158,6 +162,7 @@ export default function ImportExcelPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "orders_template");
     XLSX.writeFile(wb, "orders-import-template.xlsx");
+    toast.success("ດາວໂຫຼດແມ່ແບບສຳເລັດ");
   };
 
   const buildPreviewRows = (rawRows: Record<string, unknown>[]) => {
@@ -277,11 +282,17 @@ export default function ImportExcelPage() {
       const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
       if (rawRows.length === 0) {
         setErr("ໄຟລ໌ Excel ບໍ່ມີຂໍ້ມູນ");
+        toast.error("ໄຟລ໌ Excel ບໍ່ມີຂໍ້ມູນ");
         return;
       }
-      setPreviewRows(buildPreviewRows(rawRows));
+      const rows = buildPreviewRows(rawRows);
+      setPreviewRows(rows);
+      const validCount = rows.filter((r) => r.valid).length;
+      const invalidCount = rows.length - validCount;
+      toast.success(`ອ່ານໄຟລ໌ສຳເລັດ: ຖືກ ${validCount} ແຖວ, ຜິດ ${invalidCount} ແຖວ`);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "ອ່ານໄຟລ໌ Excel ບໍ່ສຳເລັດ");
+      toast.error("ອ່ານໄຟລ໌ Excel ບໍ່ສຳເລັດ");
     } finally {
       e.target.value = "";
     }
@@ -290,11 +301,13 @@ export default function ImportExcelPage() {
   const applyImport = async () => {
     if (previewRows.length === 0) {
       setErr("ຍັງບໍ່ມີຂໍ້ມູນ Preview");
+      toast.error("ຍັງບໍ່ມີຂໍ້ມູນ Preview");
       return;
     }
     const validPayloads = previewRows.filter((r) => r.valid && r.payload).map((r) => r.payload as Record<string, unknown>);
     if (validPayloads.length === 0) {
       setErr("ບໍ່ມີແຖວທີ່ຖືກຕ້ອງ");
+      toast.error("ບໍ່ມີແຖວທີ່ຖືກຕ້ອງ");
       return;
     }
 
@@ -305,6 +318,17 @@ export default function ImportExcelPage() {
       dedup.set(code, { ...p, order_code: code });
     }
     const payloads = [...dedup.values()];
+    const modeLabel = importMode === "upsert" ? "ເພີ່ມ ແລະ ອັບເດດ" : "ເພີ່ມໃໝ່ຢ່າງດຽວ";
+    const confirm = await Swal.fire({
+      icon: "question",
+      title: "ຢືນຢັນການນຳເຂົ້າ?",
+      html: `ຈຳນວນລາຍການພ້ອມນຳເຂົ້າ: <b>${payloads.length}</b> ແຖວ<br/>ໂໝດ: <b>${modeLabel}</b>`,
+      showCancelButton: true,
+      confirmButtonText: "ຢືນຢັນ",
+      cancelButtonText: "ຍົກເລີກ",
+      reverseButtons: true,
+    });
+    if (!confirm.isConfirmed) return;
 
     setImporting(true);
     setErr(null);
@@ -315,29 +339,39 @@ export default function ImportExcelPage() {
         const { error } = await supabase.from("orders").upsert(payloads, { onConflict: "order_code" });
         if (error) {
           setErr(error.message);
+          toast.error(`ນຳເຂົ້າບໍ່ສຳເລັດ: ${error.message}`);
           return;
         }
         setInfo(`ນຳເຂົ້າສຳເລັດ (upsert): ${payloads.length} ແຖວ`);
+        toast.success(`ນຳເຂົ້າສຳເລັດ: ${payloads.length} ແຖວ`);
       } else {
         const codes = payloads.map((p) => String(p.order_code ?? "")).filter((s) => s.length > 0);
         const { data: exists, error: existError } = await supabase.from("orders").select("order_code").in("order_code", codes);
         if (existError) {
           setErr(existError.message);
+          toast.error(`ກວດຂໍ້ມູນກ່ອນນຳເຂົ້າບໍ່ສຳເລັດ: ${existError.message}`);
           return;
         }
         const existing = new Set((exists ?? []).map((x) => x.order_code));
         const insertPayloads = payloads.filter((p) => !existing.has(String(p.order_code)));
         if (insertPayloads.length === 0) {
           setInfo("ບໍ່ມີແຖວໃໝ່ສຳລັບເພີ່ມ");
+          toast("ບໍ່ມີແຖວໃໝ່ສຳລັບເພີ່ມ");
           return;
         }
         const { error } = await supabase.from("orders").insert(insertPayloads);
         if (error) {
           setErr(error.message);
+          toast.error(`ນຳເຂົ້າບໍ່ສຳເລັດ: ${error.message}`);
           return;
         }
         setInfo(`ນຳເຂົ້າສຳເລັດ (insert only): ${insertPayloads.length} ແຖວ`);
+        toast.success(`ນຳເຂົ້າສຳເລັດ: ${insertPayloads.length} ແຖວ`);
       }
+    } catch (ex) {
+      const message = ex instanceof Error ? ex.message : "ເກີດຂໍ້ຜິດພາດບໍ່ຄາດຄິດ";
+      setErr(message);
+      toast.error(message);
     } finally {
       setImporting(false);
     }
@@ -415,7 +449,7 @@ export default function ImportExcelPage() {
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-900"
           >
             <option value="insert_only">ເພີ່ມໃໝ່ຢ່າງດຽວ</option>
-            <option value="upsert">ເພີ່່ມ ແລະ ອັບເດດ</option>
+            <option value="upsert">ເພີ່ມ ແລະ ອັບເດດ</option>
           </select>
 
           <button
@@ -489,4 +523,3 @@ export default function ImportExcelPage() {
     </div>
   );
 }
-

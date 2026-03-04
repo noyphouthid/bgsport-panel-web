@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import toast from "react-hot-toast";
+import Swal from "sweetalert2";
 
 type User = {
   id: string;
@@ -37,6 +39,7 @@ export default function UsersPage() {
   const [newFullName, setNewFullName] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<User["role"]>("staff");
   const [newNotes, setNewNotes] = useState("");
 
@@ -48,6 +51,7 @@ export default function UsersPage() {
   const [editRole, setEditRole] = useState<User["role"]>("staff");
   const [editActive, setEditActive] = useState(true);
   const [editNotes, setEditNotes] = useState("");
+  const [editPassword, setEditPassword] = useState("");
 
   const loadUsers = async () => {
     setLoading(true);
@@ -69,8 +73,34 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
-    loadUsers();
+    const timer = setTimeout(() => {
+      void loadUsers();
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
+
+  const callAdminApi = async (url: string, method: "POST" | "PATCH" | "DELETE", body?: unknown) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      throw new Error("no_session");
+    }
+
+    const res = await fetch(url, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      throw new Error(data.error || "request_failed");
+    }
+    return data;
+  };
 
   // Filter users
   const filteredUsers = useMemo(() => {
@@ -110,6 +140,7 @@ export default function UsersPage() {
     setEditRole(user.role);
     setEditActive(user.is_active);
     setEditNotes(user.notes || "");
+    setEditPassword("");
   };
 
   const closeEdit = () => {
@@ -120,109 +151,140 @@ export default function UsersPage() {
     setEditRole("staff");
     setEditActive(true);
     setEditNotes("");
+    setEditPassword("");
   };
 
   const addUser = async () => {
     const name = newFullName.trim();
-    if (!name) return alert("ກະລຸນາປ້ອນຊື່ຜູ້ໃຊ້");
-
-    setErr(null);
-
-    const payload = {
-      full_name: name,
-      phone: newPhone.trim() || null,
-      email: newEmail.trim() || null,
-      role: newRole,
-      notes: newNotes.trim() || null,
-      is_active: true,
-    };
-
-    const { error } = await supabase.from("users").insert(payload);
-
-    if (error) {
-      setErr(error.message);
+    const email = newEmail.trim().toLowerCase();
+    if (!name) {
+      toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ໃຊ້");
+      return;
+    }
+    if (!email) {
+      toast.error("ກະລຸນາປ້ອນ Email");
+      return;
+    }
+    if (newPassword.trim().length < 6) {
+      toast.error("ລະຫັດຜ່ານຕ້ອງຢ່າງໜ້ອຍ 6 ຕົວ");
       return;
     }
 
-    alert("ເພີ່ມຜູ້ໃຊ້ສຳເລັດ");
-    setNewFullName("");
-    setNewPhone("");
-    setNewEmail("");
-    setNewRole("staff");
-    setNewNotes("");
-    await loadUsers();
+    setErr(null);
+    try {
+      await callAdminApi("/api/admin/users", "POST", {
+        full_name: name,
+        phone: newPhone.trim() || null,
+        email,
+        password: newPassword,
+        role: newRole,
+        notes: newNotes.trim() || null,
+        is_active: true,
+      });
+      toast.success("ເພີ່ມຜູ້ໃຊ້ສຳເລັດ");
+      setNewFullName("");
+      setNewPhone("");
+      setNewEmail("");
+      setNewPassword("");
+      setNewRole("staff");
+      setNewNotes("");
+      await loadUsers();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "ເພີ່ມຜູ້ໃຊ້ບໍ່ສຳເລັດ";
+      setErr(msg);
+      toast.error(msg);
+    }
   };
 
   const saveEdit = async () => {
     if (!editing) return;
 
     const name = editFullName.trim();
-    if (!name) return alert("ກະລຸນາປ້ອນຊື່ຜູ້ໃຊ້");
-
-    setErr(null);
-
-    const payload = {
-      full_name: name,
-      phone: editPhone.trim() || null,
-      email: editEmail.trim() || null,
-      role: editRole,
-      is_active: editActive,
-      notes: editNotes.trim() || null,
-    };
-
-    const { error } = await supabase.from("users").update(payload).eq("id", editing.id);
-
-    if (error) {
-      setErr(error.message);
+    const email = editEmail.trim().toLowerCase();
+    if (!name) {
+      toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ໃຊ້");
+      return;
+    }
+    if (!email) {
+      toast.error("ກະລຸນາປ້ອນ Email");
       return;
     }
 
-    alert("ບັນທຶກການແກ້ໄຂແລ້ວ");
-    closeEdit();
-    await loadUsers();
+    setErr(null);
+    try {
+      await callAdminApi(`/api/admin/users/${editing.id}`, "PATCH", {
+        full_name: name,
+        phone: editPhone.trim() || null,
+        email,
+        role: editRole,
+        is_active: editActive,
+        notes: editNotes.trim() || null,
+        password: editPassword.trim() || undefined,
+      });
+      toast.success("ບັນທຶກການແກ້ໄຂແລ້ວ");
+      closeEdit();
+      await loadUsers();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "ບັນທຶກບໍ່ສຳເລັດ";
+      setErr(msg);
+      toast.error(msg);
+    }
   };
 
   const toggleActive = async (user: User) => {
     const newStatus = !user.is_active;
-    const confirmMsg = newStatus
-      ? `ເປີດໃຊ້ງານ: ${user.full_name}?`
-      : `ປິດໃຊ້ງານ: ${user.full_name}?`;
-
-    const ok = confirm(confirmMsg);
-    if (!ok) return;
+    const ok = await Swal.fire({
+      icon: "question",
+      title: newStatus ? "ຢືນຢັນເປີດໃຊ້ງານ?" : "ຢືນຢັນປິດໃຊ້ງານ?",
+      text: user.full_name,
+      showCancelButton: true,
+      confirmButtonText: "ຢືນຢັນ",
+      cancelButtonText: "ຍົກເລີກ",
+      reverseButtons: true,
+    });
+    if (!ok.isConfirmed) return;
 
     setErr(null);
-
-    const { error } = await supabase
-      .from("users")
-      .update({ is_active: newStatus })
-      .eq("id", user.id);
-
-    if (error) {
-      setErr(error.message);
-      return;
+    try {
+      await callAdminApi(`/api/admin/users/${user.id}`, "PATCH", {
+        full_name: user.full_name,
+        phone: user.phone,
+        email: user.email,
+        role: user.role,
+        is_active: newStatus,
+        notes: user.notes,
+      });
+      toast.success(newStatus ? "ເປີດໃຊ້ງານແລ້ວ" : "ປິດໃຊ້ງານແລ້ວ");
+      await loadUsers();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "ອັບເດດສະຖານະບໍ່ສຳເລັດ";
+      setErr(msg);
+      toast.error(msg);
     }
-
-    await loadUsers();
   };
 
   const deleteUser = async (user: User) => {
-    const ok = confirm(
-      `ຢືນຢັນລຶບຜູ້ໃຊ້?\n\nຊື່: ${user.full_name}\nເບີໂທ: ${user.phone || "-"}\n\n⚠️ ການລຶບຈະບໍ່ສາມາດກູ້ຄືນໄດ້!`
-    );
-    if (!ok) return;
+    const ok = await Swal.fire({
+      icon: "warning",
+      title: "ຢືນຢັນລຶບຜູ້ໃຊ້?",
+      html: `ຊື່: <b>${user.full_name}</b><br/>Email: <b>${user.email || "-"}</b>`,
+      showCancelButton: true,
+      confirmButtonText: "ລຶບ",
+      cancelButtonText: "ຍົກເລີກ",
+      reverseButtons: true,
+    });
+    if (!ok.isConfirmed) return;
 
     setErr(null);
-
-    const { error } = await supabase.from("users").delete().eq("id", user.id);
-
-    if (error) {
-      setErr(error.message);
-      return;
+    try {
+      await callAdminApi(`/api/admin/users/${user.id}`, "DELETE");
+      toast.success("ລຶບຜູ້ໃຊ້ແລ້ວ");
+      await loadUsers();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "ລຶບຜູ້ໃຊ້ບໍ່ສຳເລັດ";
+      setErr(msg);
+      toast.error(msg);
     }
-
-    alert("ລຶບຜູ້ໃຊ້ແລ້ວ");
-    await loadUsers();
   };
 
   const getRoleBadge = (role: User["role"]) => {
@@ -289,6 +351,16 @@ export default function UsersPage() {
               className="w-full border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold text-slate-900 focus:ring-2 focus:ring-green-500 outline-none transition-all"
             />
           </div>
+          <div>
+            <label className="text-xs font-black text-slate-500 mb-1.5 block uppercase">Password *</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="At least 6 chars"
+              className="w-full border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold text-slate-900 focus:ring-2 focus:ring-green-500 outline-none transition-all"
+            />
+          </div>
 
           <div>
             <label className="text-xs font-black text-slate-500 mb-1.5 block uppercase">ຕຳແໜ່ງ</label>
@@ -341,11 +413,11 @@ export default function UsersPage() {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 mb-1.5 block uppercase tracking-tighter">ກອງຕາມຕຳແໜ່ງ</label>
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value as any)}
-              className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm font-bold text-white outline-none cursor-pointer"
-            >
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value as "all" | "admin" | "manager" | "staff" | "graphic" | "accountant")}
+                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm font-bold text-white outline-none cursor-pointer"
+              >
               <option value="all">ທັງໝົດ</option>
               <option value="admin">Admin</option>
               <option value="manager">Manager</option>
@@ -357,11 +429,11 @@ export default function UsersPage() {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 mb-1.5 block uppercase tracking-tighter">ກອງຕາມສະຖານະ</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm font-bold text-white outline-none cursor-pointer"
-            >
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "inactive")}
+                className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm font-bold text-white outline-none cursor-pointer"
+              >
               <option value="all">ທັງໝົດ</option>
               <option value="active">ໃຊ້ງານ</option>
               <option value="inactive">ປິດແລ້ວ</option>
@@ -512,6 +584,16 @@ export default function UsersPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs font-black text-slate-500 mb-1.5 block uppercase">Reset Password</label>
+                  <input
+                    type="password"
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="Leave blank to keep current password"
+                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
                 </div>
               </div>
 

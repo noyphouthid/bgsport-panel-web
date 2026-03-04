@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Download } from "lucide-react";
+import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import { MonthFilter, PrefixFilter, buildMonthOptions, buildYearOptions, matchPrefix, periodRange, prefixOptions } from "../_lib";
 
@@ -58,6 +59,7 @@ export default function GraphicWorkReportPage() {
 
     if (orderError) {
       setErr(orderError.message);
+      toast.error(`ໂຫຼດຂໍ້ມູນອໍເດີບໍ່ສຳເລັດ: ${orderError.message}`);
       setOrders([]);
       setGraphics([]);
       setLoading(false);
@@ -65,6 +67,7 @@ export default function GraphicWorkReportPage() {
     }
     if (userError) {
       setErr(userError.message);
+      toast.error(`ໂຫຼດຂໍ້ມູນຜູ້ໃຊ້ບໍ່ສຳເລັດ: ${userError.message}`);
       setGraphics([]);
     } else {
       const allUsers = (userData ?? []) as UserRow[];
@@ -124,6 +127,10 @@ export default function GraphicWorkReportPage() {
   }, [summaryRows]);
 
   const exportExcel = () => {
+    if (summaryRows.length === 0) {
+      toast.error("ບໍ່ມີຂໍ້ມູນສຳລັບດາວໂຫຼດ");
+      return;
+    }
     const periodLabel = month === "ALL" ? `${year}-ALL` : `${year}-${String(month).padStart(2, "0")}`;
     const out = summaryRows.map((r) => ({
       "ຊື່ Graphic": r.graphic_name,
@@ -143,6 +150,7 @@ export default function GraphicWorkReportPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "graphic_work_summary");
     XLSX.writeFile(wb, `graphic-work-summary-${periodLabel}.xlsx`);
+    toast.success("ດາວໂຫຼດລາຍງານສຳເລັດ");
   };
 
   return (

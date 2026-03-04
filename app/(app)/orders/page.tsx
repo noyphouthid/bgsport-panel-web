@@ -80,7 +80,10 @@ export default function OrdersPage() {
   };
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [page]);
 
   const allSelectedOnPage = useMemo(() => {
@@ -352,4 +355,3 @@ export default function OrdersPage() {
     </div>
   );
 }
-
