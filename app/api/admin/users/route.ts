@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 type Role = "admin" | "manager" | "staff" | "graphic" | "accountant";
 
@@ -17,6 +17,14 @@ type CreateUserBody = {
 const ALLOWED_ROLES = new Set<Role>(["admin", "manager", "staff", "graphic", "accountant"]);
 
 export async function POST(req: NextRequest) {
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return NextResponse.json(
+      { error: "missing_server_env", message: "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" },
+      { status: 500 }
+    );
+  }
+
   const actor = await getAdminActorFromAuthHeader(req.headers.get("authorization"));
   if (!actor) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -86,4 +94,3 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ user: inserted }, { status: 201 });
 }
-

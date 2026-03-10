@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 type Role = "admin" | "manager" | "staff" | "graphic" | "accountant";
 
@@ -16,7 +16,10 @@ type UpdateUserBody = {
 
 const ALLOWED_ROLES = new Set<Role>(["admin", "manager", "staff", "graphic", "accountant"]);
 
-async function findAuthUserIdByEmail(email: string) {
+async function findAuthUserIdByEmail(
+  supabaseAdmin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  email: string
+) {
   let page = 1;
   const perPage = 200;
   while (page <= 10) {
@@ -31,6 +34,14 @@ async function findAuthUserIdByEmail(email: string) {
 }
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return NextResponse.json(
+      { error: "missing_server_env", message: "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" },
+      { status: 500 }
+    );
+  }
+
   const actor = await getAdminActorFromAuthHeader(req.headers.get("authorization"));
   if (!actor) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -75,7 +86,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   let authUserId = existing.auth_user_id as string | null;
   if (!authUserId && email) {
-    authUserId = await findAuthUserIdByEmail(String(existing.email || email).toLowerCase());
+    authUserId = await findAuthUserIdByEmail(supabaseAdmin, String(existing.email || email).toLowerCase());
   }
 
   const { data: updatedProfile, error: updateErr } = await supabaseAdmin
@@ -121,6 +132,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 }
 
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const supabaseAdmin = getSupabaseAdmin();
+  if (!supabaseAdmin) {
+    return NextResponse.json(
+      { error: "missing_server_env", message: "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" },
+      { status: 500 }
+    );
+  }
+
   const actor = await getAdminActorFromAuthHeader(req.headers.get("authorization"));
   if (!actor) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
@@ -139,7 +158,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
 
   let authUserId = existing.auth_user_id as string | null;
   if (!authUserId && existing.email) {
-    authUserId = await findAuthUserIdByEmail(String(existing.email).toLowerCase());
+    authUserId = await findAuthUserIdByEmail(supabaseAdmin, String(existing.email).toLowerCase());
   }
 
   const { error: deleteProfileErr } = await supabaseAdmin.from("users").delete().eq("id", id);

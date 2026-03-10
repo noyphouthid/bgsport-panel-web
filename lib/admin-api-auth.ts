@@ -1,5 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 export type AppRole = "admin" | "manager" | "staff" | "graphic" | "accountant";
 
@@ -12,19 +12,28 @@ export type AdminActor = {
   isActive: boolean;
 };
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+let cachedPublicClient: SupabaseClient | null = null;
 
-if (!supabaseUrl || !anonKey) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+function getPublicClient(): SupabaseClient | null {
+  if (cachedPublicClient) return cachedPublicClient;
+
+  const supabaseUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+  const anonKey = String(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();
+  if (!supabaseUrl || !anonKey) return null;
+
+  cachedPublicClient = createClient(supabaseUrl, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  return cachedPublicClient;
 }
-
-const publicClient = createClient(supabaseUrl, anonKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
 
 export async function getAdminActorFromAuthHeader(authHeader: string | null): Promise<AdminActor | null> {
   if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) return null;
+  const supabaseAdmin = getSupabaseAdmin();
+  const publicClient = getPublicClient();
+  if (!supabaseAdmin || !publicClient) return null;
+
   const token = authHeader.slice(7).trim();
   if (!token) return null;
 
