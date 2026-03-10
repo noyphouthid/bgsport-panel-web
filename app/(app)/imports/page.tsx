@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
@@ -92,13 +92,13 @@ export default function ImportExcelPage() {
 
     if (fabricError) {
       setErr(fabricError.message);
-      toast.error(`??????????????????????: ${fabricError.message}`);
+      toast.error(`ໂຫຼດຂໍ້ມູນຜ້າບໍ່ສຳເລັດ: ${fabricError.message}`);
       setLoading(false);
       return;
     }
     if (userError) {
       setErr(userError.message);
-      toast.error(`?????????????????????????: ${userError.message}`);
+      toast.error(`ໂຫຼດຂໍ້ມູນຜູ້ໃຊ້ບໍ່ສຳເລັດ: ${userError.message}`);
       setLoading(false);
       return;
     }
@@ -162,7 +162,7 @@ export default function ImportExcelPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "orders_template");
     XLSX.writeFile(wb, "orders-import-template.xlsx");
-    toast.success("???????????????????");
+    toast.success("ດາວໂຫຼດແມ່ແບບສຳເລັດ");
   };
 
   const buildPreviewRows = (rawRows: Record<string, unknown>[]) => {
@@ -195,10 +195,10 @@ export default function ImportExcelPage() {
       const status = (readFirst(row, ["status"]) || "in_progress") as "in_progress" | "completed";
 
       if (!orderDate) {
-        return { rowNo: idx + 2, valid: false, reason: "??? order_date", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
+        return { rowNo: idx + 2, valid: false, reason: "ບໍ່ມີ order_date", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
       }
       if (!orderCode) {
-        return { rowNo: idx + 2, valid: false, reason: "??? order_code", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
+        return { rowNo: idx + 2, valid: false, reason: "ບໍ່ມີ order_code", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
       }
 
       const pickedFabric =
@@ -206,7 +206,7 @@ export default function ImportExcelPage() {
         (fabricName ? fabricByName.get(fabricName.toLowerCase()) : null) ??
         null;
       if (!pickedFabric) {
-        return { rowNo: idx + 2, valid: false, reason: "????????? (fabric)", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
+        return { rowNo: idx + 2, valid: false, reason: "ບໍ່ພົບຂໍ້ມູນຜ້າ (fabric)", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
       }
 
       const pickedAdmin =
@@ -214,7 +214,7 @@ export default function ImportExcelPage() {
         (adminName ? adminByName.get(adminName.toLowerCase()) : null) ??
         null;
       if (!pickedAdmin || pickedAdmin.role !== "admin") {
-        return { rowNo: idx + 2, valid: false, reason: "?????? admin", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
+        return { rowNo: idx + 2, valid: false, reason: "ບໍ່ພົບ admin", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
       }
 
       const pickedGraphic =
@@ -222,7 +222,7 @@ export default function ImportExcelPage() {
         (graphicName ? graphicByName.get(graphicName.toLowerCase()) : null) ??
         null;
       if (!pickedGraphic || pickedGraphic.role !== "graphic") {
-        return { rowNo: idx + 2, valid: false, reason: "?????? graphic", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
+        return { rowNo: idx + 2, valid: false, reason: "ບໍ່ພົບ graphic", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
       }
 
       const sizeUpcharge = 20000;
@@ -281,18 +281,18 @@ export default function ImportExcelPage() {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
       if (rawRows.length === 0) {
-        setErr("???? Excel ???????????");
-        toast.error("???? Excel ???????????");
+        setErr("ໄຟລ໌ Excel ບໍ່ມີຂໍ້ມູນ");
+        toast.error("ໄຟລ໌ Excel ບໍ່ມີຂໍ້ມູນ");
         return;
       }
       const rows = buildPreviewRows(rawRows);
       setPreviewRows(rows);
       const validCount = rows.filter((r) => r.valid).length;
       const invalidCount = rows.length - validCount;
-      toast.success(`??????????????: ??? ${validCount} ???, ??? ${invalidCount} ???`);
+      toast.success(`ພຣີວິວສຳເລັດ: ຜ່ານ ${validCount} ລາຍການ, ບໍ່ຜ່ານ ${invalidCount} ລາຍການ`);
     } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : "???????? Excel ?????????");
-      toast.error("???????? Excel ?????????");
+      setErr(ex instanceof Error ? ex.message : "ອ່ານໄຟລ໌ Excel ບໍ່ສຳເລັດ");
+      toast.error("ອ່ານໄຟລ໌ Excel ບໍ່ສຳເລັດ");
     } finally {
       e.target.value = "";
     }
@@ -300,14 +300,14 @@ export default function ImportExcelPage() {
 
   const applyImport = async () => {
     if (previewRows.length === 0) {
-      setErr("?????????????? Preview");
-      toast.error("?????????????? Preview");
+      setErr("ຍັງບໍ່ມີຂໍ້ມູນພຣີວິວ");
+      toast.error("ຍັງບໍ່ມີຂໍ້ມູນພຣີວິວ");
       return;
     }
     const validPayloads = previewRows.filter((r) => r.valid && r.payload).map((r) => r.payload as Record<string, unknown>);
     if (validPayloads.length === 0) {
-      setErr("??????????????????");
-      toast.error("??????????????????");
+      setErr("ບໍ່ມີລາຍການທີ່ນຳເຂົ້າໄດ້");
+      toast.error("ບໍ່ມີລາຍການທີ່ນຳເຂົ້າໄດ້");
       return;
     }
 
@@ -318,14 +318,14 @@ export default function ImportExcelPage() {
       dedup.set(code, { ...p, order_code: code });
     }
     const payloads = [...dedup.values()];
-    const modeLabel = importMode === "upsert" ? "????? ??? ??????" : "???????????????";
+    const modeLabel = importMode === "upsert" ? "ເພີ່ມໃໝ່ + ອັບເດດ" : "ເພີ່ມສະເພາະລາຍການໃໝ່";
     const confirm = await Swal.fire({
       icon: "question",
-      title: "?????????????????",
-      html: `??????????????????????: <b>${payloads.length}</b> ???<br/>???: <b>${modeLabel}</b>`,
+      title: "ຢືນຢັນການນຳເຂົ້າຂໍ້ມູນ",
+      html: `ຈຳນວນລາຍການທີ່ຈະນຳເຂົ້າ: <b>${payloads.length}</b> ລາຍການ<br/>ໂໝດ: <b>${modeLabel}</b>`,
       showCancelButton: true,
-      confirmButtonText: "??????",
-      cancelButtonText: "???????",
+      confirmButtonText: "ຢືນຢັນ",
+      cancelButtonText: "ຍົກເລີກ",
       reverseButtons: true,
     });
     if (!confirm.isConfirmed) return;
@@ -339,37 +339,37 @@ export default function ImportExcelPage() {
         const { error } = await supabase.from("orders").upsert(payloads, { onConflict: "order_code" });
         if (error) {
           setErr(error.message);
-          toast.error(`????????????????: ${error.message}`);
+          toast.error(`ນຳເຂົ້າຂໍ້ມູນບໍ່ສຳເລັດ: ${error.message}`);
           return;
         }
-        setInfo(`????????????? (upsert): ${payloads.length} ???`);
-        toast.success(`?????????????: ${payloads.length} ???`);
+        setInfo(`ນຳເຂົ້າສຳເລັດ (upsert): ${payloads.length} ລາຍການ`);
+        toast.success(`ນຳເຂົ້າສຳເລັດ: ${payloads.length} ລາຍການ`);
       } else {
         const codes = payloads.map((p) => String(p.order_code ?? "")).filter((s) => s.length > 0);
         const { data: exists, error: existError } = await supabase.from("orders").select("order_code").in("order_code", codes);
         if (existError) {
           setErr(existError.message);
-          toast.error(`?????????????????????????????: ${existError.message}`);
+          toast.error(`ກວດສອບລາຍການຊ້ຳບໍ່ສຳເລັດ: ${existError.message}`);
           return;
         }
         const existing = new Set((exists ?? []).map((x) => x.order_code));
         const insertPayloads = payloads.filter((p) => !existing.has(String(p.order_code)));
         if (insertPayloads.length === 0) {
-          setInfo("?????????????????????");
-          toast("?????????????????????");
+          setInfo("ບໍ່ມີລາຍການໃໝ່ສຳລັບນຳເຂົ້າ");
+          toast("ບໍ່ມີລາຍການໃໝ່ສຳລັບນຳເຂົ້າ");
           return;
         }
         const { error } = await supabase.from("orders").insert(insertPayloads);
         if (error) {
           setErr(error.message);
-          toast.error(`????????????????: ${error.message}`);
+          toast.error(`ນຳເຂົ້າຂໍ້ມູນບໍ່ສຳເລັດ: ${error.message}`);
           return;
         }
-        setInfo(`????????????? (insert only): ${insertPayloads.length} ???`);
-        toast.success(`?????????????: ${insertPayloads.length} ???`);
+        setInfo(`ນຳເຂົ້າສຳເລັດ (insert only): ${insertPayloads.length} ລາຍການ`);
+        toast.success(`ນຳເຂົ້າສຳເລັດ: ${insertPayloads.length} ລາຍການ`);
       }
     } catch (ex) {
-      const message = ex instanceof Error ? ex.message : "????error?????????";
+      const message = ex instanceof Error ? ex.message : "ເກີດຂໍ້ຜິດພາດທີ່ບໍ່ຄາດຄິດ";
       setErr(message);
       toast.error(message);
     } finally {
@@ -384,33 +384,33 @@ export default function ImportExcelPage() {
   }, [previewRows]);
 
   const previewImportColumns = [
-    { key: "order_date", label: "?????????" },
-    { key: "production_completed_at", label: "????????????????" },
-    { key: "customer_remaining_due_at", label: "???????????????????????????" },
-    { key: "factory_payment_due_at", label: "???????????????" },
-    { key: "order_code", label: "??????????" },
-    { key: "customer_phone", label: "???????????" },
-    { key: "factory_bill_code", label: "??????????????" },
-    { key: "admin_full_name", label: "??? Admin" },
-    { key: "graphic_full_name", label: "??? Graphic" },
-    { key: "fabric_name", label: "??????" },
-    { key: "fabric_short_price", label: "???????????" },
-    { key: "fabric_long_price", label: "??????????" },
-    { key: "short_qty", label: "????????????" },
-    { key: "long_qty", label: "???????????" },
-    { key: "free_qty", label: "????????" },
+    { key: "order_date", label: "ວັນທີສັ່ງຊື້" },
+    { key: "production_completed_at", label: "ວັນທີຜະລິດສຳເລັດ" },
+    { key: "customer_remaining_due_at", label: "ກຳນົດຊຳລະເງິນຄົງເຫຼືອລູກຄ້າ" },
+    { key: "factory_payment_due_at", label: "ກຳນົດຈ່າຍໂຮງງານ" },
+    { key: "order_code", label: "ລະຫັດອໍເດີ" },
+    { key: "customer_phone", label: "ເບີລູກຄ້າ" },
+    { key: "factory_bill_code", label: "ເລກບິນໂຮງງານ" },
+    { key: "admin_full_name", label: "ຊື່ Admin" },
+    { key: "graphic_full_name", label: "ຊື່ Graphic" },
+    { key: "fabric_name", label: "ຊື່ຜ້າ" },
+    { key: "fabric_short_price", label: "ລາຄາຜ້າແຂນສັ້ນ" },
+    { key: "fabric_long_price", label: "ລາຄາຜ້າແຂນຍາວ" },
+    { key: "short_qty", label: "ຈຳນວນແຂນສັ້ນ" },
+    { key: "long_qty", label: "ຈຳນວນແຂນຍາວ" },
+    { key: "free_qty", label: "ຈຳນວນແຖມ" },
     { key: "qty_3xl", label: "3XL" },
     { key: "qty_4xl", label: "4XL" },
     { key: "qty_5xl", label: "5XL" },
-    { key: "size_upcharge", label: "????????????" },
-    { key: "extra_charge", label: "????????" },
-    { key: "design_deposit", label: "???????????" },
-    { key: "initial_deposit", label: "?????????????" },
-    { key: "factory_cost", label: "?????????????" },
-    { key: "gross_total", label: "??????" },
-    { key: "net_total", label: "????????" },
-    { key: "balance", label: "???????????" },
-    { key: "status", label: "??????" },
+    { key: "size_upcharge", label: "ຄ່າບວກໄຊ" },
+    { key: "extra_charge", label: "ຄ່າໃຊ້ຈ່າຍເພີ່ມ" },
+    { key: "design_deposit", label: "ຄ່າມັດຈຳອອກແບບ" },
+    { key: "initial_deposit", label: "ຄ່າມັດຈຳເບື້ອງຕົ້ນ" },
+    { key: "factory_cost", label: "ຕົ້ນທຶນໂຮງງານ" },
+    { key: "gross_total", label: "ຍອດລວມ" },
+    { key: "net_total", label: "ຍອດສຸດທິ" },
+    { key: "balance", label: "ຍອດຄົງເຫຼືອ" },
+    { key: "status", label: "ສະຖານະ" },
   ] as const;
 
   return (
@@ -418,12 +418,12 @@ export default function ImportExcelPage() {
       <div>
         <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
           <FileSpreadsheet size={24} className="text-emerald-600" />
-          ??????????????? Excel
+          ນຳເຂົ້າຂໍ້ມູນ Excel
         </h1>
-        <div className="text-sm text-slate-500 font-medium">???????????????? schema ???????? ??? ????????????????</div>
+        <div className="text-sm text-slate-500 font-medium">ດາວໂຫຼດແມ່ແບບກ່ອນເພື່ອໃຊ້ schema ໃຫ້ຖືກຕ້ອງ ແລ້ວຈຶ່ງອັບໂຫຼດໄຟລ໌</div>
       </div>
 
-      {err && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm font-bold">error: {err}</div>}
+      {err && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm font-bold">ຂໍ້ຜິດພາດ: {err}</div>}
       {info && <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-3 rounded-xl text-sm font-bold">{info}</div>}
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-4">
@@ -434,12 +434,12 @@ export default function ImportExcelPage() {
             className="inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-black hover:bg-indigo-700 disabled:opacity-50"
           >
             <Download size={16} />
-            ??????? Template
+            ດາວໂຫຼດ Template
           </button>
 
           <label className="inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-black hover:bg-emerald-700 cursor-pointer text-center">
             <Upload size={16} />
-            ????????? Excel
+            ອັບໂຫຼດ Excel
             <input type="file" accept=".xlsx,.xls" onChange={handleSelectExcel} className="hidden" />
           </label>
 
@@ -448,8 +448,8 @@ export default function ImportExcelPage() {
             onChange={(e) => setImportMode(e.target.value as ImportMode)}
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-900"
           >
-            <option value="insert_only">???????????????</option>
-            <option value="upsert">????? ??? ??????</option>
+            <option value="insert_only">ເພີ່ມສະເພາະລາຍການໃໝ່</option>
+            <option value="upsert">ເພີ່ມໃໝ່ + ອັບເດດ</option>
           </select>
 
           <button
@@ -458,24 +458,24 @@ export default function ImportExcelPage() {
             className="inline-flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-black hover:bg-slate-800 disabled:opacity-50"
           >
             <CheckCircle2 size={16} />
-            {importing ? "????????????..." : "?????????????"}
+            {importing ? "ກຳລັງນຳເຂົ້າ..." : "ຢືນຢັນນຳເຂົ້າ"}
           </button>
         </div>
 
         <div className="text-xs font-bold text-slate-500">
-          ????: {previewFileName || "-"} | ???: {previewSummary.total} | ???????: {previewSummary.valid} | ??????: {previewSummary.invalid}
+          ໄຟລ໌: {previewFileName || "-"} | ທັງໝົດ: {previewSummary.total} | ຜ່ານ: {previewSummary.valid} | ບໍ່ຜ່ານ: {previewSummary.invalid}
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 bg-slate-50 text-sm font-black text-slate-700 uppercase">??????? Preview</div>
+        <div className="p-4 border-b border-slate-100 bg-slate-50 text-sm font-black text-slate-700 uppercase">ຕາຕະລາງ Preview</div>
         <div className="overflow-x-auto max-h-96">
           <table className="w-full text-sm">
             <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-600 sticky top-0">
               <tr>
-                <th className="p-3 text-left text-xs font-black uppercase">???</th>
-                <th className="p-3 text-left text-xs font-black uppercase">??????</th>
-                <th className="p-3 text-left text-xs font-black uppercase">??????</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ແຖວ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ສະຖານະ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ເຫດຜົນ</th>
                 {previewImportColumns.map((col) => (
                   <th key={col.key} className="p-3 text-left text-xs font-black uppercase whitespace-nowrap">{col.label}</th>
                 ))}
@@ -484,7 +484,7 @@ export default function ImportExcelPage() {
             <tbody className="divide-y divide-slate-50">
               {previewRows.length === 0 ? (
                 <tr>
-                  <td className="p-8 text-center text-slate-400 font-medium" colSpan={previewImportColumns.length + 3}>?????????????? Preview</td>
+                  <td className="p-8 text-center text-slate-400 font-medium" colSpan={previewImportColumns.length + 3}>ຍັງບໍ່ມີຂໍ້ມູນ Preview</td>
                 </tr>
               ) : (
                 previewRows.map((r) => (
@@ -492,9 +492,9 @@ export default function ImportExcelPage() {
                     <td className="p-3 font-bold text-slate-600">{r.rowNo}</td>
                     <td className="p-3">
                       {r.valid ? (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black">????</span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black">ຜ່ານ</span>
                       ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-black">???????</span>
+                        <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-black">ບໍ່ຜ່ານ</span>
                       )}
                     </td>
                     <td className="p-3 text-xs font-bold text-rose-600">{r.reason ?? "-"}</td>
@@ -523,4 +523,6 @@ export default function ImportExcelPage() {
     </div>
   );
 }
+
+
 
