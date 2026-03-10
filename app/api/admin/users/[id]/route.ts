@@ -30,13 +30,13 @@ async function findAuthUserIdByEmail(email: string) {
   return null;
 }
 
-export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const actor = await getAdminActorFromAuthHeader(req.headers.get("authorization"));
   if (!actor) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const { id } = ctx.params;
+  const { id } = await ctx.params;
   const body = (await req.json()) as UpdateUserBody;
 
   const { data: existing, error: existingErr } = await supabaseAdmin
@@ -120,13 +120,13 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   return NextResponse.json({ user: updatedProfile }, { status: 200 });
 }
 
-export async function DELETE(req: NextRequest, ctx: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const actor = await getAdminActorFromAuthHeader(req.headers.get("authorization"));
   if (!actor) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const { id } = ctx.params;
+  const { id } = await ctx.params;
   const { data: existing, error: existingErr } = await supabaseAdmin
     .from("users")
     .select("id,email,auth_user_id")
@@ -156,3 +156,4 @@ export async function DELETE(req: NextRequest, ctx: { params: { id: string } }) 
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }
+
