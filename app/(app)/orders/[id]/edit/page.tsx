@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 
 type OrderDetail = {
@@ -258,8 +259,14 @@ export default function EditOrderPage() {
   const handleUpdate = async () => {
     if (!order) return;
     setErr(null);
-    if (!adminUserId) return alert("Please select admin");
-    if (!graphicUserId) return alert("Please select graphic");
+    if (!adminUserId) {
+      toast.error("ກະລຸນາເລືອກ Admin");
+      return;
+    }
+    if (!graphicUserId) {
+      toast.error("ກະລຸນາເລືອກ Graphic");
+      return;
+    }
     const payload = {
       order_code: orderCode.trim(),
       order_date: orderDate,
@@ -288,10 +295,12 @@ export default function EditOrderPage() {
     const { error } = await supabase.from("orders").update(payload).eq("id", orderId);
     if (error) {
       setErr(error.message);
+      toast.error(`ບັນທຶກການແກ້ໄຂບໍ່ສຳເລັດ: ${error.message}`);
       return;
     }
     await safeInsertAction("update_order", "Updated order details and recalculated totals");
     await reloadAll();
+    toast.success("ບັນທຶກການແກ້ໄຂແລ້ວ");
   };
 
   const handleAddCustomerPayment = async () => {
