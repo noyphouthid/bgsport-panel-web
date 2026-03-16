@@ -8,7 +8,7 @@ type Fabric = {
   name: string;
   short_price: number;
   long_add: number;
-  long_price: number; // generated column
+  long_price: number;
   is_active: boolean;
   updated_at: string;
 };
@@ -17,13 +17,12 @@ export default function FabricPage() {
   const [rows, setRows] = useState<Fabric[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // Add new
   const [newName, setNewName] = useState("");
   const [newShort, setNewShort] = useState<number>(0);
   const [newLongAdd, setNewLongAdd] = useState<number>(20000);
 
-  // Edit modal
   const [editing, setEditing] = useState<Fabric | null>(null);
   const [editName, setEditName] = useState("");
   const [editShort, setEditShort] = useState<number>(0);
@@ -33,6 +32,7 @@ export default function FabricPage() {
   const load = async () => {
     setLoading(true);
     setErr(null);
+
     const { data, error } = await supabase
       .from("fabrics")
       .select("id,name,short_price,long_add,long_price,is_active,updated_at")
@@ -47,12 +47,12 @@ export default function FabricPage() {
     load();
   }, []);
 
-  const openEdit = (f: Fabric) => {
-    setEditing(f);
-    setEditName(f.name);
-    setEditShort(f.short_price);
-    setEditLongAdd(f.long_add ?? 20000);
-    setEditActive(f.is_active);
+  const openEdit = (fabric: Fabric) => {
+    setEditing(fabric);
+    setEditName(fabric.name);
+    setEditShort(fabric.short_price);
+    setEditLongAdd(fabric.long_add ?? 20000);
+    setEditActive(fabric.is_active);
   };
 
   const closeEdit = () => {
@@ -65,7 +65,10 @@ export default function FabricPage() {
 
   const addFabric = async () => {
     const name = newName.trim();
-    if (!name) return alert("ກະລຸນາປ້ອນຊື່ຜ້າ");
+    if (!name) {
+      alert("Please enter fabric name");
+      return;
+    }
 
     setErr(null);
     const { error } = await supabase.from("fabrics").insert({
@@ -75,13 +78,16 @@ export default function FabricPage() {
       is_active: true,
     });
 
-    if (error) return setErr(error.message);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
 
     setNewName("");
     setNewShort(0);
     setNewLongAdd(20000);
     await load();
-    alert("ເພີ່ມຜ້າໃໝ່ແລ້ວ");
+    alert("Added");
   };
 
   const saveEdit = async () => {
@@ -98,11 +104,35 @@ export default function FabricPage() {
       })
       .eq("id", editing.id);
 
-    if (error) return setErr(error.message);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
 
     closeEdit();
     await load();
-    alert("ບັນທຶກລາຄາແລ້ວ");
+    alert("Saved");
+  };
+
+  const deleteFabric = async (fabric: Fabric) => {
+    const confirmed = window.confirm(`Delete fabric "${fabric.name}"?`);
+    if (!confirmed) return;
+
+    setDeletingId(fabric.id);
+    setErr(null);
+
+    const { error } = await supabase.from("fabrics").delete().eq("id", fabric.id);
+
+    setDeletingId(null);
+
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+
+    if (editing?.id === fabric.id) closeEdit();
+    await load();
+    alert("Deleted");
   };
 
   const sorted = useMemo(() => rows, [rows]);
@@ -111,60 +141,61 @@ export default function FabricPage() {
     <div>
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-slate-800">ລາຄາຜ້າ</h1>
-        <div className="text-sm text-slate-500 font-medium">
-          ແກ້ລາຄາຜ້າໄດ້ທີ່ນີ້ —{" "}
-          <span className="font-bold text-slate-700 underline decoration-slate-200">ຫ້າມກະທົບອໍເດີ້ເກົ່າ</span>{" "}
-          (ອໍເດີ້ຈະເກັບ snapshot ລາຄາໃນວັນທີ່ບັນທຶກ)
+        <div className="text-sm font-medium text-slate-500">
+          ແກ້ລາຄາຜ້າໄດ້ທີ່ນີ້ -
+          <span className="ml-1 font-bold text-slate-700 underline decoration-slate-200">
+            ບໍ່ກະທົບອໍເດີເກົ່າ
+          </span>
+          <span className="ml-1">(ອໍເດີຈະເກັບ snapshot ລາຄາໄວ້ຕອນບັນທຶກ)</span>
         </div>
 
         {err && (
-          <div className="mt-2 bg-red-50 border border-red-200 text-red-700 p-3 rounded text-sm font-medium">
+          <div className="mt-2 rounded border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
             Error: {err}
           </div>
         )}
       </div>
 
-      {/* Add new */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 mb-4">
-        <div className="font-bold text-slate-700 mb-3 uppercase text-xs tracking-wider">ເພີ່ມຜ້າໃໝ່</div>
+      <div className="mb-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+        <div className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-700">ເພີ່ມຜ້າໃໝ່</div>
 
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+        <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-6">
           <div className="md:col-span-2">
-            <label className="text-xs font-bold text-slate-600 mb-1 block">ຊື່ຜ້າ</label>
+            <label className="mb-1 block text-xs font-bold text-slate-600">ຊື່ຜ້າ</label>
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="ຕົວຢ່າງ: ຜ້າກິລາ"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-medium focus:ring-2 focus:ring-green-500 outline-none"
+              placeholder="ຕົວຢ່າງ: Sport Fabric"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-600 mb-1 block">ລາຄາແຂນສັ້ນ</label>
+            <label className="mb-1 block text-xs font-bold text-slate-600">ລາຄາແຂນສັ້ນ</label>
             <input
               type="number"
               value={newShort}
               onChange={(e) => setNewShort(Number(e.target.value))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold"
               min={0}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-900"
             />
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-600 mb-1 block">ເພີ່ມແຂນຍາວ</label>
+            <label className="mb-1 block text-xs font-bold text-slate-600">ເພີ່ມແຂນຍາວ</label>
             <input
               type="number"
               value={newLongAdd}
               onChange={(e) => setNewLongAdd(Number(e.target.value))}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold"
               min={0}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-900"
             />
           </div>
 
           <div className="md:col-span-2">
             <button
               onClick={addFabric}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-green-700 w-full shadow-sm transition-all active:scale-[0.98]"
+              className="w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition-all hover:bg-green-700 active:scale-[0.98]"
             >
               + ເພີ່ມຜ້າໃໝ່
             </button>
@@ -172,62 +203,70 @@ export default function FabricPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-4 bg-slate-50/50 flex items-center justify-between border-b border-slate-100">
-          <div className="text-sm font-black text-slate-700 uppercase tracking-widest">ລາຍການຜ້າ</div>
-          <div className="text-xs font-bold text-slate-500 bg-white px-2 py-1 rounded border border-slate-200">
+      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 p-4">
+          <div className="text-sm font-black uppercase tracking-widest text-slate-700">ລາຍການຜ້າ</div>
+          <div className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-500">
             {loading ? "ກຳລັງໂຫຼດ..." : `ຈຳນວນ: ${rows.length} ຊະນິດ`}
           </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+            <thead className="border-b border-slate-100 bg-slate-50 text-slate-500">
               <tr>
-                <th className="p-4 text-left font-bold text-[11px] uppercase tracking-wider">ຊື່ຜ້າ</th>
-                <th className="p-4 text-right font-bold text-[11px] uppercase tracking-wider">ແຂນສັ້ນ</th>
-                <th className="p-4 text-right font-bold text-[11px] uppercase tracking-wider">ແຂນຍາວ</th>
-                <th className="p-4 text-right font-bold text-[11px] uppercase tracking-wider">+ ແຂນຍາວ</th>
-                <th className="p-4 text-center font-bold text-[11px] uppercase tracking-wider">ສະຖານະ</th>
-                <th className="p-4 text-left font-bold text-[11px] uppercase tracking-wider">ອັບເດດ</th>
-                <th className="p-4 text-center font-bold text-[11px] uppercase tracking-wider">ຈັດການ</th>
+                <th className="p-4 text-left text-[11px] font-bold uppercase tracking-wider">ຊື່ຜ້າ</th>
+                <th className="p-4 text-right text-[11px] font-bold uppercase tracking-wider">ແຂນສັ້ນ</th>
+                <th className="p-4 text-right text-[11px] font-bold uppercase tracking-wider">ແຂນຍາວ</th>
+                <th className="p-4 text-right text-[11px] font-bold uppercase tracking-wider">+ ແຂນຍາວ</th>
+                <th className="p-4 text-center text-[11px] font-bold uppercase tracking-wider">ສະຖານະ</th>
+                <th className="p-4 text-left text-[11px] font-bold uppercase tracking-wider">ອັບເດດ</th>
+                <th className="p-4 text-center text-[11px] font-bold uppercase tracking-wider">ຈັດການ</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-50">
               {!loading && sorted.length === 0 ? (
                 <tr>
-                  <td className="p-10 text-center text-slate-400 font-medium" colSpan={7}>
+                  <td className="p-10 text-center font-medium text-slate-400" colSpan={7}>
                     ບໍ່ມີຂໍ້ມູນໃນລະບົບ
                   </td>
                 </tr>
               ) : (
-                sorted.map((f) => (
-                  <tr key={f.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="p-4 font-black text-slate-900">{f.name}</td>
-                    <td className="p-4 text-right font-black text-slate-800">{f.short_price.toLocaleString()}</td>
-                    <td className="p-4 text-right font-black text-blue-700">{f.long_price.toLocaleString()}</td>
-                    <td className="p-4 text-right font-bold text-slate-500">+{f.long_add.toLocaleString()}</td>
+                sorted.map((fabric) => (
+                  <tr key={fabric.id} className="transition-colors hover:bg-slate-50/50">
+                    <td className="p-4 font-black text-slate-900">{fabric.name}</td>
+                    <td className="p-4 text-right font-black text-slate-800">{fabric.short_price.toLocaleString()}</td>
+                    <td className="p-4 text-right font-black text-blue-700">{fabric.long_price.toLocaleString()}</td>
+                    <td className="p-4 text-right font-bold text-slate-500">+{fabric.long_add.toLocaleString()}</td>
                     <td className="p-4 text-center">
-                      {f.is_active ? (
-                        <span className="px-2.5 py-1 rounded-full bg-green-100 text-green-800 text-[10px] font-black uppercase">
+                      {fabric.is_active ? (
+                        <span className="rounded-full bg-green-100 px-2.5 py-1 text-[10px] font-black uppercase text-green-800">
                           ໃຊ້ງານ
                         </span>
                       ) : (
-                        <span className="px-2.5 py-1 rounded-full bg-slate-200 text-slate-600 text-[10px] font-black uppercase">
+                        <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">
                           ປິດ
                         </span>
                       )}
                     </td>
-                    <td className="p-4 text-slate-500 font-medium text-xs">{(f.updated_at ?? "").slice(0, 10)}</td>
+                    <td className="p-4 text-xs font-medium text-slate-500">{(fabric.updated_at ?? "").slice(0, 10)}</td>
                     <td className="p-4 text-center">
-                      <button 
-                        onClick={() => openEdit(f)} 
-                        className="text-blue-600 font-black text-xs hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-all"
-                      >
-                        ແກ້ໄຂ
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => openEdit(fabric)}
+                          className="rounded-lg px-3 py-1.5 text-xs font-black text-blue-600 transition-all hover:bg-blue-50"
+                        >
+                          ແກ້ໄຂ
+                        </button>
+                        <button
+                          onClick={() => deleteFabric(fabric)}
+                          disabled={deletingId === fabric.id}
+                          className="rounded-lg px-3 py-1.5 text-xs font-black text-red-600 transition-all hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {deletingId === fabric.id ? "Deleting..." : "ລົບ"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -236,82 +275,85 @@ export default function FabricPage() {
           </table>
         </div>
 
-        <div className="p-4 bg-slate-50 border-t border-slate-100 text-[11px] font-bold text-slate-400 italic">
-          * ປັບລາຄາຜ້າມີຜົນກັບອໍເດີ້ໃໝ່ເທົ່ານັ້ນ (ອໍເດີ້ເກົ່າຈະໃຊ້ລາຄາເດີມທີ່ເຄີຍບັນທຶກໄວ້)
+        <div className="border-t border-slate-100 bg-slate-50 p-4 text-[11px] font-bold italic text-slate-400">
+          * ການປັບລາຄາຜ້າຈະມີຜົນກັບອໍເດີໃໝ່ເທົ່ານັ້ນ
         </div>
       </div>
 
-      {/* Edit modal */}
       {editing && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-              <div className="font-black text-slate-800 uppercase tracking-tight">ແກ້ໄຂລາຄາຜ້າ: {editing.name}</div>
-              <button onClick={closeEdit} className="text-slate-400 hover:text-slate-600 transition-colors p-1">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 p-5">
+              <div className="font-black tracking-tight text-slate-800">ແກ້ໄຂລາຄາຜ້າ: {editing.name}</div>
+              <button onClick={closeEdit} className="p-1 text-slate-400 transition-colors hover:text-slate-600">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4.293 4.293a1.1 1.1 0 011.414 0L10 8.586l4.293-4.293a1.1 1.1 0 111.414 1.414L11.414 10l4.293 4.293a1.1 1.1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1.1 1.1 0 01-1.414-1.414L8.586 10 4.293 5.707a1.1 1.1 0 010-1.414z" clipRule="evenodd" />
+                  <path
+                    fillRule="evenodd"
+                    d="M4.293 4.293a1.1 1.1 0 011.414 0L10 8.586l4.293-4.293a1.1 1.1 0 111.414 1.414L11.414 10l4.293 4.293a1.1 1.1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1.1 1.1 0 01-1.414-1.414L8.586 10 4.293 5.707a1.1 1.1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </button>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="space-y-5 p-6">
               <div>
-                <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase">ຊື່ຜ້າ</label>
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">ຊື່ຜ້າ</label>
                 <input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-bold focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase">ລາຄາແຂນສັ້ນ</label>
+                  <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">ລາຄາແຂນສັ້ນ</label>
                   <input
                     type="number"
                     value={editShort}
                     onChange={(e) => setEditShort(Number(e.target.value))}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-black focus:ring-2 focus:ring-blue-500 outline-none"
                     min={0}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase">ເພີ່ມແຂນຍາວ</label>
+                  <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">ເພີ່ມແຂນຍາວ</label>
                   <input
                     type="number"
                     value={editLongAdd}
                     onChange={(e) => setEditLongAdd(Number(e.target.value))}
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-black focus:ring-2 focus:ring-blue-500 outline-none"
                     min={0}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
+              <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
                 <input
                   id="active"
                   type="checkbox"
                   checked={editActive}
                   onChange={(e) => setEditActive(e.target.checked)}
-                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
-                <label htmlFor="active" className="text-sm font-bold text-slate-700 cursor-pointer">
-                  ເປີດໃຊ້ງານລາຍການນີ້ (Active)
+                <label htmlFor="active" className="cursor-pointer text-sm font-bold text-slate-700">
+                  ເປີດໃຊ້ງານລາຍການນີ້
                 </label>
               </div>
             </div>
 
-            <div className="p-5 bg-slate-50 border-t border-slate-100 flex gap-3 justify-end">
+            <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 p-5">
               <button
                 onClick={closeEdit}
-                className="bg-white border border-slate-200 text-slate-600 px-6 py-2 rounded-xl text-sm font-bold hover:bg-slate-100 transition-colors"
+                className="rounded-xl border border-slate-200 bg-white px-6 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-100"
               >
                 ຍົກເລີກ
               </button>
               <button
                 onClick={saveEdit}
-                className="bg-green-600 text-white px-8 py-2 rounded-xl text-sm font-black hover:bg-green-700 shadow-lg shadow-green-100 transition-all active:scale-[0.95]"
+                className="rounded-xl bg-green-600 px-8 py-2 text-sm font-black text-white shadow-lg shadow-green-100 transition-all hover:bg-green-700 active:scale-[0.95]"
               >
                 ບັນທຶກຂໍ້ມູນ
               </button>
