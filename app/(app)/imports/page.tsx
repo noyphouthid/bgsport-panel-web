@@ -86,7 +86,7 @@ export default function ImportExcelPage() {
     setLoading(true);
     setErr(null);
     const [{ data: fabricData, error: fabricError }, { data: userData, error: userError }] = await Promise.all([
-      supabase.from("fabrics").select("id,name,short_price,long_price").order("name", { ascending: true }),
+      supabase.from("fabrics").select("id,name,short_price,long_price").eq("is_active", true).order("name", { ascending: true }),
       supabase.from("users").select("id,full_name,role,is_active").eq("is_active", true).order("full_name", { ascending: true }),
     ]);
 

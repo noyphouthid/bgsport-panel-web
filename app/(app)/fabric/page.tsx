@@ -123,13 +123,32 @@ export default function FabricPage() {
 
     const { error } = await supabase.from("fabrics").delete().eq("id", fabric.id);
 
-    setDeletingId(null);
-
     if (error) {
+      if (error.message.includes("orders_fabric_id_fkey")) {
+        const { error: deactivateError } = await supabase
+          .from("fabrics")
+          .update({ is_active: false })
+          .eq("id", fabric.id);
+
+        setDeletingId(null);
+
+        if (deactivateError) {
+          setErr(deactivateError.message);
+          return;
+        }
+
+        if (editing?.id === fabric.id) closeEdit();
+        await load();
+        alert("This fabric is already used in orders, so it was deactivated instead of deleted.");
+        return;
+      }
+
+      setDeletingId(null);
       setErr(error.message);
       return;
     }
 
+    setDeletingId(null);
     if (editing?.id === fabric.id) closeEdit();
     await load();
     alert("Deleted");
