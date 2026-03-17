@@ -30,7 +30,23 @@ type RecentOrder = {
 
 type DateRangeMode = "today" | "7days" | "1month" | "custom";
 
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentMonthRange() {
+  const now = new Date();
+  return {
+    start: toDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1)),
+    end: toDateInputValue(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+  };
+}
+
 export default function DashboardPage() {
+  const currentMonthRange = getCurrentMonthRange();
   const [stats, setStats] = useState<DashboardStats>({
     totalProfit: 0,
     customerBalance: 0,
@@ -50,34 +66,29 @@ export default function DashboardPage() {
 
   // Date Range Filter
   const [dateMode, setDateMode] = useState<DateRangeMode>("1month");
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    return d.toISOString().slice(0, 10);
-  });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(() => currentMonthRange.start);
+  const [endDate, setEndDate] = useState(() => currentMonthRange.end);
 
   const handleDateModeChange = (mode: DateRangeMode) => {
     setDateMode(mode);
     const today = new Date();
-    const end = today.toISOString().slice(0, 10);
+    const todayValue = toDateInputValue(today);
 
     switch (mode) {
       case "today":
-        setStartDate(end);
-        setEndDate(end);
+        setStartDate(todayValue);
+        setEndDate(todayValue);
         break;
       case "7days":
         const week = new Date(today);
         week.setDate(week.getDate() - 7);
-        setStartDate(week.toISOString().slice(0, 10));
-        setEndDate(end);
+        setStartDate(toDateInputValue(week));
+        setEndDate(todayValue);
         break;
       case "1month":
-        const month = new Date(today);
-        month.setMonth(month.getMonth() - 1);
-        setStartDate(month.toISOString().slice(0, 10));
-        setEndDate(end);
+        const monthRange = getCurrentMonthRange();
+        setStartDate(monthRange.start);
+        setEndDate(monthRange.end);
         break;
       case "custom":
         break;
@@ -165,6 +176,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
   const formatCurrency = (amount: number) => {
@@ -173,8 +185,8 @@ export default function DashboardPage() {
 
   const formatDateLao = (dateStr: string) => {
     const d = new Date(dateStr);
-    const day = d.getDate();
-    const month = d.getMonth() + 1;
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
     const year = d.getFullYear();
     return `${day}/${month}/${year}`;
   };

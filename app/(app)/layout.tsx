@@ -40,6 +40,7 @@ const nav = [
   { href: "/reports/admin-sales", label: "ລາຍງານຍອດຂາຍແອັດມິນ", icon: FileSpreadsheet },
   { href: "/reports/graphic-work", label: "ລາຍງານກຣາຟິກ", icon: FileSpreadsheet },
   { href: "/payments", label: "ບັນຊີການຊຳລະເງິນ", icon: Wallet },
+  { href: "/factory-payments", label: "ຊຳລະຄ່າໂຮງງານແບບກຸ່ມ", icon: Wallet },
   { href: "/imports", label: "ນຳເຂົ້າ Excel", icon: FileSpreadsheet },
   { href: "/fabric", label: "ລາຄາຜ້າ", icon: Banknote },
   { href: "/users", label: "ຕັ້ງຄ່າຜູ້ໃຊ້", icon: Users },
