@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import toast from "react-hot-toast";
-import { CheckCheck, Factory, PackagePlus, ScanLine } from "lucide-react";
+import { CheckCheck, Factory, PackagePlus, Printer, ScanLine } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { formatDateTime, normalizeQrCode, type QrLabelRow } from "@/lib/inventory-qr";
 import { MobileQrScanner } from "../_components/mobile-qr-scanner";
@@ -24,7 +25,11 @@ export default function FactoryReceiptsPage() {
   const [receivedBy, setReceivedBy] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [recentReceipts, setRecentReceipts] = useState<ReceiptRow[]>([]);
+  const [stickerLabels, setStickerLabels] = useState<QrLabelRow[]>([]);
+  const [stickerPreviewUrls, setStickerPreviewUrls] = useState<Record<string, string>>({});
+  const [activeReceiptId, setActiveReceiptId] = useState<string | null>(null);
 
   const loadCurrentUser = async () => {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -56,6 +61,189 @@ export default function FactoryReceiptsPage() {
     }, 0);
     return () => clearTimeout(timer);
   }, []);
+
+  const buildStickerPreviewUrls = async (labels: QrLabelRow[]) => {
+    const entries = await Promise.all(
+      labels.map(async (label) => [
+        label.id,
+        await QRCode.toDataURL(label.qr_code, {
+          width: 900,
+          margin: 1,
+          color: {
+            dark: "#1f2942",
+            light: "#ffffff",
+          },
+        }),
+      ])
+    );
+    return Object.fromEntries(entries);
+  };
+
+  const loadReceiptStickerList = async (receiptId: string) => {
+    setActiveReceiptId(receiptId);
+
+    const { data: itemData, error: itemError } = await supabase
+      .from("factory_receipt_items")
+      .select("qr_label_id")
+      .eq("receipt_id", receiptId);
+
+    if (itemError) {
+      toast.error(`ໂຫຼດລາຍການສະຕິກເກີບໍ່ສຳເລັດ: ${itemError.message}`);
+      return;
+    }
+
+    const labelIds = (itemData ?? []).map((item) => String(item.qr_label_id));
+    if (labelIds.length === 0) {
+      setStickerLabels([]);
+      setStickerPreviewUrls({});
+      toast("ບໍ່ພົບລາຍການສະຕິກເກີໃນຮອບນີ້");
+      return;
+    }
+
+    const { data: labelData, error: labelError } = await supabase
+      .from("order_qr_labels")
+      .select("id,order_id,qr_code,order_code,factory_bill_code,label_status,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at")
+      .in("id", labelIds)
+      .order("order_code", { ascending: true });
+
+    if (labelError) {
+      toast.error(`ໂຫຼດຂໍ້ມູນ QR ສຳລັບພິມບໍ່ສຳເລັດ: ${labelError.message}`);
+      return;
+    }
+
+    const labels = (labelData ?? []) as QrLabelRow[];
+    setStickerLabels(labels);
+    setStickerPreviewUrls(await buildStickerPreviewUrls(labels));
+  };
+
+  const printStickerBatch = async () => {
+    if (stickerLabels.length === 0) {
+      toast.error("ບໍ່ມີລາຍການສະຕິກເກີສຳລັບພິມ");
+      return;
+    }
+
+    setPrinting(true);
+    const previewMap =
+      Object.keys(stickerPreviewUrls).length === stickerLabels.length ? stickerPreviewUrls : await buildStickerPreviewUrls(stickerLabels);
+    setStickerPreviewUrls(previewMap);
+
+    const popup = window.open("", "_blank", "width=960,height=1200");
+    if (!popup) {
+      setPrinting(false);
+      toast.error("ບໍ່ສາມາດເປີດໜ້າພິມໄດ້");
+      return;
+    }
+
+    const stickersHtml = stickerLabels
+      .map((label) => {
+        const qrImage = previewMap[label.id];
+        return `
+          <section class="sticker">
+            <div class="title">ສະຕິກເກີຮັບສິນຄ້າ BG SPORT</div>
+            <div class="qr-shell">
+              <img src="${qrImage}" alt="${label.order_code}" />
+            </div>
+            <div class="order-code">${label.order_code}</div>
+            <div class="factory-bill">ລະຫັດບິນໂຮງງານ: ${label.factory_bill_code?.trim() || "-"}</div>
+          </section>
+        `;
+      })
+      .join("");
+
+    popup.document.write(`
+      <!DOCTYPE html>
+      <html lang="lo">
+        <head>
+          <meta charset="utf-8" />
+          <title>BG SPORT STICKERS</title>
+          <style>
+            @page {
+              size: 80mm 100mm;
+              margin: 0;
+            }
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            body {
+              margin: 0;
+              background: #ecebea;
+              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
+            }
+            .sticker {
+              width: 80mm;
+              height: 100mm;
+              padding: 4mm 4mm 4mm;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              background: #f6f4f1;
+              page-break-after: always;
+              overflow: hidden;
+            }
+            .title {
+              margin-top: 0;
+              color: #8a98b6;
+              font-size: 3.6mm;
+              font-weight: 700;
+              letter-spacing: 0.55mm;
+              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
+              text-align: center;
+              white-space: nowrap;
+            }
+            .qr-shell {
+              width: 66mm;
+              height: 66mm;
+              margin-top: 5mm;
+              border-radius: 5.5mm;
+              border: 0.4mm solid #e5e7eb;
+              background: #ffffff;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              box-shadow: 0 1mm 2mm rgba(15, 23, 42, 0.08);
+              flex-shrink: 0;
+            }
+            .qr-shell img {
+              width: 58mm;
+              height: 58mm;
+              display: block;
+            }
+            .order-code {
+              margin-top: 6mm;
+              color: #111827;
+              font-size: 9.2mm;
+              font-weight: 900;
+              letter-spacing: -0.1mm;
+              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
+              line-height: 1.05;
+              text-align: center;
+              white-space: nowrap;
+              max-width: 100%;
+            }
+            .factory-bill {
+              margin-top: 3.2mm;
+              color: #6b7280;
+              font-size: 4.2mm;
+              font-weight: 700;
+              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
+              text-align: center;
+              line-height: 1.3;
+              max-width: 100%;
+              white-space: nowrap;
+            }
+          </style>
+        </head>
+        <body>${stickersHtml}</body>
+      </html>
+    `);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+    setPrinting(false);
+  };
 
   const lookupLabel = async (rawValue: string) => {
     const qrCode = normalizeQrCode(rawValue);
@@ -152,9 +340,21 @@ export default function FactoryReceiptsPage() {
       return;
     }
 
+    const receivedLabels = queue.map((item) => ({
+      ...item,
+      label_status: "received" as const,
+      received_at: isoReceivedAt,
+      received_by: receivedBy.trim(),
+      last_scanned_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
     setQueue([]);
     setNote("");
     setScannerInput("");
+    setActiveReceiptId(receipt.id);
+    setStickerLabels(receivedLabels);
+    setStickerPreviewUrls(await buildStickerPreviewUrls(receivedLabels));
     await loadRecentReceipts();
     toast.success(`ນຳເຂົ້າ ${itemPayload.length} ລາຍການເຂົ້າຄັງຮ້ານສຳເລັດ`);
   };
@@ -286,18 +486,70 @@ export default function FactoryReceiptsPage() {
       </section>
 
       <section className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-lg font-black text-slate-900">ລາຍການສະຕິກເກີສຳລັບພິມ</div>
+            <div className="text-sm font-medium text-slate-500">ຮອງຮັບເຄື່ອງພິມ Xprinter ຂະໜາດ 80 x 100 ມມ</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void printStickerBatch()}
+            disabled={printing || stickerLabels.length === 0}
+            className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
+          >
+            <Printer size={16} />
+            {printing ? "ກຳລັງຈັດໜ້າພິມ..." : "ພິມສະຕິກເກີ"}
+          </button>
+        </div>
+
+        {stickerLabels.length === 0 ? (
+          <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">
+            ຫຼັງຈາກນຳເຂົ້າສຳເລັດ ລາຍການສະຕິກເກີຈະສະແດງຢູ່ບ່ອນນີ້.
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {stickerLabels.map((label) => (
+              <div key={label.id} className="rounded-[2rem] border border-slate-200 bg-[#f6f4f1] p-4 shadow-sm">
+                <div className="mx-auto max-w-[320px] rounded-[1.75rem] bg-[#f6f4f1] px-2 py-3 text-center">
+                  <div className='text-[12px] font-bold tracking-[0.3em] text-slate-400 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>ສະຕິກເກີຮັບສິນຄ້າ BG SPORT</div>
+                  <div className="mx-auto mt-4 flex h-[255px] w-[255px] items-center justify-center rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+                    {stickerPreviewUrls[label.id] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={stickerPreviewUrls[label.id]} alt={label.order_code} className="h-[220px] w-[220px]" />
+                    ) : (
+                      <div className="text-xs font-semibold text-slate-400">ກຳລັງສ້າງ QR...</div>
+                    )}
+                  </div>
+                  <div className='mt-5 text-[42px] font-black tracking-tight text-slate-950 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>{label.order_code}</div>
+                  <div className='mt-2 text-[16px] font-bold text-slate-500 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>ລະຫັດບິນໂຮງງານ: {label.factory_bill_code?.trim() || "-"}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-2 text-lg font-black text-slate-900">
           <CheckCheck size={20} />
           ຮອບນຳເຂົ້າລ່າສຸດ
         </div>
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {recentReceipts.map((receipt) => (
-            <div key={receipt.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+            <button
+              type="button"
+              key={receipt.id}
+              onClick={() => void loadReceiptStickerList(receipt.id)}
+              className={`rounded-3xl border p-4 text-left transition ${
+                activeReceiptId === receipt.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+              }`}
+            >
               <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">ນຳເຂົ້າແລ້ວ</div>
               <div className="mt-2 text-lg font-black text-slate-900">{formatDateTime(receipt.received_at)}</div>
               <div className="mt-1 text-sm font-semibold text-slate-500">{receipt.received_by}</div>
               <div className="mt-3 text-sm font-medium text-slate-500">{receipt.note?.trim() || "ບໍ່ມີໝາຍເຫດ"}</div>
-            </div>
+              <div className="mt-4 text-xs font-black uppercase tracking-[0.2em] text-blue-600">ກົດເພື່ອໂຫຼດສະຕິກເກີ</div>
+            </button>
           ))}
         </div>
       </section>
