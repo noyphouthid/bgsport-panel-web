@@ -202,7 +202,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   if (!profile) return null;
 
   return (
-    <div className="h-screen md:flex bg-gray-100 overflow-hidden">
+    <div className="min-h-screen md:h-screen md:flex bg-gray-100 overflow-x-hidden">
       {sidebarOpen && (
         <button
           type="button"
@@ -279,7 +279,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="min-h-screen md:flex-1 flex flex-col min-w-0">
         <header className="h-16 bg-white border-b flex items-center justify-between px-6 shadow-sm">
           <div className="flex items-center gap-3">
             <button
@@ -328,7 +328,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 p-6 overflow-auto">{children}</main>
+        <main className="flex-1 p-4 md:p-6 overflow-visible md:overflow-auto">{children}</main>
       </div>
       <Toaster
         position="top-right"
