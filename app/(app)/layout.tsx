@@ -202,7 +202,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   if (!profile) return null;
 
   return (
-    <div className="min-h-screen md:h-screen md:flex bg-gray-100 overflow-x-hidden">
+    <div className="min-h-screen min-h-[100dvh] md:h-screen md:flex bg-gray-100 overflow-x-hidden">
       {sidebarOpen && (
         <button
           type="button"
@@ -213,11 +213,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       )}
 
       <aside
-        onWheel={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        className={`fixed inset-y-0 left-0 z-40 bg-slate-800 text-white h-screen flex flex-col transition-all duration-300 md:sticky md:top-0 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 bg-slate-800 text-white h-[100dvh] overflow-y-auto overscroll-contain flex flex-col transition-all duration-300 md:sticky md:top-0 md:h-screen md:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${sidebarCollapsed ? "md:w-20" : "md:w-64"} w-64`}
       >
@@ -249,7 +245,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <nav className="flex-1 overflow-hidden px-3 py-6 space-y-1 text-sm font-medium">
+        <nav className="flex-1 overflow-y-auto px-3 py-6 space-y-1 text-sm font-medium">
           {availableNav.map((item) => {
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
@@ -279,8 +275,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="min-h-screen md:flex-1 flex flex-col min-w-0">
-        <header className="h-16 bg-white border-b flex items-center justify-between px-6 shadow-sm">
+      <div className="min-h-screen min-h-[100dvh] md:flex-1 flex flex-col min-w-0">
+        <header className="sticky top-0 z-20 h-16 bg-white/95 backdrop-blur border-b flex items-center justify-between px-4 md:px-6 shadow-sm">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -298,11 +294,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             >
               {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
             </button>
-            <div className="font-bold text-slate-700 uppercase text-sm tracking-tight">BG Sport Management</div>
+            <div className="font-bold text-slate-700 uppercase text-xs md:text-sm tracking-tight">BG Sport Management</div>
           </div>
 
-          <div className="flex items-center gap-6">
-            <div className="relative">
+          <div className="flex items-center gap-3 md:gap-6">
+            <div className="relative hidden md:block">
               <input
                 type="text"
                 placeholder="Search..."
@@ -315,11 +311,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs border border-blue-200">
                 {userInitials}
               </div>
-              <div className="text-sm font-bold text-slate-700">{profile.full_name}</div>
+              <div className="hidden md:block text-sm font-bold text-slate-700">{profile.full_name}</div>
               <button
                 type="button"
                 onClick={handleSignOut}
-                className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-700"
+                className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-700 md:w-auto w-8 overflow-hidden"
               >
                 <LogOut size={14} />
                 ອອກລະບົບ

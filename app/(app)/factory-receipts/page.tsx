@@ -174,7 +174,7 @@ export default function FactoryReceiptsPage() {
             .sticker {
               width: 80mm;
               height: 100mm;
-              padding: 4mm 4mm 4mm;
+              padding: 6mm 7mm 8mm;
               display: flex;
               flex-direction: column;
               align-items: center;
@@ -186,17 +186,17 @@ export default function FactoryReceiptsPage() {
             .title {
               margin-top: 0;
               color: #8a98b6;
-              font-size: 3.6mm;
+              font-size: 3.1mm;
               font-weight: 700;
-              letter-spacing: 0.55mm;
-              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
+              letter-spacing: 0.35mm;
+              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", sans-serif;
               text-align: center;
               white-space: nowrap;
             }
             .qr-shell {
-              width: 66mm;
-              height: 66mm;
-              margin-top: 5mm;
+              width: 56mm;
+              height: 56mm;
+              margin-top: 5.5mm;
               border-radius: 5.5mm;
               border: 0.4mm solid #e5e7eb;
               background: #ffffff;
@@ -207,14 +207,14 @@ export default function FactoryReceiptsPage() {
               flex-shrink: 0;
             }
             .qr-shell img {
-              width: 58mm;
-              height: 58mm;
+              width: 48mm;
+              height: 48mm;
               display: block;
             }
             .order-code {
-              margin-top: 6mm;
+              margin-top: 7.5mm;
               color: #111827;
-              font-size: 9.2mm;
+              font-size: 8mm;
               font-weight: 900;
               letter-spacing: -0.1mm;
               font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
@@ -224,9 +224,9 @@ export default function FactoryReceiptsPage() {
               max-width: 100%;
             }
             .factory-bill {
-              margin-top: 3.2mm;
+              margin-top: 4.5mm;
               color: #6b7280;
-              font-size: 4.2mm;
+              font-size: 3.5mm;
               font-weight: 700;
               font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
               text-align: center;
@@ -510,18 +510,18 @@ export default function FactoryReceiptsPage() {
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {stickerLabels.map((label) => (
               <div key={label.id} className="rounded-[2rem] border border-slate-200 bg-[#f6f4f1] p-4 shadow-sm">
-                <div className="mx-auto max-w-[320px] rounded-[1.75rem] bg-[#f6f4f1] px-2 py-3 text-center">
-                  <div className='text-[12px] font-bold tracking-[0.3em] text-slate-400 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>ສະຕິກເກີຮັບສິນຄ້າ BG SPORT</div>
-                  <div className="mx-auto mt-4 flex h-[255px] w-[255px] items-center justify-center rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+                <div className="mx-auto max-w-[320px] rounded-[1.75rem] bg-[#f6f4f1] px-4 py-5 text-center">
+                  <div className='text-[11px] font-bold tracking-[0.18em] text-slate-400 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>ສະຕິກເກີຮັບສິນຄ້າ BG SPORT</div>
+                  <div className="mx-auto mt-5 flex h-[222px] w-[222px] items-center justify-center rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
                     {stickerPreviewUrls[label.id] ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={stickerPreviewUrls[label.id]} alt={label.order_code} className="h-[220px] w-[220px]" />
+                      <img src={stickerPreviewUrls[label.id]} alt={label.order_code} className="h-[182px] w-[182px]" />
                     ) : (
                       <div className="text-xs font-semibold text-slate-400">ກຳລັງສ້າງ QR...</div>
                     )}
                   </div>
-                  <div className='mt-5 text-[42px] font-black tracking-tight text-slate-950 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>{label.order_code}</div>
-                  <div className='mt-2 text-[16px] font-bold text-slate-500 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>ລະຫັດບິນໂຮງງານ: {label.factory_bill_code?.trim() || "-"}</div>
+                  <div className='mt-6 text-[36px] font-black tracking-tight text-slate-950 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>{label.order_code}</div>
+                  <div className='mt-3 text-[14px] font-bold text-slate-500 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>ລະຫັດບິນໂຮງງານ: {label.factory_bill_code?.trim() || "-"}</div>
                 </div>
               </div>
             ))}
