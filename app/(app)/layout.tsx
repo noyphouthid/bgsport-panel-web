@@ -13,6 +13,9 @@ import {
   Wallet,
   Banknote,
   Users,
+  PackagePlus,
+  QrCode,
+  Truck,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -44,6 +47,9 @@ const nav = [
   { href: "/imports", label: "ນຳເຂົ້າ Excel", icon: FileSpreadsheet },
   { href: "/fabric", label: "ລາຄາຜ້າ", icon: Banknote },
   { href: "/users", label: "ຕັ້ງຄ່າຜູ້ໃຊ້", icon: Users },
+  { href: "/inventory-qr", label: "ສ້າງ QR", icon: QrCode },
+  { href: "/factory-receipts", label: "ຮັບສິນຄ້າເຂົ້າ", icon: PackagePlus },
+  { href: "/shipments", label: "ຈັດສົ່ງສິນຄ້າ", icon: Truck },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {

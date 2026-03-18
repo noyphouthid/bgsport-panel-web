@@ -393,6 +393,27 @@ export default function EditOrderPage() {
     await reloadAll();
   };
 
+  const handleCloseOrderCustomerOnly = async () => {
+    if (customerOutstanding > 0) {
+      return alert("Customer payment is not settled yet");
+    }
+
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        closed_at: new Date().toISOString(),
+      })
+      .eq("id", orderId);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    await safeInsertAction("close_order", "Closed order after customer settled");
+    await reloadAll();
+  };
+
   const handleCloseOrder = async () => {
     if (customerOutstanding > 0) return alert("ບໍ່ສາມາດປິດໄດ້: ລູກຄ້າຍັງຄ້າງຊຳລະ");
     if (factoryOutstanding > 0) return alert("ບໍ່ສາມາດປິດໄດ້: ຍັງຄ້າງຊຳລະໃຫ້ໂຮງງານ");
@@ -444,7 +465,7 @@ export default function EditOrderPage() {
           <button onClick={handleMarkProductionCompleted} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">
             ຜະລິດສຳເລັດ
           </button>
-          <button onClick={handleCloseOrder} className="bg-green-600 text-white px-4 py-2 rounded text-sm font-bold">
+          <button onClick={customerOutstanding <= 0 ? handleCloseOrderCustomerOnly : handleCloseOrder} className="bg-green-600 text-white px-4 py-2 rounded text-sm font-bold">
             ປິດຍອດອໍເດີ(ຮັບເງິນແລ້ວ)
           </button>
           <button onClick={handleUpdate} className="bg-orange-600 text-white px-4 py-2 rounded text-sm font-bold">
