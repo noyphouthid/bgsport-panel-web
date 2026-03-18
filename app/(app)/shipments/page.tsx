@@ -12,6 +12,8 @@ type PaymentMethod = "cash" | "transfer";
 type ShipmentInfo = {
   label: QrLabelRow;
   order: OrderSummary;
+  existingShipmentAt: string | null;
+  existingShipmentBy: string | null;
 };
 
 type ShipmentRow = {
@@ -90,27 +92,50 @@ export default function ShipmentsPage() {
       .select("id,order_code,factory_bill_code,order_date,production_completed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,net_total,initial_deposit,balance,factory_cost,customer_paid_full_at,factory_paid_full_at,status")
       .eq("id", label.order_id)
       .single();
+    const { data: existingShipmentData, error: existingShipmentError } = await supabase
+      .from("shipment_records")
+      .select("shipped_at,shipped_by")
+      .eq("order_id", label.order_id)
+      .order("shipped_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (orderError || !orderData) {
       toast.error(`ໂຫຼດລາຍລະອຽດອໍເດີບໍ່ສຳເລັດ: ${orderError?.message || "ຂໍ້ຜິດພາດບໍ່ຮູ້ສາເຫດ"}`);
+      return;
+    }
+    if (existingShipmentError) {
+      toast.error(`ກວດສອບປະຫວັດຈັດສົ່ງບໍ່ສຳເລັດ: ${existingShipmentError.message}`);
       return;
     }
 
     setActive({
       label,
       order: orderData as OrderSummary,
+      existingShipmentAt: existingShipmentData?.shipped_at || label.shipped_at || null,
+      existingShipmentBy: existingShipmentData?.shipped_by || label.shipped_by || null,
     });
     setScanValue("");
     setPaymentAmount(0);
     setNote("");
+    if (existingShipmentData?.shipped_at || label.label_status === "shipped") {
+      toast.error(`ອໍເດີ ${label.order_code} ເຄີຍຈັດສົ່ງສຳເລັດແລ້ວ ບໍ່ສາມາດສົ່ງຊ້ຳໄດ້`);
+      return;
+    }
     toast.success(`ໂຫຼດ ${label.order_code} ສຳເລັດ`);
   };
 
   const customerOutstanding = useMemo(() => Math.max(0, Number(active?.order.balance || 0)), [active]);
+  const hasOutstandingBalance = customerOutstanding > 0;
+  const shipmentLocked = Boolean(active?.existingShipmentAt || active?.label.label_status === "shipped");
 
   const submitShipment = async () => {
     if (!active) {
       toast.error("ກະລຸນາສະແກນ QR ກ່ອນ");
+      return;
+    }
+    if (shipmentLocked) {
+      toast.error("ອໍເດີນີ້ເຄີຍຈັດສົ່ງສຳເລັດແລ້ວ ບໍ່ສາມາດຈັດສົ່ງຊ້ຳໄດ້");
       return;
     }
     if (!shippedBy.trim()) {
@@ -128,10 +153,37 @@ export default function ShipmentsPage() {
 
     setSaving(true);
     const shippedAtIso = new Date(shippedAt).toISOString();
-    const paymentAtIso = new Date(paymentDate).toISOString();
+    const paymentAtIso = hasOutstandingBalance ? new Date(paymentDate).toISOString() : null;
     const nextBalance = Math.max(0, customerOutstanding - paymentAmount);
+    const { data: duplicateShipment, error: duplicateShipmentError } = await supabase
+      .from("shipment_records")
+      .select("id,shipped_at")
+      .eq("order_id", active.order.id)
+      .order("shipped_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (paymentAmount > 0) {
+    if (duplicateShipmentError) {
+      setSaving(false);
+      toast.error(`ກວດສອບການຈັດສົ່ງຊ້ຳບໍ່ສຳເລັດ: ${duplicateShipmentError.message}`);
+      return;
+    }
+    if (duplicateShipment) {
+      setSaving(false);
+      setActive((prev) =>
+        prev
+          ? {
+              ...prev,
+              existingShipmentAt: duplicateShipment.shipped_at,
+              existingShipmentBy: prev.existingShipmentBy || null,
+            }
+          : prev
+      );
+      toast.error(`ອໍເດີ ${active.order.order_code} ເຄີຍຈັດສົ່ງສຳເລັດແລ້ວ ບໍ່ສາມາດສົ່ງຊ້ຳໄດ້`);
+      return;
+    }
+
+    if (paymentAmount > 0 && paymentAtIso) {
       const { error: paymentTxnError } = await supabase.from("payment_transactions").insert({
         order_id: active.order.id,
         amount: paymentAmount,
@@ -144,20 +196,23 @@ export default function ShipmentsPage() {
         toast.error(`ບັນທຶກການຊຳລະບໍ່ສຳເລັດ: ${paymentTxnError.message}`);
         return;
       }
+    }
 
-      const { error: orderPaymentUpdateError } = await supabase
-        .from("orders")
-        .update({
-          balance: nextBalance,
-          customer_paid_full_at: nextBalance === 0 ? paymentAtIso : null,
-        })
-        .eq("id", active.order.id);
+    const orderUpdatePayload = {
+      balance: nextBalance,
+      customer_paid_full_at: nextBalance === 0 ? paymentAtIso || active.order.customer_paid_full_at : active.order.customer_paid_full_at,
+      production_completed_at: active.order.production_completed_at || shippedAtIso,
+    };
 
-      if (orderPaymentUpdateError) {
-        setSaving(false);
-        toast.error(`ບັນທຶກການຊຳລະແລ້ວ ແຕ່ອັບເດດອໍເດີບໍ່ສຳເລັດ: ${orderPaymentUpdateError.message}`);
-        return;
-      }
+    const { error: orderUpdateError } = await supabase
+      .from("orders")
+      .update(orderUpdatePayload)
+      .eq("id", active.order.id);
+
+    if (orderUpdateError) {
+      setSaving(false);
+      toast.error(`ອັບເດດອໍເດີຫຼັງຈັດສົ່ງບໍ່ສຳເລັດ: ${orderUpdateError.message}`);
+      return;
     }
 
     const { data: shipment, error: shipmentError } = await supabase
@@ -180,7 +235,7 @@ export default function ShipmentsPage() {
       return;
     }
 
-    if (paymentAmount > 0) {
+    if (paymentAmount > 0 && paymentAtIso) {
       const { error: shipmentPaymentError } = await supabase.from("shipment_payments").insert({
         shipment_id: shipment.id,
         order_id: active.order.id,
@@ -227,8 +282,11 @@ export default function ShipmentsPage() {
             order: {
               ...prev.order,
               balance: nextBalance,
-              customer_paid_full_at: nextBalance === 0 ? paymentAtIso : null,
+              production_completed_at: prev.order.production_completed_at || shippedAtIso,
+              customer_paid_full_at: nextBalance === 0 && paymentAtIso ? paymentAtIso : prev.order.customer_paid_full_at,
             },
+            existingShipmentAt: shippedAtIso,
+            existingShipmentBy: shippedBy.trim(),
           }
         : prev
     );
@@ -328,14 +386,22 @@ export default function ShipmentsPage() {
                 </div>
               </div>
 
-              <div className="mt-5 rounded-[2rem] border border-slate-200 bg-slate-50 p-4">
-                <div className="flex items-center gap-2 text-lg font-black text-slate-900">
-                  <Banknote size={18} />
-                  ຮັບຊຳລະຍອດຄົງເຫຼືອ ແລະ ຈັດສົ່ງ
-                </div>
+                <div className="mt-5 rounded-[2rem] border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center gap-2 text-lg font-black text-slate-900">
+                    <Banknote size={18} />
+                    {hasOutstandingBalance ? "ຮັບຊຳລະຍອດຄົງເຫຼືອ ແລະ ຈັດສົ່ງ" : "ພ້ອມຈັດສົ່ງ"}
+                  </div>
 
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <label className="text-sm font-bold text-slate-700">
+                  {shipmentLocked ? (
+                    <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                      ອໍເດີ {active.order.order_code} ເຄີຍຈັດສົ່ງສຳເລັດແລ້ວ
+                      {active.existingShipmentAt ? ` ໃນວັນທີ ${formatDateTime(active.existingShipmentAt)}` : ""}{" "}
+                      ຈຶ່ງບໍ່ສາມາດສົ່ງຊ້ຳໄດ້ ເພື່ອປ້ອງກັນກຳໄລເພີ້ຍນ.
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <label className="text-sm font-bold text-slate-700">
                     ວັນທີ/ເວລາຈັດສົ່ງ
                     <input
                       type="datetime-local"
@@ -350,45 +416,56 @@ export default function ShipmentsPage() {
                       value={shippedBy}
                       onChange={(e) => setShippedBy(e.target.value)}
                       className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                    />
-                  </label>
-                  <label className="text-sm font-bold text-slate-700">
-                    ຈຳນວນເງິນທີ່ຮັບຕອນນີ້
-                    <input
-                      type="number"
-                      min={0}
-                      max={customerOutstanding}
-                      value={paymentAmount}
-                      onChange={(e) => setPaymentAmount(Number(e.target.value))}
-                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                    />
-                  </label>
-                  <label className="text-sm font-bold text-slate-700">
-                    ຮູບແບບການຊຳລະ
-                    <select
-                      value={paymentMethod}
-                      onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="transfer">ໂອນເງິນ</option>
-                      <option value="cash">ເງິນສົດ</option>
-                    </select>
-                  </label>
-                </div>
+                      />
+                    </label>
+                  </div>
 
-                <label className="mt-4 block text-sm font-bold text-slate-700">
-                  ວັນທີ/ເວລາຊຳລະ
-                  <input
-                    type="datetime-local"
-                    value={paymentDate}
-                    onChange={(e) => setPaymentDate(e.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                  />
-                </label>
+                  {hasOutstandingBalance ? (
+                    <>
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <label className="text-sm font-bold text-slate-700">
+                          ຈຳນວນເງິນທີ່ຮັບຕອນນີ້
+                          <input
+                            type="number"
+                            min={0}
+                            max={customerOutstanding}
+                            value={paymentAmount}
+                            onChange={(e) => setPaymentAmount(Number(e.target.value))}
+                            className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                          />
+                        </label>
+                        <label className="text-sm font-bold text-slate-700">
+                          ຮູບແບບການຊຳລະ
+                          <select
+                            value={paymentMethod}
+                            onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                            className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                          >
+                            <option value="transfer">ໂອນເງິນ</option>
+                            <option value="cash">ເງິນສົດ</option>
+                          </select>
+                        </label>
+                      </div>
 
-                <label className="mt-4 block text-sm font-bold text-slate-700">
-                  ໝາຍເຫດ
-                  <textarea
+                      <label className="mt-4 block text-sm font-bold text-slate-700">
+                        ວັນທີ/ເວລາຊຳລະ
+                        <input
+                          type="datetime-local"
+                          value={paymentDate}
+                          onChange={(e) => setPaymentDate(e.target.value)}
+                          className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                      ອໍເດີນີ້ບໍ່ມີຍອດຄ້າງຊຳລະແລ້ວ ສາມາດກົດຈັດສົ່ງໄດ້ເລີຍ.
+                    </div>
+                  )}
+
+                  <label className="mt-4 block text-sm font-bold text-slate-700">
+                    ໝາຍເຫດ
+                    <textarea
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     rows={3}
@@ -400,11 +477,11 @@ export default function ShipmentsPage() {
                 <button
                   type="button"
                   onClick={() => void submitShipment()}
-                  disabled={saving}
+                  disabled={saving || shipmentLocked}
                   className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
                 >
                   <PackageCheck size={18} />
-                  {saving ? "ກຳລັງບັນທຶກ..." : "ຢືນຢັນການຈັດສົ່ງ"}
+                  {saving ? "ກຳລັງບັນທຶກ..." : shipmentLocked ? "ອໍເດີນີ້ສົ່ງແລ້ວ" : "ຢືນຢັນການຈັດສົ່ງ"}
                 </button>
               </div>
             </>

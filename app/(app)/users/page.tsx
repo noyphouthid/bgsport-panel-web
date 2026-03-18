@@ -10,7 +10,7 @@ type User = {
   full_name: string;
   phone: string | null;
   email: string | null;
-  role: "admin" | "manager" | "staff" | "graphic" | "accountant";
+  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
   is_active: boolean;
   notes: string | null;
   created_at: string;
@@ -18,6 +18,7 @@ type User = {
 };
 
 const ROLES = [
+  { value: "superadmin", label: "Superadmin" },
   { value: "admin", label: "ຜູ້ດູແລລະບົບ (Admin)" },
   { value: "manager", label: "ຜູ້ຈັດການ (Manager)" },
   { value: "staff", label: "ພະນັກງານ (Staff)" },
@@ -31,7 +32,7 @@ export default function UsersPage() {
   const [err, setErr] = useState<string | null>(null);
 
   // Filter
-  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "manager" | "staff" | "graphic" | "accountant">("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -289,6 +290,8 @@ export default function UsersPage() {
 
   const getRoleBadge = (role: User["role"]) => {
     switch (role) {
+      case "superadmin":
+        return <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-black uppercase border border-red-200">Superadmin</span>;
       case "admin":
         return <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-black uppercase border border-purple-200">Admin</span>;
       case "manager":
@@ -415,10 +418,11 @@ export default function UsersPage() {
             <label className="text-[10px] font-black text-slate-400 mb-1.5 block uppercase tracking-tighter">ກອງຕາມຕຳແໜ່ງ</label>
               <select
                 value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value as "all" | "admin" | "manager" | "staff" | "graphic" | "accountant")}
+                onChange={(e) => setRoleFilter(e.target.value as "all" | "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant")}
                 className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm font-bold text-white outline-none cursor-pointer"
               >
               <option value="all">ທັງໝົດ</option>
+              <option value="superadmin">Superadmin</option>
               <option value="admin">Admin</option>
               <option value="manager">Manager</option>
               <option value="staff">Staff</option>

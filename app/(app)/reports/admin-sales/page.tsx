@@ -23,7 +23,7 @@ type UserRow = {
   is_active: boolean;
 };
 
-const ADMIN_ROLE_ALIASES = new Set(["admin", "sale-admin", "sale_admin"]);
+const ADMIN_ROLE_ALIASES = new Set(["superadmin", "admin", "sale-admin", "sale_admin"]);
 
 type AdminSummary = {
   admin_id: string;

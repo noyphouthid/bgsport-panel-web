@@ -11,6 +11,8 @@ type ReportOrder = {
   order_code: string;
   order_date: string;
   production_completed_at: string | null;
+  shipped_at: string | null;
+  balance: number;
   short_qty: number;
   long_qty: number;
   net_total: number;
@@ -39,17 +41,38 @@ export default function SalesProfitReportPage() {
   const load = async () => {
     setLoading(true);
     setErr(null);
-    const { data, error } = await supabase
-      .from("orders")
-      .select("id,order_code,order_date,production_completed_at,short_qty,long_qty,net_total,factory_cost,status")
-      .order("order_date", { ascending: false });
-    if (error) {
-      setErr(error.message);
+    const [{ data: orderData, error: orderError }, { data: shipmentData, error: shipmentError }] = await Promise.all([
+      supabase
+        .from("orders")
+        .select("id,order_code,order_date,production_completed_at,balance,short_qty,long_qty,net_total,factory_cost,status")
+        .order("order_date", { ascending: false }),
+      supabase.from("shipment_records").select("order_id,shipped_at").order("shipped_at", { ascending: false }),
+    ]);
+
+    if (orderError) {
+      setErr(orderError.message);
       setRows([]);
       setLoading(false);
       return;
     }
-    setRows((data ?? []) as ReportOrder[]);
+    if (shipmentError) {
+      setErr(shipmentError.message);
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+
+    const shippedByOrder = new Map<string, string>();
+    ((shipmentData ?? []) as { order_id: string; shipped_at: string }[]).forEach((row) => {
+      if (!shippedByOrder.has(row.order_id)) shippedByOrder.set(row.order_id, row.shipped_at);
+    });
+
+    const mergedRows = ((orderData ?? []) as Omit<ReportOrder, "shipped_at">[]).map((row) => ({
+      ...row,
+      shipped_at: shippedByOrder.get(row.id) || null,
+    }));
+
+    setRows(mergedRows);
     setLoading(false);
   };
 
@@ -74,8 +97,9 @@ export default function SalesProfitReportPage() {
   const filteredForProfit = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
     return rows.filter((r) => {
-      if (!r.production_completed_at) return false;
-      if (!(r.production_completed_at >= start && r.production_completed_at < endExclusive)) return false;
+      const effectiveProfitAt = r.shipped_at || (Number(r.balance) === 0 ? r.production_completed_at : null);
+      if (!effectiveProfitAt) return false;
+      if (!(effectiveProfitAt >= start && effectiveProfitAt < endExclusive)) return false;
       if (!matchPrefix(r.order_code, prefix)) return false;
       if (status !== "all" && r.status !== status) return false;
       return true;
@@ -101,6 +125,7 @@ export default function SalesProfitReportPage() {
     const exportRows = filteredByOrderDate.map((r) => ({
       "ວັນທີສັ່ງ": r.order_date,
       "ວັນທີຜະລິດສຳເລັດ": toDateOnly(r.production_completed_at),
+      "ວັນທີຈັດສົ່ງສຳເລັດ": toDateOnly(r.shipped_at),
       "ລະຫັດອໍເດີ": r.order_code,
       "ຈຳນວນເສື້ອ": (Number(r.short_qty) || 0) + (Number(r.long_qty) || 0),
       "ແຂນສັ້ນ": Number(r.short_qty) || 0,
@@ -113,7 +138,8 @@ export default function SalesProfitReportPage() {
 
     exportRows.push({
       "ວັນທີສັ່ງ": "ສະຫຼຸບລວມ",
-      "ວັນທີຜະລິດສຳເລັດ": periodLabel,
+      "ວັນທີຜະລິດສຳເລັດ": "-",
+      "ວັນທີຈັດສົ່ງສຳເລັດ": periodLabel,
       "ລະຫັດອໍເດີ": `prefix=${prefix} status=${status}`,
       "ຈຳນວນເສື້ອ": summary.totalShirts,
       "ແຂນສັ້ນ": 0,

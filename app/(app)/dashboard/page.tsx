@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
+import type { AppRole } from "@/lib/access-control";
 
 type DashboardStats = {
   totalProfit: number;
@@ -63,6 +64,7 @@ export default function DashboardPage() {
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
 
   // Date Range Filter
   const [dateMode, setDateMode] = useState<DateRangeMode>("1month");
@@ -179,6 +181,19 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
+  useEffect(() => {
+    const loadViewerRole = async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUserId = sessionData.session?.user.id;
+      if (!authUserId) return;
+      const { data } = await supabase.from("users").select("role").eq("auth_user_id", authUserId).maybeSingle();
+      if (data?.role) setViewerRole(data.role as AppRole);
+    };
+    void loadViewerRole();
+  }, []);
+
+  const isAdminLimited = viewerRole === "admin";
+
   const formatCurrency = (amount: number) => {
     return `₭ ${amount.toLocaleString()}`;
   };
@@ -216,7 +231,7 @@ export default function DashboardPage() {
               {loading ? "ກຳລັງໂຫຼດ..." : "ໂຫຼດຄືນໃໝ່"}
             </button>
 
-            <Link
+            {!isAdminLimited ? <Link
               href="/orders/new"
               className="flex items-center gap-2 bg-green-600 border border-green-700 px-4 py-2 rounded-xl text-white font-black text-sm hover:bg-green-700 transition-all active:scale-95 shadow-sm shadow-green-100"
             >
@@ -225,7 +240,7 @@ export default function DashboardPage() {
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
               ເພີ່ມອໍເດີ້ໃໝ່
-            </Link>
+            </Link> : null}
           </div>
         </div>
 
@@ -292,7 +307,7 @@ export default function DashboardPage() {
       )}
 
       {/* แถวที่ 1: การเงิน */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {!isAdminLimited ? <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all">
           <div className="flex items-center justify-between mb-4">
             <div className="w-10 h-10 bg-green-100 rounded-2xl flex items-center justify-center text-green-600">
@@ -344,7 +359,7 @@ export default function DashboardPage() {
           </div>
           <div className="text-xs text-slate-500 font-bold">ອໍເດີ້ທັງໝົດ: {stats.totalOrders}</div>
         </div>
-      </div>
+      </div> : null}
 
       {/* แถวที่ 2: จำนวนเสื้อ (พร้อมไอคอน) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -410,7 +425,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ส่วนอื่นๆ ของ Dashboard (เหมือนเดิม) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {!isAdminLimited ? <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
           <h2 className="text-sm font-black text-slate-800 mb-6 uppercase tracking-wider">ສະຖານະອໍເດີ້</h2>
           <div className="space-y-6">
@@ -465,9 +480,9 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-      </div>
+      </div> : null}
 
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+      {!isAdminLimited ? <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
           <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">ລາຍການອໍເດີ້</h2>
           <Link href="/orders" className="text-xs bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-blue-600 hover:bg-blue-50 font-black transition-all">
@@ -526,7 +541,7 @@ export default function DashboardPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div> : null}
     </div>
   );
 }

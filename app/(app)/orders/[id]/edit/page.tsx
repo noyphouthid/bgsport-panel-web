@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
+import type { AppRole } from "@/lib/access-control";
 
 type OrderDetail = {
   id: string;
@@ -33,7 +34,6 @@ type OrderDetail = {
   net_total: number;
   balance: number;
   status: "in_progress" | "completed";
-  completed_at: string | null;
   production_completed_at: string | null;
   customer_remaining_due_at: string | null;
   factory_payment_due_at: string | null;
@@ -41,32 +41,36 @@ type OrderDetail = {
   factory_paid_full_at: string | null;
   closed_at: string | null;
   created_at: string;
-  updated_at: string;
 };
 
 type UserOption = {
   id: string;
   full_name: string;
-  role: "admin" | "manager" | "staff" | "graphic" | "accountant";
+  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
+  is_active: boolean;
+};
+
+type FabricRow = {
+  id: string;
+  name: string;
+  short_price: number;
+  long_add: number;
+  long_price: number;
   is_active: boolean;
 };
 
 type CustomerPayment = {
   id: string;
-  order_id: string;
   amount: number;
   paid_at: string;
   note: string | null;
-  created_at: string;
 };
 
 type FactoryPayment = {
   id: string;
-  order_id: string;
   amount: number;
   paid_at: string;
   note: string | null;
-  created_at: string;
 };
 
 export default function EditOrderPage() {
@@ -76,16 +80,20 @@ export default function EditOrderPage() {
 
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [customerPayments, setCustomerPayments] = useState<CustomerPayment[]>([]);
   const [factoryPayments, setFactoryPayments] = useState<FactoryPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingUsers, setLoadingUsers] = useState(true);
+  const [loadingFabrics, setLoadingFabrics] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
 
   const [orderDate, setOrderDate] = useState("");
   const [orderCode, setOrderCode] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [factoryBillCode, setFactoryBillCode] = useState("");
+  const [fabricId, setFabricId] = useState("");
   const [adminUserId, setAdminUserId] = useState("");
   const [graphicUserId, setGraphicUserId] = useState("");
   const [shortQty, setShortQty] = useState(0);
@@ -121,9 +129,7 @@ export default function EditOrderPage() {
       detail,
       action_at: new Date().toISOString(),
     });
-    if (error && !error.message.includes("Could not find the table")) {
-      setErr(error.message);
-    }
+    if (error && !error.message.includes("Could not find the table")) setErr(error.message);
   };
 
   const loadOrder = async () => {
@@ -135,6 +141,7 @@ export default function EditOrderPage() {
     setOrderCode(o.order_code);
     setCustomerPhone(o.customer_phone || "");
     setFactoryBillCode(o.factory_bill_code || "");
+    setFabricId(o.fabric_id || "");
     setAdminUserId(o.admin_user_id || "");
     setGraphicUserId(o.graphic_user_id || "");
     setShortQty(o.short_qty);
@@ -153,48 +160,33 @@ export default function EditOrderPage() {
 
   const loadUsers = async () => {
     setLoadingUsers(true);
-    const { data, error } = await supabase
-      .from("users")
-      .select("id,full_name,role,is_active")
-      .eq("is_active", true)
-      .in("role", ["admin", "graphic"])
-      .order("full_name", { ascending: true });
-    if (error) {
-      throw error;
-    }
+    const { data, error } = await supabase.from("users").select("id,full_name,role,is_active").eq("is_active", true).in("role", ["superadmin", "admin", "graphic"]).order("full_name", { ascending: true });
+    if (error) throw error;
     setUsers((data ?? []) as UserOption[]);
     setLoadingUsers(false);
   };
 
+  const loadFabrics = async () => {
+    setLoadingFabrics(true);
+    const { data, error } = await supabase.from("fabrics").select("id,name,short_price,long_add,long_price,is_active").eq("is_active", true).order("name", { ascending: true });
+    if (error) throw error;
+    setFabrics((data ?? []) as FabricRow[]);
+    setLoadingFabrics(false);
+  };
+
   const loadCustomerPayments = async () => {
-    const { data, error } = await supabase
-      .from("payment_transactions")
-      .select("id,order_id,amount,paid_at,note,created_at")
-      .eq("order_id", orderId)
-      .order("paid_at", { ascending: false })
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("payment_transactions").select("id,amount,paid_at,note").eq("order_id", orderId).order("paid_at", { ascending: false });
     if (error) {
-      if (error.message.includes("Could not find the table")) {
-        setCustomerPayments([]);
-        return;
-      }
+      if (error.message.includes("Could not find the table")) return setCustomerPayments([]);
       throw error;
     }
     setCustomerPayments((data ?? []) as CustomerPayment[]);
   };
 
   const loadFactoryPayments = async () => {
-    const { data, error } = await supabase
-      .from("factory_payments")
-      .select("id,order_id,amount,paid_at,note,created_at")
-      .eq("order_id", orderId)
-      .order("paid_at", { ascending: false })
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("factory_payments").select("id,amount,paid_at,note").eq("order_id", orderId).order("paid_at", { ascending: false });
     if (error) {
-      if (error.message.includes("Could not find the table")) {
-        setFactoryPayments([]);
-        return;
-      }
+      if (error.message.includes("Could not find the table")) return setFactoryPayments([]);
       throw error;
     }
     setFactoryPayments((data ?? []) as FactoryPayment[]);
@@ -204,29 +196,42 @@ export default function EditOrderPage() {
     setLoading(true);
     setErr(null);
     try {
-      await Promise.all([loadOrder(), loadUsers()]);
+      await Promise.all([loadOrder(), loadUsers(), loadFabrics()]);
       await Promise.all([loadCustomerPayments(), loadFactoryPayments()]);
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Load failed";
-      setErr(message);
+      setErr(e instanceof Error ? e.message : "Load failed");
       setLoadingUsers(false);
+      setLoadingFabrics(false);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (orderId) reloadAll();
+    if (orderId) void reloadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
-  const adminOptions = useMemo(() => users.filter((u) => u.role === "admin"), [users]);
+  useEffect(() => {
+    const loadViewerRole = async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUserId = sessionData.session?.user.id;
+      if (!authUserId) return;
+      const { data } = await supabase.from("users").select("role").eq("auth_user_id", authUserId).maybeSingle();
+      if (data?.role) setViewerRole(data.role as AppRole);
+    };
+    void loadViewerRole();
+  }, []);
+
+  const adminOptions = useMemo(() => users.filter((u) => u.role === "superadmin" || u.role === "admin"), [users]);
   const graphicOptions = useMemo(() => users.filter((u) => u.role === "graphic"), [users]);
+  const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
 
   const shirtsTotal = useMemo(() => {
-    if (!order) return 0;
-    return shortQty * order.fabric_short_price + longQty * order.fabric_long_price;
-  }, [order, shortQty, longQty]);
+    const shortPrice = selectedFabric?.short_price ?? order?.fabric_short_price ?? 0;
+    const longPrice = selectedFabric?.long_price ?? order?.fabric_long_price ?? 0;
+    return shortQty * shortPrice + longQty * longPrice;
+  }, [selectedFabric, order, shortQty, longQty]);
 
   const plusSizeQty = useMemo(() => qty3XL + qty4XL + qty5XL, [qty3XL, qty4XL, qty5XL]);
   const plusSizeTotal = useMemo(() => plusSizeQty * (order?.size_upcharge || 20000), [plusSizeQty, order]);
@@ -234,44 +239,37 @@ export default function EditOrderPage() {
   const netTotal = useMemo(() => Math.max(0, grossTotal - designDeposit), [grossTotal, designDeposit]);
 
   const customerReceived = useMemo(() => {
-    if (customerPayments.length > 0) {
-      return customerPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    }
-    return order ? Number(order.initial_deposit || 0) : 0;
+    const paymentHistoryTotal = customerPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const savedDeposit = Number(order?.initial_deposit || 0);
+    const receivedFromBalance = order ? Math.max(0, Number(order.net_total || 0) - Number(order.balance || 0)) : 0;
+    return Math.max(paymentHistoryTotal, savedDeposit, receivedFromBalance);
   }, [customerPayments, order]);
 
   const customerOutstanding = useMemo(() => Math.max(0, netTotal - customerReceived), [netTotal, customerReceived]);
-
-  const factoryPaid = useMemo(
-    () => factoryPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0),
-    [factoryPayments]
-  );
-  const factoryOutstanding = useMemo(
-    () => Math.max(0, Math.max(0, Number(factoryCost || 0)) - factoryPaid),
-    [factoryCost, factoryPaid]
-  );
-
+  const factoryPaid = useMemo(() => factoryPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0), [factoryPayments]);
+  const factoryOutstanding = useMemo(() => Math.max(0, Math.max(0, Number(factoryCost || 0)) - factoryPaid), [factoryCost, factoryPaid]);
   const profitPreview = useMemo(() => netTotal - Math.max(0, Number(factoryCost || 0)), [netTotal, factoryCost]);
 
-  const customerPayStatus = customerOutstanding === 0 ? "ຊຳລະແລ້ວ" : customerReceived > 0 ? "ຊຳລະບາງສ່ວນ" : "ຍັງບໍ່ຊຳລະ";
-  const factoryPayStatus = factoryOutstanding === 0 ? "ຊຳລະແລ້ວ" : factoryPaid > 0 ? "ຊຳລະບາງສ່ວນ" : "ຍັງບໍ່ຊຳລະ";
+  const productionStatusLabel = order?.production_completed_at ? "ຜະລິດສຳເລັດ" : "ກຳລັງຜະລິດ";
+  const closeStatusLabel = order?.status === "completed" ? "ປິດງານແລ້ວ" : "ຍັງບໍ່ປິດງານ";
+  const isReadOnlyAdmin = viewerRole === "admin";
 
   const handleUpdate = async () => {
-    if (!order) return;
-    setErr(null);
-    if (!adminUserId) {
-      toast.error("ກະລຸນາເລືອກ Admin");
-      return;
-    }
-    if (!graphicUserId) {
-      toast.error("ກະລຸນາເລືອກ Graphic");
-      return;
-    }
+    if (!order || isReadOnlyAdmin) return;
+    if (!adminUserId) return toast.error("ກະລຸນາເລືອກ Admin");
+    if (!graphicUserId) return toast.error("ກະລຸນາເລືອກ Graphic");
+    if (!fabricId) return toast.error("ກະລຸນາເລືອກປະເພດຜ້າ");
+
+    const fabric = selectedFabric ?? { id: order.fabric_id, name: order.fabric_name, short_price: order.fabric_short_price, long_add: 0, long_price: order.fabric_long_price, is_active: true };
     const payload = {
       order_code: orderCode.trim(),
       order_date: orderDate,
       customer_phone: customerPhone.trim() || null,
       factory_bill_code: factoryBillCode.trim() || null,
+      fabric_id: fabric.id,
+      fabric_name: fabric.name,
+      fabric_short_price: fabric.short_price,
+      fabric_long_price: fabric.long_price,
       admin_user_id: adminUserId || null,
       graphic_user_id: graphicUserId || null,
       short_qty: Math.max(0, shortQty),
@@ -287,6 +285,7 @@ export default function EditOrderPage() {
       net_total: netTotal,
       initial_deposit: customerReceived,
       balance: customerOutstanding,
+      customer_paid_full_at: customerOutstanding === 0 ? order.customer_paid_full_at || new Date().toISOString() : null,
       customer_remaining_due_at: dateInputToIso(customerRemainingDueDate),
       factory_payment_due_at: dateInputToIso(factoryPaymentDueDate),
       production_completed_at: dateInputToIso(productionCompletedDate),
@@ -295,22 +294,23 @@ export default function EditOrderPage() {
     const { error } = await supabase.from("orders").update(payload).eq("id", orderId);
     if (error) {
       setErr(error.message);
-      toast.error(`ບັນທຶກການແກ້ໄຂບໍ່ສຳເລັດ: ${error.message}`);
-      return;
+      return toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error.message}`);
     }
-    await safeInsertAction("update_order", "Updated order details and recalculated totals");
+    await safeInsertAction("update_order", "Updated order details");
     await reloadAll();
-    toast.success("ບັນທຶກການແກ້ໄຂແລ້ວ");
+    toast.success("ບັນທຶກແລ້ວ");
   };
 
   const handleAddCustomerPayment = async () => {
+    if (!order || isReadOnlyAdmin) return;
     if (customerPayAmount <= 0) return alert("ຈຳນວນເງິນຕ້ອງຫຼາຍກວ່າ 0");
     if (customerPayAmount > customerOutstanding) return alert("ຈຳນວນເງິນເກີນຍອດຄ້າງຊຳລະ");
 
+    const paidAtIso = dateInputToIso(customerPayDate) || new Date().toISOString();
     const { error: insertError } = await supabase.from("payment_transactions").insert({
       order_id: orderId,
       amount: customerPayAmount,
-      paid_at: dateInputToIso(customerPayDate) || new Date().toISOString(),
+      paid_at: paidAtIso,
       note: customerPayNote.trim() || null,
     });
     if (insertError) {
@@ -318,17 +318,13 @@ export default function EditOrderPage() {
       return;
     }
 
-    const nextReceived = customerReceived + customerPayAmount;
+    const nextReceived = Math.max(Number(order.initial_deposit || 0), customerReceived) + customerPayAmount;
     const nextOutstanding = Math.max(0, netTotal - nextReceived);
-    const paidAtIso = dateInputToIso(customerPayDate) || new Date().toISOString();
-    const { error: updateError } = await supabase
-      .from("orders")
-      .update({
-        initial_deposit: nextReceived,
-        balance: nextOutstanding,
-        customer_paid_full_at: nextOutstanding === 0 ? paidAtIso : null,
-      })
-      .eq("id", orderId);
+    const { error: updateError } = await supabase.from("orders").update({
+      initial_deposit: nextReceived,
+      balance: nextOutstanding,
+      customer_paid_full_at: nextOutstanding === 0 ? paidAtIso : null,
+    }).eq("id", orderId);
     if (updateError) {
       setErr(updateError.message);
       return;
@@ -343,13 +339,15 @@ export default function EditOrderPage() {
   };
 
   const handleAddFactoryPayment = async () => {
+    if (isReadOnlyAdmin) return;
     if (factoryPayAmount <= 0) return alert("ຈຳນວນເງິນຕ້ອງຫຼາຍກວ່າ 0");
     if (factoryPayAmount > factoryOutstanding) return alert("ຈຳນວນເງິນເກີນຍອດຄ້າງຊຳລະໂຮງງານ");
 
+    const paidAtIso = dateInputToIso(factoryPayDate) || new Date().toISOString();
     const { error: insertError } = await supabase.from("factory_payments").insert({
       order_id: orderId,
       amount: factoryPayAmount,
-      paid_at: dateInputToIso(factoryPayDate) || new Date().toISOString(),
+      paid_at: paidAtIso,
       note: factoryPayNote.trim() || null,
     });
     if (insertError) {
@@ -359,13 +357,9 @@ export default function EditOrderPage() {
 
     const nextFactoryPaid = factoryPaid + factoryPayAmount;
     const nextFactoryOutstanding = Math.max(0, Math.max(0, Number(factoryCost || 0)) - nextFactoryPaid);
-    const paidAtIso = dateInputToIso(factoryPayDate) || new Date().toISOString();
-    const { error: updateError } = await supabase
-      .from("orders")
-      .update({
-        factory_paid_full_at: nextFactoryOutstanding === 0 ? paidAtIso : null,
-      })
-      .eq("id", orderId);
+    const { error: updateError } = await supabase.from("orders").update({
+      factory_paid_full_at: nextFactoryOutstanding === 0 ? paidAtIso : null,
+    }).eq("id", orderId);
     if (updateError) {
       setErr(updateError.message);
       return;
@@ -380,11 +374,9 @@ export default function EditOrderPage() {
   };
 
   const handleMarkProductionCompleted = async () => {
+    if (isReadOnlyAdmin) return;
     if (!productionCompletedDate) return alert("ກະລຸນາເລືອກວັນທີຜະລິດສຳເລັດ");
-    const { error } = await supabase
-      .from("orders")
-      .update({ production_completed_at: dateInputToIso(productionCompletedDate) })
-      .eq("id", orderId);
+    const { error } = await supabase.from("orders").update({ production_completed_at: dateInputToIso(productionCompletedDate) }).eq("id", orderId);
     if (error) {
       setErr(error.message);
       return;
@@ -393,289 +385,201 @@ export default function EditOrderPage() {
     await reloadAll();
   };
 
-  const handleCloseOrderCustomerOnly = async () => {
-    if (customerOutstanding > 0) {
-      return alert("Customer payment is not settled yet");
-    }
-
-    const { error } = await supabase
-      .from("orders")
-      .update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
-        closed_at: new Date().toISOString(),
-      })
-      .eq("id", orderId);
-    if (error) {
-      setErr(error.message);
-      return;
-    }
-    await safeInsertAction("close_order", "Closed order after customer settled");
-    await reloadAll();
-  };
-
   const handleCloseOrder = async () => {
-    if (customerOutstanding > 0) return alert("ບໍ່ສາມາດປິດໄດ້: ລູກຄ້າຍັງຄ້າງຊຳລະ");
-    if (factoryOutstanding > 0) return alert("ບໍ່ສາມາດປິດໄດ້: ຍັງຄ້າງຊຳລະໃຫ້ໂຮງງານ");
-
-    const { error } = await supabase
-      .from("orders")
-      .update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
-        closed_at: new Date().toISOString(),
-      })
-      .eq("id", orderId);
+    if (isReadOnlyAdmin) return;
+    if (customerOutstanding > 0) return alert("ລູກຄ້າຍັງຄ້າງຊຳລະ");
+    const { error } = await supabase.from("orders").update({
+      status: "completed",
+      closed_at: new Date().toISOString(),
+    }).eq("id", orderId);
     if (error) {
       setErr(error.message);
       return;
     }
-    await safeInsertAction("close_order", "Closed order after customer/factory settled");
+    await safeInsertAction("close_order", "Closed order");
     await reloadAll();
   };
 
   const handleDelete = async () => {
-    if (!order) return;
-    const ok = confirm(`ຕ້ອງການລຶບອໍເດີ ${order.order_code} ຫຼື ບໍ່? ບໍ່ສາມາດກັບຄືນໄດ້.`);
+    if (!order || isReadOnlyAdmin) return;
+    const ok = confirm(`ຕ້ອງການລຶບອໍເດີ ${order.order_code} ຫຼື ບໍ່?`);
     if (!ok) return;
     const { error } = await supabase.from("orders").delete().eq("id", orderId);
-    if (error) {
-      setErr(error.message);
-      return;
-    }
+    if (error) return setErr(error.message);
     router.push("/orders");
   };
 
-  if (loading) return <div className="text-slate-800 font-bold">ກຳລັງໂຫຼດ...</div>;
-  if (!order) return <div className="text-red-600 font-bold">ບໍ່ພົບຂໍ້ມູນອໍເດີ.</div>;
+  if (loading) return <div className="font-bold text-slate-900">ກຳລັງໂຫຼດ...</div>;
+  if (!order) return <div className="font-bold text-red-700">ບໍ່ພົບຂໍ້ມູນອໍເດີ.</div>;
 
   return (
     <div className="space-y-4">
-      {err && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded text-sm">ຂໍ້ຜິດພາດ: {err}</div>}
-
+      {err && <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800 font-bold">ຂໍ້ຜິດພາດ: {err}</div>}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black text-slate-900">ແກ້ໄຂອໍເດີ: {order.order_code}</h1>
-          <div className="text-sm text-slate-700">ສ້າງເມື່ອ: {new Date(order.created_at).toLocaleString("en-US")}</div>
+          <div className="text-sm text-slate-800 font-medium">ສ້າງເມື່ອ: {new Date(order.created_at).toLocaleString("en-US")}</div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/orders" className="border border-slate-300 px-4 py-2 rounded text-sm font-bold text-slate-700">
-            ກັບຄືນ
-          </Link>
-          <button onClick={handleMarkProductionCompleted} className="bg-indigo-600 text-white px-4 py-2 rounded text-sm font-bold">
-            ຜະລິດສຳເລັດ
-          </button>
-          <button onClick={customerOutstanding <= 0 ? handleCloseOrderCustomerOnly : handleCloseOrder} className="bg-green-600 text-white px-4 py-2 rounded text-sm font-bold">
-            ປິດຍອດອໍເດີ(ຮັບເງິນແລ້ວ)
-          </button>
-          <button onClick={handleUpdate} className="bg-orange-600 text-white px-4 py-2 rounded text-sm font-bold">
-            ບັນທຶກ
-          </button>
-          <button onClick={handleDelete} className="bg-red-600 text-white px-4 py-2 rounded text-sm font-bold">
-            ລຶບ
-          </button>
+          <Link href="/orders" className="rounded border border-slate-400 px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50">ກັບຄືນ</Link>
+          {!isReadOnlyAdmin ? <button onClick={handleMarkProductionCompleted} className="rounded bg-indigo-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-indigo-700">ຜະລິດສຳເລັດ</button> : null}
+          {!isReadOnlyAdmin ? <button onClick={handleCloseOrder} className="rounded bg-green-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-green-700">ປິດງານແລ້ວ</button> : null}
+          {!isReadOnlyAdmin ? <button onClick={handleUpdate} className="rounded bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-orange-700">ບັນທຶກ</button> : null}
+          {!isReadOnlyAdmin ? <button onClick={handleDelete} className="rounded bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-red-700">ລຶບ</button> : null}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 space-y-4">
-          <div className="bg-white rounded-xl border border-slate-100 p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ວັນທີສັ່ງຊື້</label>
-              <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
+          <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-2 shadow-sm">
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ວັນທີສັ່ງຊື້</label>
+              <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ລະຫັດອໍເດີ</label>
-              <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ລະຫັດອໍເດີ</label>
+              <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm font-black text-slate-900" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ເບີໂທລູກຄ້າ</label>
-              <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ເບີໂທລູກຄ້າ</label>
+              <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="ເບີໂທລູກຄ້າ" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ລະຫັດບິນໂຮງງານ</label>
-              <input value={factoryBillCode} onChange={(e) => setFactoryBillCode(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ລະຫັດບິນໂຮງງານ</label>
+              <input value={factoryBillCode} onChange={(e) => setFactoryBillCode(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="ລະຫັດບິນໂຮງງານ" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">Admin</label>
-              <select
-                value={adminUserId}
-                onChange={(e) => setAdminUserId(e.target.value)}
-                className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white"
-                disabled={loadingUsers}
-              >
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ປະເພດຜ້າ</label>
+              <select value={fabricId} onChange={(e) => setFabricId(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900" disabled={loadingFabrics}>
+                <option value="">{loadingFabrics ? "ກຳລັງໂຫຼດ..." : "ເລືອກປະເພດຜ້າ"}</option>
+                {fabrics.map((fabric) => <option key={fabric.id} value={fabric.id}>{fabric.name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">Admin</label>
+              <select value={adminUserId} onChange={(e) => setAdminUserId(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900" disabled={loadingUsers}>
                 <option value="">Select admin</option>
-                {adminOptions.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name}
-                  </option>
-                ))}
+                {adminOptions.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">Graphic</label>
-              <select
-                value={graphicUserId}
-                onChange={(e) => setGraphicUserId(e.target.value)}
-                className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-white"
-                disabled={loadingUsers}
-              >
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">Graphic</label>
+              <select value={graphicUserId} onChange={(e) => setGraphicUserId(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900" disabled={loadingUsers}>
                 <option value="">Select graphic</option>
-                {graphicOptions.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name}
-                  </option>
-                ))}
+                {graphicOptions.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ຈຳນວນແຂນສັ້ນ</label>
-              <input type="number" min={0} value={shortQty} onChange={(e) => setShortQty(Number(e.target.value))} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ຈຳນວນແຂນສັ້ນ</label>
+              <input type="number" min={0} value={shortQty} onChange={(e) => setShortQty(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ຈຳນວນແຂນຍາວ</label>
-              <input type="number" min={0} value={longQty} onChange={(e) => setLongQty(Number(e.target.value))} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ຈຳນວນແຂນຍາວ</label>
+              <input type="number" min={0} value={longQty} onChange={(e) => setLongQty(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ຈຳນວນແຖມ</label>
-              <input type="number" min={0} value={freeQty} onChange={(e) => setFreeQty(Number(e.target.value))} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ຈຳນວນແຖມ</label>
+              <input type="number" min={0} value={freeQty} onChange={(e) => setFreeQty(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ຕົ້ນທຶນໂຮງງານ</label>
-              <input type="number" min={0} value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">3XL</label>
+              <input type="number" min={0} value={qty3XL} onChange={(e) => setQty3XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ຄ່າໃຊ້ຈ່າຍເພີ່ມເຕີມ</label>
-              <input type="number" min={0} value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">4XL</label>
+              <input type="number" min={0} value={qty4XL} onChange={(e) => setQty4XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ມັດຈຳຄ່າອອກແບບ (ຫັກອອກ)</label>
-              <input type="number" min={0} value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">5XL</label>
+              <input type="number" min={0} value={qty5XL} onChange={(e) => setQty5XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ລູກຄ້າຊຳລະສ່ວນທີ່ເຫຼືອ (50%)</label>
-              <input type="date" value={customerRemainingDueDate} onChange={(e) => setCustomerRemainingDueDate(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ຕົ້ນທຶນໂຮງງານ</label>
+              <input type="number" min={0} value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-900" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ວັນທີຊຳລະໃຫ້ໂຮງງານ</label>
-              <input type="date" value={factoryPaymentDueDate} onChange={(e) => setFactoryPaymentDueDate(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ຄ່າໃຊ້ຈ່າຍເພີ່ມ</label>
+              <input type="number" min={0} value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
-            <div>
-              <label className="text-xs font-bold text-slate-800 block mb-1">ວັນທີຜະລິດສຳເລັດ (ເດືອນກຳໄລ)</label>
-              <input type="date" value={productionCompletedDate} onChange={(e) => setProductionCompletedDate(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ມັດຈຳຄ່າອອກແບບ</label>
+              <input type="number" min={0} value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ກຳນົດຊຳລະລູກຄ້າ</label>
+              <input type="date" value={customerRemainingDueDate} onChange={(e) => setCustomerRemainingDueDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ວັນທີຊຳລະໂຮງງານ</label>
+              <input type="date" value={factoryPaymentDueDate} onChange={(e) => setFactoryPaymentDueDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ວັນທີຜະລິດສຳເລັດ</label>
+              <input type="date" value={productionCompletedDate} onChange={(e) => setProductionCompletedDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-100 p-4">
-            <div className="flex items-center justify-between mb-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between border-b pb-2 border-slate-100">
               <div className="font-black text-slate-900">ປະຫວັດການຊຳລະຂອງລູກຄ້າ</div>
-              <button onClick={() => setShowCustomerPayModal(true)} className="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-black">
-                ຮັບເງິນຊຳລະ
-              </button>
+              {!isReadOnlyAdmin ? <button onClick={() => setShowCustomerPayModal(true)} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-black text-white hover:bg-blue-700">ຮັບເງິນຊຳລະ</button> : null}
             </div>
-            <div className="space-y-2 max-h-48 overflow-auto">
-              {customerPayments.length === 0 ? (
-                <div className="text-slate-500 text-sm">ບໍ່ມີລາຍການຊຳລະຈາກລູກຄ້າ.</div>
-              ) : (
-                customerPayments.map((p) => (
-                  <div key={p.id} className="flex justify-between bg-slate-50 rounded p-2 border border-slate-100">
-                    <div className="text-xs text-slate-700">
-                      <div className="font-bold">{new Date(p.paid_at).toLocaleString("en-US")}</div>
-                      <div>{p.note || "-"}</div>
-                    </div>
-                    <div className="text-emerald-600 font-black">+{Number(p.amount).toLocaleString()}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-100 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="font-black text-slate-900">ປະຫວັດການຊຳລະໃຫ້ໂຮງງານ</div>
-              <button onClick={() => setShowFactoryPayModal(true)} className="bg-rose-600 text-white px-3 py-1.5 rounded text-xs font-black">
-                ຊຳລະໃຫ້ໂຮງງານ
-              </button>
-            </div>
-            <div className="space-y-2 max-h-48 overflow-auto">
-              {factoryPayments.length === 0 ? (
-                <div className="text-slate-500 text-sm">ບໍ່ມີລາຍການຊຳລະໃຫ້ໂຮງງານ.</div>
-              ) : (
-                factoryPayments.map((p) => (
-                  <div key={p.id} className="flex justify-between bg-slate-50 rounded p-2 border border-slate-100">
-                    <div className="text-xs text-slate-700">
-                      <div className="font-bold">{new Date(p.paid_at).toLocaleString("en-US")}</div>
-                      <div>{p.note || "-"}</div>
-                    </div>
-                    <div className="text-rose-600 font-black">-{Number(p.amount).toLocaleString()}</div>
-                  </div>
-                ))
-              )}
+            <div className="space-y-2">
+              {customerPayments.length === 0 ? <div className="text-sm text-slate-800 py-2 font-medium">ບໍ່ມີລາຍການ.</div> : customerPayments.map((p) => (
+                <div key={p.id} className="flex justify-between rounded border border-slate-200 bg-slate-50 p-2 text-xs">
+                  <div><div className="font-black text-slate-900">{new Date(p.paid_at).toLocaleString("en-US")}</div><div className="text-slate-800 font-medium">{p.note || "-"}</div></div>
+                  <div className="font-black text-emerald-700 text-sm">+{Number(p.amount).toLocaleString()}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-100 p-4 space-y-2">
-            <div className="text-sm font-black text-slate-900">ສະຫຼຸບອໍເດີ</div>
-            <div className="flex justify-between text-sm text-slate-800"><span>ຍອດລວມສຸດທິ</span><span className="font-black">{netTotal.toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm text-slate-800"><span>ຕົ້ນທຶນໂຮງງານ</span><span className="font-black">{Number(factoryCost).toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm text-slate-800"><span>ກຳໄລເບື້ອງຕົ້ນ</span><span className={`font-black ${profitPreview >= 0 ? "text-blue-600" : "text-red-600"}`}>{profitPreview.toLocaleString()}</span></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+            <div className="font-black text-slate-900 border-b pb-2 border-slate-100 mb-2">ສະຫຼຸບອໍເດີ</div>
+            <div className="mt-2 flex justify-between text-slate-800 font-bold"><span>ຍອດສຸດທິ</span><span className="font-black text-slate-900">{netTotal.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ຮັບແແລ້ວ</span><span className="font-black text-emerald-700">{customerReceived.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ຄ້າງຊຳລະ</span><span className="font-black text-rose-700">{customerOutstanding.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ຕົ້ນທຶນ</span><span className="font-black text-slate-900">{factoryCost.toLocaleString()}</span></div>
+            <div className="flex justify-between border-t pt-2 border-slate-100 mt-2 text-slate-800 font-bold"><span>ກຳໄລເບື້ອງຕົ້ນ</span><span className={`font-black ${profitPreview >= 0 ? "text-blue-700" : "text-red-700"}`}>{profitPreview.toLocaleString()}</span></div>
           </div>
-
-          <div className="bg-white rounded-xl border border-slate-100 p-4 space-y-2">
-            <div className="text-sm font-black text-slate-900">ລາຍຮັບ (ຈາກລູກຄ້າ)</div>
-            <div className="flex justify-between text-sm text-slate-800"><span>ຮັບແລ້ວ</span><span className="font-black text-emerald-600">{customerReceived.toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm text-slate-800"><span>ຄ້າງຊຳລະ</span><span className="font-black text-rose-600">{customerOutstanding.toLocaleString()}</span></div>
-            <div className="text-xs font-bold text-slate-700 uppercase">ສະຖານະ: {customerPayStatus}</div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-100 p-4 space-y-2">
-            <div className="text-sm font-black text-slate-900">ລາຍຈ່າຍ (ໃຫ້ໂຮງງານ)</div>
-            <div className="flex justify-between text-sm text-slate-800"><span>ຊຳລະແລ້ວ</span><span className="font-black text-rose-600">{factoryPaid.toLocaleString()}</span></div>
-            <div className="flex justify-between text-sm text-slate-800"><span>ຄ້າງຊຳລະ</span><span className="font-black text-amber-600">{factoryOutstanding.toLocaleString()}</span></div>
-            <div className="text-xs font-bold text-slate-700 uppercase">ສະຖານະ: {factoryPayStatus}</div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-100 p-4 space-y-1 text-xs text-slate-800">
-            <div><span className="font-bold text-slate-900">ຜະລິດສຳເລັດ:</span> {order.production_completed_at ? new Date(order.production_completed_at).toLocaleString("en-US") : "-"}</div>
-            <div><span className="font-bold text-slate-900">ກຳນົດຊຳລະລູກຄ້າ:</span> {order.customer_remaining_due_at ? new Date(order.customer_remaining_due_at).toLocaleDateString("en-US") : "-"}</div>
-            <div><span className="font-bold text-slate-900">ວັນທີຊຳລະໂຮງງານ:</span> {order.factory_payment_due_at ? new Date(order.factory_payment_due_at).toLocaleDateString("en-US") : "-"}</div>
-            <div><span className="font-bold text-slate-900">ລູກຄ້າຊຳລະຄົບ:</span> {order.customer_paid_full_at ? new Date(order.customer_paid_full_at).toLocaleString("en-US") : "-"}</div>
-            <div><span className="font-bold text-slate-900">ໂຮງງານຊຳລະຄົບ:</span> {order.factory_paid_full_at ? new Date(order.factory_paid_full_at).toLocaleString("en-US") : "-"}</div>
-            <div><span className="font-bold text-slate-900">ປິດອໍເດີເມື່ອ:</span> {order.closed_at ? new Date(order.closed_at).toLocaleString("en-US") : "-"}</div>
-            <div><span className="font-bold text-slate-900">ສະຖານະ:</span> {order.status === "in_progress" ? "ກຳລັງດຳເນີນການ" : "ສຳເລັດແລ້ວ"}</div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-900 shadow-sm space-y-1">
+            <div><span className="font-black">ສະຖານະຜະລິດ:</span> <span className="font-bold">{productionStatusLabel}</span></div>
+            <div><span className="font-black">ສະຖານະປິດງານ:</span> <span className="font-bold">{closeStatusLabel}</span></div>
+            <div><span className="font-black">ລູກຄ້າຊຳລະຄົບ:</span> <span className="font-bold">{order.customer_paid_full_at ? new Date(order.customer_paid_full_at).toLocaleString("en-US") : "-"}</span></div>
+            <div><span className="font-black">ປິດອໍເດີເມື່ອ:</span> <span className="font-bold">{order.closed_at ? new Date(order.closed_at).toLocaleString("en-US") : "-"}</span></div>
           </div>
         </div>
       </div>
 
       {showCustomerPayModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-200 p-4 w-full max-w-md space-y-3">
-            <div className="font-black text-slate-900">ຮັບເງິນຊຳລະຈາກລູກຄ້າ</div>
-            <div className="text-sm text-slate-700">ຍອດຄ້າງຊຳລະ: {customerOutstanding.toLocaleString()}</div>
-            <input type="date" value={customerPayDate} onChange={(e) => setCustomerPayDate(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
-            <input type="number" value={customerPayAmount} onChange={(e) => setCustomerPayAmount(Number(e.target.value))} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" placeholder="ຈຳນວນເງິນ" />
-            <input value={customerPayNote} onChange={(e) => setCustomerPayNote(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" placeholder="ໝາຍເຫດ" />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowCustomerPayModal(false)} className="px-3 py-2 rounded border border-slate-300 text-sm font-bold text-slate-700">ຍົກເລີກ</button>
-              <button onClick={handleAddCustomerPayment} className="px-3 py-2 rounded bg-green-600 text-white text-sm font-bold">ຢືນຢັນ</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4">
+          <div className="w-full max-w-md space-y-3 rounded-xl border border-slate-300 bg-white p-5 shadow-2xl">
+            <div className="font-black text-slate-900 text-lg">ຮັບເງິນຊຳລະຈາກລູກຄ້າ</div>
+            <div className="text-sm text-slate-900 font-bold bg-slate-100 p-2 rounded">ຍອດຄ້າງຊຳລະ: {customerOutstanding.toLocaleString()}</div>
+            <input type="date" value={customerPayDate} onChange={(e) => setCustomerPayDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 font-bold" />
+            <input type="number" value={customerPayAmount} onChange={(e) => setCustomerPayAmount(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 font-black" placeholder="ຈຳນວນເງິນ" />
+            <input value={customerPayNote} onChange={(e) => setCustomerPayNote(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 font-medium" placeholder="ໝາຍເຫດ" />
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setShowCustomerPayModal(false)} className="rounded border border-slate-400 px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50">ຍົກເລີກ</button>
+              <button onClick={handleAddCustomerPayment} className="rounded bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-700">ຢືນຢັນ</button>
             </div>
           </div>
         </div>
       )}
 
       {showFactoryPayModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl border border-slate-200 p-4 w-full max-w-md space-y-3">
-            <div className="font-black text-slate-900">ຊຳລະເງິນໃຫ້ໂຮງງານ</div>
-            <div className="text-sm text-slate-700">ຍອດຄ້າງຊຳລະ: {factoryOutstanding.toLocaleString()}</div>
-            <input type="date" value={factoryPayDate} onChange={(e) => setFactoryPayDate(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" />
-            <input type="number" value={factoryPayAmount} onChange={(e) => setFactoryPayAmount(Number(e.target.value))} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" placeholder="ຈຳນວນເງິນ" />
-            <input value={factoryPayNote} onChange={(e) => setFactoryPayNote(e.target.value)} className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-slate-900" placeholder="ໝາຍເຫດ" />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowFactoryPayModal(false)} className="px-3 py-2 rounded border border-slate-300 text-sm font-bold text-slate-700">ຍົກເລີກ</button>
-              <button onClick={handleAddFactoryPayment} className="px-3 py-2 rounded bg-rose-600 text-white text-sm font-bold">ຢືນຢັນ</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4">
+          <div className="w-full max-w-md space-y-3 rounded-xl border border-slate-300 bg-white p-5 shadow-2xl">
+            <div className="font-black text-slate-900 text-lg">ຊຳລະເງິນໃຫ້ໂຮງງານ</div>
+            <div className="text-sm text-slate-900 font-bold bg-slate-100 p-2 rounded">ຍອດຄ້າງຊຳລະ: {factoryOutstanding.toLocaleString()}</div>
+            <input type="date" value={factoryPayDate} onChange={(e) => setFactoryPayDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 font-bold" />
+            <input type="number" value={factoryPayAmount} onChange={(e) => setFactoryPayAmount(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 font-black" placeholder="ຈຳນວນເງິນ" />
+            <input value={factoryPayNote} onChange={(e) => setFactoryPayNote(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 font-medium" placeholder="ໝາຍເຫດ" />
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setShowFactoryPayModal(false)} className="rounded border border-slate-400 px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50">ຍົກເລີກ</button>
+              <button onClick={handleAddFactoryPayment} className="rounded bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-700">ຢືນຢັນ</button>
             </div>
           </div>
         </div>

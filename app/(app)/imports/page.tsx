@@ -17,7 +17,7 @@ type FabricRow = {
 type UserRow = {
   id: string;
   full_name: string;
-  role: "admin" | "manager" | "staff" | "graphic" | "accountant";
+  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
   is_active: boolean;
 };
 
@@ -114,7 +114,7 @@ export default function ImportExcelPage() {
   }, []);
 
   const adminByName = useMemo(
-    () => new Map(users.filter((u) => u.role === "admin").map((u) => [u.full_name.toLowerCase(), u])),
+    () => new Map(users.filter((u) => u.role === "superadmin" || u.role === "admin").map((u) => [u.full_name.toLowerCase(), u])),
     [users]
   );
   const graphicByName = useMemo(
@@ -126,7 +126,7 @@ export default function ImportExcelPage() {
   const fabricById = useMemo(() => new Map(fabrics.map((f) => [f.id, f])), [fabrics]);
 
   const downloadTemplate = () => {
-    const adminExample = users.find((u) => u.role === "admin")?.full_name ?? "Admin 1";
+    const adminExample = users.find((u) => u.role === "superadmin" || u.role === "admin")?.full_name ?? "Admin 1";
     const graphicExample = users.find((u) => u.role === "graphic")?.full_name ?? "Graphic 1";
     const fabricExample = fabrics[0]?.name ?? "Sport Fabric";
 
@@ -213,7 +213,7 @@ export default function ImportExcelPage() {
         (adminUserId ? userById.get(adminUserId) : null) ??
         (adminName ? adminByName.get(adminName.toLowerCase()) : null) ??
         null;
-      if (!pickedAdmin || pickedAdmin.role !== "admin") {
+      if (!pickedAdmin || (pickedAdmin.role !== "superadmin" && pickedAdmin.role !== "admin")) {
         return { rowNo: idx + 2, valid: false, reason: "ບໍ່ພົບ admin", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
       }
 

@@ -298,15 +298,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex items-center gap-3 md:gap-6">
-            <div className="relative hidden md:block">
-              <input
-                type="text"
-                placeholder="Search..."
-                className="border border-slate-200 bg-slate-50 rounded-full px-4 py-1.5 text-xs focus:ring-2 focus:ring-blue-500 outline-none w-48 transition-all focus:w-64"
-              />
-              <Search className="absolute right-3 top-2 text-slate-400" size={14} />
-            </div>
-
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs border border-blue-200">
                 {userInitials}

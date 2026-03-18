@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
-type Role = "admin" | "manager" | "staff" | "graphic" | "accountant";
+type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
 
 type CreateUserBody = {
   full_name?: string;
@@ -14,7 +14,7 @@ type CreateUserBody = {
   is_active?: boolean;
 };
 
-const ALLOWED_ROLES = new Set<Role>(["admin", "manager", "staff", "graphic", "accountant"]);
+const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "accountant"]);
 
 export async function POST(req: NextRequest) {
   const supabaseAdmin = getSupabaseAdmin();

@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
-export type AppRole = "admin" | "manager" | "staff" | "graphic" | "accountant";
+export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
 
 export type AdminActor = {
   authUserId: string;
@@ -63,7 +63,7 @@ export async function getAdminActorFromAuthHeader(authHeader: string | null): Pr
   }
 
   if (!profile) return null;
-  if (!profile.is_active || profile.role !== "admin") return null;
+  if (!profile.is_active || profile.role !== "superadmin") return null;
 
   return {
     authUserId: authUser.id,

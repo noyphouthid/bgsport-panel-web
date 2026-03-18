@@ -16,6 +16,7 @@ type OrderRow = {
   balance: number;
   net_total: number;
   status: "in_progress" | "completed";
+  closed_at?: string | null;
 };
 
 type PaymentStatus = "all" | "paid" | "unpaid";
@@ -38,7 +39,7 @@ export default function OrdersReportPage() {
     setErr(null);
     const { data, error } = await supabase
       .from("orders")
-      .select("id,order_code,order_date,production_completed_at,customer_phone,initial_deposit,balance,net_total,status")
+      .select("id,order_code,order_date,production_completed_at,customer_phone,initial_deposit,balance,net_total,status,closed_at")
       .order("order_date", { ascending: false });
     if (error) {
       setErr(error.message);
@@ -66,7 +67,8 @@ export default function OrdersReportPage() {
       const isPaid = Number(r.balance) === 0;
       if (paymentStatus === "paid" && !isPaid) return false;
       if (paymentStatus === "unpaid" && isPaid) return false;
-      if (productionStatus !== "all" && r.status !== productionStatus) return false;
+      const productionState = r.production_completed_at ? "completed" : "in_progress";
+      if (productionStatus !== "all" && productionState !== productionStatus) return false;
       return true;
     });
   }, [rows, year, month, prefix, paymentStatus, productionStatus]);
@@ -102,7 +104,7 @@ export default function OrdersReportPage() {
       paid_amount: Number(r.initial_deposit) || 0,
       outstanding_amount: Number(r.balance) || 0,
       payment_status: Number(r.balance) === 0 ? "ຈ່າຍແລ້ວ" : "ຄ້າງຈ່າຍ",
-      production_status: String(r.status),
+      production_status: r.production_completed_at ? "ຜະລິດສຳເລັດ" : "ກຳລັງຜະລິດ",
     }));
 
     out.push({

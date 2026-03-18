@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import type { AppRole } from "@/lib/access-control";
 
 const PREFIXES = ["PKF26", "PKLF26", "MKF26", "MKLF26", "PMF26", "PMLF26", "MMF26", "MMLF26"] as const;
 type Prefix = (typeof PREFIXES)[number];
 
-type StatusFilter = "all" | "in_progress" | "completed";
+type StatusFilter = "all" | "in_progress" | "completed" | "producing" | "production_completed" | "closed";
 
 type OrderRow = {
   id: string;
@@ -21,15 +22,19 @@ type OrderRow = {
   balance: number;
   factory_cost: number;
   status: "in_progress" | "completed";
+  production_completed_at: string | null;
+  closed_at: string | null;
   updated_at: string;
 };
 
 export default function OrdersPage() {
   const [rows, setRows] = useState<OrderRow[]>([]);
+  const [filteredTotal, setFilteredTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
+  const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
 
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
@@ -46,7 +51,7 @@ export default function OrdersPage() {
     let q = supabase
       .from("orders")
       .select(
-        "id,order_code,order_date,customer_phone,factory_bill_code,fabric_name,net_total,initial_deposit,balance,factory_cost,status,updated_at",
+        "id,order_code,order_date,customer_phone,factory_bill_code,fabric_name,net_total,initial_deposit,balance,factory_cost,status,production_completed_at,closed_at,updated_at",
         { count: "exact" }
       )
       .order("order_date", { ascending: false })
@@ -54,7 +59,6 @@ export default function OrdersPage() {
 
     if (fromDate) q = q.gte("order_date", fromDate);
     if (toDate) q = q.lte("order_date", toDate);
-    if (status !== "all") q = q.eq("status", status);
     if (prefix !== "ALL") q = q.ilike("order_code", `${prefix}%`);
 
     const s = query.trim();
@@ -65,16 +69,27 @@ export default function OrdersPage() {
       );
     }
 
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-    q = q.range(from, to);
-
     const { data, error } = await q;
     if (error) {
       setErr(error.message);
       setRows([]);
+      setFilteredTotal(0);
     } else {
-      setRows((data ?? []) as OrderRow[]);
+      const filteredRows = ((data ?? []) as OrderRow[]).filter((row) => {
+        if (status === "all") return true;
+        const isClosed = row.status === "completed" || Boolean(row.closed_at);
+        const isProductionCompleted = Boolean(row.production_completed_at) && !isClosed;
+        const isProducing = !row.production_completed_at && !isClosed;
+        if (status === "closed") return isClosed;
+        if (status === "completed") return isProductionCompleted || isClosed;
+        if (status === "production_completed") return isProductionCompleted;
+        if (status === "in_progress") return isProducing;
+        return isProducing;
+      });
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize;
+      setFilteredTotal(filteredRows.length);
+      setRows(filteredRows.slice(from, to));
     }
     setLoading(false);
   };
@@ -86,10 +101,24 @@ export default function OrdersPage() {
     return () => clearTimeout(timer);
   }, [page]);
 
+  useEffect(() => {
+    const loadViewerRole = async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUserId = sessionData.session?.user.id;
+      if (!authUserId) return;
+      const { data } = await supabase.from("users").select("role").eq("auth_user_id", authUserId).maybeSingle();
+      if (data?.role) setViewerRole(data.role as AppRole);
+    };
+    void loadViewerRole();
+  }, []);
+
+  const isAdminLimited = viewerRole === "admin";
+
   const allSelectedOnPage = useMemo(() => {
     if (rows.length === 0) return false;
     return rows.every((r) => selectedIds.includes(r.id));
   }, [rows, selectedIds]);
+  const hasNextPage = page * pageSize < filteredTotal;
 
   const runSearch = () => {
     setPage(1);
@@ -165,16 +194,26 @@ export default function OrdersPage() {
       </span>
     );
 
+  const displayStatusBadge = (row: OrderRow) => {
+    if (row.status === "completed" || row.closed_at) {
+      return statusBadge("completed");
+    }
+    if (row.production_completed_at) {
+      return <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200">ຜະລິດສຳເລັດ</span>;
+    }
+    return <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200">ກຳລັງຜະລິດ</span>;
+  };
+
   return (
     <div className="text-slate-900 antialiased">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">ອໍເດີ</h1>
-        <Link
+        {!isAdminLimited ? <Link
           href="/orders/new"
           className="bg-emerald-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95"
         >
           + ເພີ່ມອໍເດີ
-        </Link>
+        </Link> : null}
       </div>
 
       {err && (
@@ -236,12 +275,12 @@ export default function OrdersPage() {
             />
           </div>
           <div className="flex gap-2 md:col-span-6 mt-2">
-            <button
+            {!isAdminLimited ? <button
               onClick={runSearch}
               className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
             >
               ຄົ້ນຫາ
-            </button>
+            </button> : null}
             <button
               onClick={resetAll}
               className="bg-slate-100 text-slate-600 px-6 py-2 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors border border-slate-200"
@@ -256,14 +295,14 @@ export default function OrdersPage() {
         <div className="p-4 flex items-center justify-between border-b border-slate-50 bg-slate-50/50">
           <div className="text-sm font-bold text-slate-700 uppercase tracking-widest">ລາຍການອໍເດີທັງໝົດ</div>
           <div className="flex items-center gap-3">
-            <div className="text-xs text-slate-500 font-bold">{loading ? "ກຳລັງໂຫຼດ..." : `ສະແດງ ${rows.length} ລາຍການ`}</div>
-            <button
+            <div className="text-xs text-slate-500 font-bold">{loading ? "ກຳລັງໂຫຼດ..." : `ສະແດງ ${rows.length} / ${filteredTotal} ລາຍການ`}</div>
+            {!isAdminLimited ? <button
               onClick={deleteSelected}
               disabled={deleting || selectedIds.length === 0}
               className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-700 disabled:opacity-50 transition-colors"
             >
               {deleting ? "ກຳລັງລົບ..." : `ລົບທີ່ເລືອກ (${selectedIds.length})`}
-            </button>
+            </button> : null}
           </div>
         </div>
 
@@ -272,7 +311,7 @@ export default function OrdersPage() {
             <thead>
               <tr className="text-slate-700 border-b border-slate-100">
                 <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">
-                  <input type="checkbox" checked={allSelectedOnPage} onChange={toggleSelectAllOnPage} aria-label="select all on page" />
+                  {!isAdminLimited ? <input type="checkbox" checked={allSelectedOnPage} onChange={toggleSelectAllOnPage} aria-label="select all on page" /> : null}
                 </th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ວັນທີ</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ລະຫັດອໍເດີ</th>
@@ -296,12 +335,12 @@ export default function OrdersPage() {
                 rows.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/80 transition-colors group">
                     <td className="p-4 text-center">
-                      <input
+                      {!isAdminLimited ? <input
                         type="checkbox"
                         checked={selectedIds.includes(r.id)}
                         onChange={() => toggleSelectRow(r.id)}
                         aria-label={`select ${r.order_code}`}
-                      />
+                      /> : null}
                     </td>
                     <td className="p-4 text-slate-600 font-medium">{r.order_date}</td>
                     <td className="p-4 font-bold text-slate-600">{r.order_code}</td>
@@ -310,13 +349,13 @@ export default function OrdersPage() {
                     <td className="p-4 text-slate-600 font-medium">{r.fabric_name}</td>
                     <td className="p-4 text-right font-bold text-slate-600">{r.net_total.toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-rose-600 bg-rose-50/30">{r.balance.toLocaleString()}</td>
-                    <td className="p-4 text-center">{statusBadge(r.status)}</td>
+                    <td className="p-4 text-center">{displayStatusBadge(r)}</td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-4">
                         <Link href={`/orders/${r.id}/edit`} className="text-blue-600 font-bold hover:text-blue-800 underline-offset-4 hover:underline transition-all">
                           ແກ້ໄຂ
                         </Link>
-                        {r.status !== "completed" && (
+                        {!isAdminLimited && r.status !== "completed" && (
                           <button
                             onClick={() => markCompleted(r.id)}
                             className="text-emerald-600 font-bold hover:text-emerald-800 transition-all active:scale-90"
@@ -345,6 +384,7 @@ export default function OrdersPage() {
             </button>
             <button
               className="bg-white border border-slate-200 px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-all shadow-sm text-slate-600"
+              disabled={!hasNextPage}
               onClick={() => setPage((p) => p + 1)}
             >
               ຖັດໄປ →

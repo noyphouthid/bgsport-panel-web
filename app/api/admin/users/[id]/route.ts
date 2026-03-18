@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
-type Role = "admin" | "manager" | "staff" | "graphic" | "accountant";
+type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
 
 type UpdateUserBody = {
   full_name?: string;
@@ -14,7 +14,7 @@ type UpdateUserBody = {
   password?: string;
 };
 
-const ALLOWED_ROLES = new Set<Role>(["admin", "manager", "staff", "graphic", "accountant"]);
+const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "accountant"]);
 
 async function findAuthUserIdByEmail(
   supabaseAdmin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,

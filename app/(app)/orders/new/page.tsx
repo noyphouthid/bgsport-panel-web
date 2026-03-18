@@ -18,7 +18,7 @@ type FabricRow = {
 type UserOption = {
   id: string;
   full_name: string;
-  role: "admin" | "manager" | "staff" | "graphic" | "accountant";
+  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
   is_active: boolean;
 };
 
@@ -87,7 +87,7 @@ export default function NewOrderPage() {
       .from("users")
       .select("id,full_name,role,is_active")
       .eq("is_active", true)
-      .in("role", ["admin", "graphic"])
+      .in("role", ["superadmin", "admin", "graphic"])
       .order("full_name", { ascending: true });
 
     if (error) {
@@ -109,7 +109,7 @@ export default function NewOrderPage() {
   }, []);
 
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
-  const adminOptions = useMemo(() => users.filter((u) => u.role === "admin"), [users]);
+  const adminOptions = useMemo(() => users.filter((u) => u.role === "superadmin" || u.role === "admin"), [users]);
   const graphicOptions = useMemo(() => users.filter((u) => u.role === "graphic"), [users]);
 
   const totalProductionQty = useMemo(() => shortQty + longQty + freeQty, [shortQty, longQty, freeQty]);

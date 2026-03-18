@@ -1,35 +1,36 @@
-export type AppRole = "admin" | "manager" | "staff" | "graphic" | "accountant";
+export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
 
 type RouteRule = {
   prefix: string;
   roles: AppRole[];
 };
 
-const ALL_ROLES: AppRole[] = ["admin", "manager", "staff", "graphic", "accountant"];
+const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphic", "accountant"];
 
 const ROUTE_RULES: RouteRule[] = [
-  { prefix: "/users", roles: ["admin"] },
-  { prefix: "/imports", roles: ["admin", "manager"] },
-  { prefix: "/fabric", roles: ["admin", "manager"] },
-  { prefix: "/settings", roles: ["admin", "manager"] },
-  { prefix: "/payments", roles: ["admin", "manager", "accountant"] },
-  { prefix: "/factory-payments", roles: ["admin", "manager", "accountant"] },
-  { prefix: "/inventory-qr", roles: ["admin", "manager", "staff", "accountant"] },
-  { prefix: "/factory-receipts", roles: ["admin", "manager", "staff", "accountant"] },
-  { prefix: "/shipments", roles: ["admin", "manager", "staff", "accountant"] },
-  { prefix: "/reports/graphic-work", roles: ["admin", "manager", "graphic"] },
-  { prefix: "/reports/admin-sales", roles: ["admin", "manager"] },
-  { prefix: "/reports/sales-profit", roles: ["admin", "manager", "accountant"] },
-  { prefix: "/reports/orders", roles: ["admin", "manager", "accountant"] },
-  { prefix: "/reports/sale-admin", roles: ["admin", "manager", "accountant"] },
-  { prefix: "/reports", roles: ["admin", "manager", "accountant", "graphic"] },
-  { prefix: "/orders/new", roles: ["admin", "manager", "staff"] },
-  { prefix: "/orders", roles: ALL_ROLES },
-  { prefix: "/search", roles: ALL_ROLES },
+  { prefix: "/users", roles: ["superadmin"] },
+  { prefix: "/imports", roles: ["superadmin", "manager"] },
+  { prefix: "/fabric", roles: ["superadmin", "manager"] },
+  { prefix: "/settings", roles: ["superadmin", "manager"] },
+  { prefix: "/payments", roles: ["superadmin", "manager", "accountant"] },
+  { prefix: "/factory-payments", roles: ["superadmin", "manager", "accountant"] },
+  { prefix: "/inventory-qr", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
+  { prefix: "/factory-receipts", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
+  { prefix: "/shipments", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
+  { prefix: "/reports/graphic-work", roles: ["superadmin", "manager", "graphic"] },
+  { prefix: "/reports/admin-sales", roles: ["superadmin", "manager"] },
+  { prefix: "/reports/sales-profit", roles: ["superadmin", "manager", "accountant"] },
+  { prefix: "/reports/orders", roles: ["superadmin", "manager", "accountant"] },
+  { prefix: "/reports/sale-admin", roles: ["superadmin", "manager", "accountant"] },
+  { prefix: "/reports", roles: ["superadmin", "manager", "accountant", "graphic"] },
+  { prefix: "/orders/new", roles: ["superadmin", "manager", "staff"] },
+  { prefix: "/orders", roles: ["superadmin", "admin", "manager", "staff", "graphic", "accountant"] },
+  { prefix: "/search", roles: ["superadmin", "admin", "manager", "staff", "graphic", "accountant"] },
   { prefix: "/dashboard", roles: ALL_ROLES },
 ];
 
 export function canAccessPath(pathname: string, role: AppRole) {
+  if (role === "superadmin") return true;
   const matched = ROUTE_RULES.find((rule) => pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`));
   if (!matched) return false;
   return matched.roles.includes(role);
