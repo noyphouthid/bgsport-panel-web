@@ -1,21 +1,8 @@
 "use client";
 
+import jsQR from "jsqr";
 import { useEffect, useRef, useState } from "react";
 import { Camera, CameraOff, ScanLine } from "lucide-react";
-
-type DetectedBarcode = {
-  rawValue?: string;
-};
-
-type BarcodeDetectorInstance = {
-  detect: (source: ImageBitmapSource) => Promise<DetectedBarcode[]>;
-};
-
-declare global {
-  interface Window {
-    BarcodeDetector?: new (options?: { formats?: string[] }) => BarcodeDetectorInstance;
-  }
-}
 
 type MobileQrScannerProps = {
   onDetected: (value: string) => void;
@@ -23,9 +10,9 @@ type MobileQrScannerProps = {
 
 export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<number | null>(null);
-  const detectorRef = useRef<BarcodeDetectorInstance | null>(null);
 
   const [active, setActive] = useState(false);
   const [supported, setSupported] = useState(false);
@@ -33,7 +20,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSupported(typeof window !== "undefined" && typeof window.BarcodeDetector !== "undefined");
+      setSupported(typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia);
     }, 0);
     return () => clearTimeout(timer);
   }, []);
@@ -57,34 +44,47 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
     setActive(false);
   };
 
-  const scanFrame = async () => {
+  const scanFrame = () => {
     const video = videoRef.current;
-    const detector = detectorRef.current;
-    if (!video || !detector) return;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
 
-    try {
-      const results = await detector.detect(video);
-      const first = results.find((item) => item.rawValue?.trim());
-      if (first?.rawValue) {
-        onDetected(first.rawValue);
-        stopScanner();
-        return;
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      const width = video.videoWidth;
+      const height = video.videoHeight;
+      if (width > 0 && height > 0) {
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (context) {
+          canvas.width = width;
+          canvas.height = height;
+          context.drawImage(video, 0, 0, width, height);
+          const imageData = context.getImageData(0, 0, width, height);
+          const result = jsQR(imageData.data, width, height, {
+            inversionAttempts: "dontInvert",
+          });
+
+          if (result?.data?.trim()) {
+            onDetected(result.data);
+            stopScanner();
+            return;
+          }
+        }
       }
-    } catch {
-      // Keep scanning when one frame fails.
     }
 
-    frameRef.current = requestAnimationFrame(() => {
-      void scanFrame();
-    });
+    frameRef.current = requestAnimationFrame(scanFrame);
   };
 
   const startScanner = async () => {
-    if (!supported || active || typeof window.BarcodeDetector === "undefined") return;
+    if (active) return;
     setError(null);
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("ອຸປະກອນນີ້ບໍ່ຮອງຮັບການເປີດກ້ອງ");
+      return;
+    }
+
     try {
-      detectorRef.current = new window.BarcodeDetector({ formats: ["qr_code"] });
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" } },
         audio: false,
@@ -97,9 +97,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
       }
 
       setActive(true);
-      frameRef.current = requestAnimationFrame(() => {
-        void scanFrame();
-      });
+      frameRef.current = requestAnimationFrame(scanFrame);
     } catch (err) {
       setError(err instanceof Error ? err.message : "ບໍ່ສາມາດເປີດກ້ອງໄດ້");
       stopScanner();
@@ -129,12 +127,11 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
 
       <div className="relative mt-4 overflow-hidden rounded-3xl bg-slate-950">
         <video ref={videoRef} className="aspect-[3/4] w-full object-cover" playsInline muted />
+        <canvas ref={canvasRef} className="hidden" />
         {!active && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/80 text-center text-white">
             <ScanLine size={28} />
-            <div className="text-sm font-bold">
-              {supported ? "ເປີດກ້ອງ ແລະ ຈັດ QR ໃຫ້ຢູ່ໃນກອບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງ"}
-            </div>
+            <div className="text-sm font-bold">{supported ? "ເປີດກ້ອງ ແລະ ຈັດ QR ໃຫ້ຢູ່ໃນກອບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງ"}</div>
           </div>
         )}
         {active && <div className="pointer-events-none absolute inset-6 rounded-[2rem] border-2 border-emerald-400/90" />}
