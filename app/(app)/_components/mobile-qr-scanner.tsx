@@ -106,20 +106,14 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
     }
   };
 
-  if (!supported) {
-    return (
-      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
-        ອຸປະກອນນີ້ບໍ່ຮອງຮັບການສະແກນຜ່ານກ້ອງ. ທ່ານຍັງສາມາດວາງ ຫຼື ພິມຄ່າ QR ດ້ານລຸ່ມໄດ້.
-      </div>
-    );
-  }
-
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-black text-slate-900">ສະແກນ QR ຜ່ານມືຖື</div>
-          <div className="text-xs font-medium text-slate-500">ອອກແບບສຳລັບການຮັບສິນຄ້າ ແລະ ຈັດສົ່ງຜ່ານໂທລະສັບ</div>
+          <div className="text-xs font-medium text-slate-500">
+            {supported ? "ອອກແບບສຳລັບການຮັບສິນຄ້າ ແລະ ຈັດສົ່ງຜ່ານໂທລະສັບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງໃນອຸປະກອນນີ້"}
+          </div>
         </div>
         <button
           type="button"
@@ -138,11 +132,19 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
         {!active && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/80 text-center text-white">
             <ScanLine size={28} />
-            <div className="text-sm font-bold">ເປີດກ້ອງ ແລະ ຈັດ QR ໃຫ້ຢູ່ໃນກອບ</div>
+            <div className="text-sm font-bold">
+              {supported ? "ເປີດກ້ອງ ແລະ ຈັດ QR ໃຫ້ຢູ່ໃນກອບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງ"}
+            </div>
           </div>
         )}
         {active && <div className="pointer-events-none absolute inset-6 rounded-[2rem] border-2 border-emerald-400/90" />}
       </div>
+
+      {!supported && (
+        <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
+          ຖ້າກ້ອງບໍ່ເປີດ ຫຼື ອຸປະກອນບໍ່ຮອງຮັບ, ທ່ານຍັງສາມາດວາງ ຫຼື ພິມຄ່າ QR ດ້ານລຸ່ມໄດ້.
+        </div>
+      )}
 
       {error && <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">{error}</div>}
     </div>
