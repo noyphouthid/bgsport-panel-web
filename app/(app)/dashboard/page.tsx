@@ -27,6 +27,8 @@ type RecentOrder = {
   net_total: number;
   balance: number;
   status: string;
+  shipment_status?: "pending" | "shipped";
+  shipment_completed_at?: string | null;
 };
 
 type DateRangeMode = "today" | "7days" | "1month" | "custom";
@@ -104,7 +106,7 @@ export default function DashboardPage() {
     try {
       let query = supabase
         .from("orders")
-        .select("id,order_code,order_date,fabric_name,net_total,balance,factory_cost,status,production_completed_at, short_qty, long_qty, free_qty");
+        .select("id,order_code,order_date,fabric_name,net_total,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at, short_qty, long_qty, free_qty");
 
       if (startDate) {
         query = query.gte("order_date", startDate);
@@ -118,10 +120,10 @@ export default function DashboardPage() {
 
       let profitQuery = supabase
         .from("orders")
-        .select("id,net_total,factory_cost,production_completed_at")
-        .not("production_completed_at", "is", null);
-      if (startDate) profitQuery = profitQuery.gte("production_completed_at", `${startDate}T00:00:00`);
-      if (endDate) profitQuery = profitQuery.lte("production_completed_at", `${endDate}T23:59:59`);
+        .select("id,net_total,factory_cost,shipment_completed_at")
+        .not("shipment_completed_at", "is", null);
+      if (startDate) profitQuery = profitQuery.gte("shipment_completed_at", `${startDate}T00:00:00`);
+      if (endDate) profitQuery = profitQuery.lte("shipment_completed_at", `${endDate}T23:59:59`);
       const { data: profitOrders, error: profitError } = await profitQuery;
       if (profitError) throw profitError;
 
@@ -156,7 +158,7 @@ export default function DashboardPage() {
 
       let recentQuery = supabase
         .from("orders")
-        .select("id,order_code,order_date,fabric_name,net_total,balance,status")
+        .select("id,order_code,order_date,fabric_name,net_total,balance,status,shipment_status,shipment_completed_at")
         .order("order_date", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(5);
@@ -522,7 +524,7 @@ export default function DashboardPage() {
                       </span>
                     </td>
                     <td className="p-4 text-center">
-                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${order.status === "completed" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${order.status === "completed" ? "bg-green-100 text-green-700" : order.shipment_status === "shipped" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
                         }`}>
                         {order.status === "completed" ? "ສຳເລັດ" : "ກຳລັງຜະລິດ"}
                       </span>

@@ -17,6 +17,10 @@ type User = {
   updated_at: string;
 };
 
+const ADMIN_TRANSFER_ROLES = new Set<User["role"]>(["superadmin", "admin"]);
+const GRAPHIC_TRANSFER_ROLES = new Set<User["role"]>(["graphic"]);
+type TransferAssignment = "admin" | "graphic";
+
 const ROLES = [
   { value: "superadmin", label: "Superadmin" },
   { value: "admin", label: "ຜູ້ດູແລລະບົບ (Admin)" },
@@ -53,6 +57,9 @@ export default function UsersPage() {
   const [editActive, setEditActive] = useState(true);
   const [editNotes, setEditNotes] = useState("");
   const [editPassword, setEditPassword] = useState("");
+  const [transferAssignment, setTransferAssignment] = useState<TransferAssignment>("admin");
+  const [transferSourceUserId, setTransferSourceUserId] = useState("");
+  const [transferringOrders, setTransferringOrders] = useState(false);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -133,6 +140,20 @@ export default function UsersPage() {
     return result;
   }, [users, roleFilter, statusFilter, searchQuery]);
 
+  const transferRoleSet = useMemo(() => {
+    if (!editing) return null;
+    if (GRAPHIC_TRANSFER_ROLES.has(editing.role)) return GRAPHIC_TRANSFER_ROLES;
+    if (ADMIN_TRANSFER_ROLES.has(editing.role)) return ADMIN_TRANSFER_ROLES;
+    return null;
+  }, [editing]);
+
+  const transferSourceCandidates = useMemo(() => {
+    if (!transferRoleSet) return [];
+    return users.filter((user) => transferRoleSet.has(user.role) && user.id !== editing?.id);
+  }, [users, editing, transferRoleSet]);
+
+  const canTransferOrders = transferRoleSet !== null;
+
   const openEdit = (user: User) => {
     setEditing(user);
     setEditFullName(user.full_name);
@@ -142,6 +163,8 @@ export default function UsersPage() {
     setEditActive(user.is_active);
     setEditNotes(user.notes || "");
     setEditPassword("");
+    setTransferAssignment(GRAPHIC_TRANSFER_ROLES.has(user.role) ? "graphic" : "admin");
+    setTransferSourceUserId("");
   };
 
   const closeEdit = () => {
@@ -153,6 +176,9 @@ export default function UsersPage() {
     setEditActive(true);
     setEditNotes("");
     setEditPassword("");
+    setTransferAssignment("admin");
+    setTransferSourceUserId("");
+    setTransferringOrders(false);
   };
 
   const addUser = async () => {
@@ -285,6 +311,55 @@ export default function UsersPage() {
       const msg = e instanceof Error ? e.message : "ລຶບຜູ້ໃຊ້ບໍ່ສຳເລັດ";
       setErr(msg);
       toast.error(msg);
+    }
+  };
+
+  const transferOrdersToEditingUser = async () => {
+    if (!editing || !canTransferOrders) return;
+    if (!transferSourceUserId) {
+      toast.error("ກະລຸນາເລືອກ user ຕົ້ນທາງ");
+      return;
+    }
+
+    const sourceUser = users.find((user) => user.id === transferSourceUserId);
+    if (!sourceUser) {
+      toast.error("ບໍ່ພົບ user ຕົ້ນທາງ");
+      return;
+    }
+
+    const ok = await Swal.fire({
+      icon: "warning",
+      title: "ຢືນຢັນຍ້າຍອໍເດີ?",
+      html: `ຍ້າຍອໍເດີ ${transferAssignment === "graphic" ? "graphic" : "admin"} ຈາກ <b>${sourceUser.full_name}</b><br/>ໄປຫາ <b>${editing.full_name}</b>`,
+      showCancelButton: true,
+      confirmButtonText: "ຍ້າຍອໍເດີ",
+      cancelButtonText: "ຍົກເລີກ",
+      reverseButtons: true,
+    });
+    if (!ok.isConfirmed) return;
+
+    setErr(null);
+    setTransferringOrders(true);
+    try {
+      const result = (await callAdminApi(`/api/admin/users/${editing.id}/transfer-orders`, "POST", {
+        source_user_id: transferSourceUserId,
+        assignment_type: transferAssignment,
+      })) as { transferred_count?: number };
+
+      const transferredCount = Number(result.transferred_count || 0);
+      toast.success(
+        transferredCount > 0
+          ? `ຍ້າຍອໍເດີສຳເລັດ ${transferredCount} ລາຍການ`
+          : "ບໍ່ມີອໍເດີໃຫ້ຍ້າຍ"
+      );
+      setTransferSourceUserId("");
+      await loadUsers();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "ຍ້າຍອໍເດີບໍ່ສຳເລັດ";
+      setErr(msg);
+      toast.error(msg);
+    } finally {
+      setTransferringOrders(false);
     }
   };
 
@@ -624,6 +699,55 @@ export default function UsersPage() {
                 </label>
               </div>
             </div>
+
+              {canTransferOrders ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+                  <div>
+                    <div className="text-sm font-black text-amber-900">ຍ້າຍອໍເດີໄປ user ນີ້</div>
+                    <div className="text-xs font-medium text-amber-800">
+                      {transferAssignment === "graphic"
+                        ? "ໃຊ້ສຳລັບຍ້າຍອໍເດີຂອງ graphic ເກົ່າ ເຂົ້າຫາ user ນີ້ ເພື່ອໃຫ້ລາຍງານ graphic-work ລວມເປັນຄົນດຽວ."
+                        : "ໃຊ້ສຳລັບຍ້າຍອໍເດີຂອງ admin ເກົ່າ ເຂົ້າຫາ user ນີ້ ເພື່ອໃຫ້ລາຍງານ admin-sales ລວມເປັນຄົນດຽວ."}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+                    <div>
+                      <label className="text-xs font-black text-amber-900 mb-1.5 block uppercase">user ຕົ້ນທາງ</label>
+                      <select
+                        value={transferSourceUserId}
+                        onChange={(e) => setTransferSourceUserId(e.target.value)}
+                        className="w-full border border-amber-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-900 bg-white"
+                        disabled={transferringOrders}
+                      >
+                        <option value="">
+                          {transferAssignment === "graphic"
+                            ? "ເລືອກ graphic ທີ່ຈະຍ້າຍອໍເດີອອກ"
+                            : "ເລືອກ admin ທີ່ຈະຍ້າຍອໍເດີອອກ"}
+                        </option>
+                        {transferSourceCandidates.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.full_name} {user.email ? `(${user.email})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={transferOrdersToEditingUser}
+                      disabled={!transferSourceUserId || transferringOrders}
+                      className="bg-amber-600 text-white px-5 py-2.5 rounded-xl text-sm font-black hover:bg-amber-700 transition-colors disabled:opacity-50"
+                    >
+                      {transferringOrders
+                        ? "ກຳລັງຍ້າຍ..."
+                        : transferAssignment === "graphic"
+                          ? "ຍ້າຍອໍເດີ graphic ມາ user ນີ້"
+                          : "ຍ້າຍອໍເດີ admin ມາ user ນີ້"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
             <div className="p-5 border-t border-slate-100 bg-slate-50 flex gap-3 justify-end">
               <button

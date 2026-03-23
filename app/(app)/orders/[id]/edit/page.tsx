@@ -12,6 +12,7 @@ type OrderDetail = {
   order_code: string;
   order_date: string;
   customer_phone: string | null;
+  customer_whatsapp: string | null;
   factory_bill_code: string | null;
   admin_user_id: string | null;
   graphic_user_id: string | null;
@@ -35,6 +36,8 @@ type OrderDetail = {
   balance: number;
   status: "in_progress" | "completed";
   production_completed_at: string | null;
+  shipment_status?: "pending" | "shipped";
+  shipment_completed_at?: string | null;
   customer_remaining_due_at: string | null;
   factory_payment_due_at: string | null;
   customer_paid_full_at: string | null;
@@ -73,6 +76,13 @@ type FactoryPayment = {
   note: string | null;
 };
 
+type ImportReceiptInfo = {
+  receipt_id: string;
+  received_at: string;
+  received_by: string;
+  note: string | null;
+};
+
 export default function EditOrderPage() {
   const params = useParams();
   const router = useRouter();
@@ -83,6 +93,7 @@ export default function EditOrderPage() {
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [customerPayments, setCustomerPayments] = useState<CustomerPayment[]>([]);
   const [factoryPayments, setFactoryPayments] = useState<FactoryPayment[]>([]);
+  const [importReceipt, setImportReceipt] = useState<ImportReceiptInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadingFabrics, setLoadingFabrics] = useState(true);
@@ -92,6 +103,7 @@ export default function EditOrderPage() {
   const [orderDate, setOrderDate] = useState("");
   const [orderCode, setOrderCode] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [customerWhatsapp, setCustomerWhatsapp] = useState("");
   const [factoryBillCode, setFactoryBillCode] = useState("");
   const [fabricId, setFabricId] = useState("");
   const [adminUserId, setAdminUserId] = useState("");
@@ -118,6 +130,7 @@ export default function EditOrderPage() {
   const [factoryPayAmount, setFactoryPayAmount] = useState(0);
   const [factoryPayNote, setFactoryPayNote] = useState("");
   const [factoryPayDate, setFactoryPayDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cancelingImport, setCancelingImport] = useState(false);
 
   const toDateInput = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 10) : "");
   const dateInputToIso = (value: string) => (value ? new Date(`${value}T12:00:00`).toISOString() : null);
@@ -140,6 +153,7 @@ export default function EditOrderPage() {
     setOrderDate(o.order_date);
     setOrderCode(o.order_code);
     setCustomerPhone(o.customer_phone || "");
+    setCustomerWhatsapp(o.customer_whatsapp || "");
     setFactoryBillCode(o.factory_bill_code || "");
     setFabricId(o.fabric_id || "");
     setAdminUserId(o.admin_user_id || "");
@@ -192,12 +206,72 @@ export default function EditOrderPage() {
     setFactoryPayments((data ?? []) as FactoryPayment[]);
   };
 
+  const loadImportReceipt = async () => {
+    const { data, error } = await supabase
+      .from("factory_receipt_items")
+      .select("receipt_id,factory_receipts!inner(received_at,received_by,note)")
+      .eq("order_id", orderId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (!error.message.includes("0 rows")) throw error;
+      setImportReceipt(null);
+      return;
+    }
+
+    if (data) {
+      const row = data as {
+        receipt_id: string;
+        factory_receipts: Array<{ received_at: string; received_by: string; note: string | null }>;
+      };
+      const receipt = row.factory_receipts?.[0];
+      if (!receipt) {
+        setImportReceipt(null);
+        return;
+      }
+      setImportReceipt({
+        receipt_id: row.receipt_id,
+        received_at: receipt.received_at,
+        received_by: receipt.received_by,
+        note: receipt.note,
+      });
+      return;
+    }
+
+    const { data: orderData } = await supabase.from("orders").select("production_completed_at").eq("id", orderId).maybeSingle();
+    const productionCompletedAt = (orderData as { production_completed_at?: string | null } | null)?.production_completed_at || null;
+    if (!productionCompletedAt) {
+      setImportReceipt(null);
+      return;
+    }
+
+    const { data: fallbackReceipt } = await supabase
+      .from("factory_receipts")
+      .select("id,received_at,received_by,note")
+      .eq("received_at", productionCompletedAt)
+      .limit(1)
+      .maybeSingle();
+
+    if (!fallbackReceipt) {
+      setImportReceipt(null);
+      return;
+    }
+
+    setImportReceipt({
+      receipt_id: (fallbackReceipt as { id: string }).id,
+      received_at: (fallbackReceipt as { received_at: string }).received_at,
+      received_by: (fallbackReceipt as { received_by: string }).received_by,
+      note: (fallbackReceipt as { note: string | null }).note,
+    });
+  };
+
   const reloadAll = async () => {
     setLoading(true);
     setErr(null);
     try {
       await Promise.all([loadOrder(), loadUsers(), loadFabrics()]);
-      await Promise.all([loadCustomerPayments(), loadFactoryPayments()]);
+      await Promise.all([loadCustomerPayments(), loadFactoryPayments(), loadImportReceipt()]);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Load failed");
       setLoadingUsers(false);
@@ -265,6 +339,7 @@ export default function EditOrderPage() {
       order_code: orderCode.trim(),
       order_date: orderDate,
       customer_phone: customerPhone.trim() || null,
+      customer_whatsapp: customerWhatsapp.trim() || null,
       factory_bill_code: factoryBillCode.trim() || null,
       fabric_id: fabric.id,
       fabric_name: fabric.name,
@@ -400,6 +475,138 @@ export default function EditOrderPage() {
     await reloadAll();
   };
 
+  const handleCancelImport = async () => {
+    if (!order || !order.production_completed_at) {
+      toast.error("ອໍເດີນີ້ຍັງບໍ່ໄດ້ນຳເຂົ້າ");
+      return;
+    }
+    if (order.shipment_status === "shipped" || order.shipment_completed_at) {
+      toast.error("ບໍ່ສາມາດຍົກເລີກນຳເຂົ້າໄດ້ ເພາະອໍເດີນີ້ຖືກຈັດສົ່ງແລ້ວ");
+      return;
+    }
+
+    const ok = confirm(`ຕ້ອງການຍົກເລີກນຳເຂົ້າຂອງ ${order.order_code} ຫຼື ບໍ່?`);
+    if (!ok) return;
+
+    setCancelingImport(true);
+    setErr(null);
+
+    const { data: labelData, error: labelError } = await supabase
+      .from("order_qr_labels")
+      .select("id,label_status")
+      .eq("order_id", orderId)
+      .maybeSingle();
+
+    if (labelError) {
+      setCancelingImport(false);
+      setErr(labelError.message);
+      return;
+    }
+
+    if ((labelData as { label_status?: string } | null)?.label_status === "shipped") {
+      setCancelingImport(false);
+      toast.error("ບໍ່ສາມາດຍົກເລີກນຳເຂົ້າໄດ້ ເພາະ QR ນີ້ຖືກຈັດສົ່ງແລ້ວ");
+      return;
+    }
+
+    const { data: receiptItems, error: receiptItemsError } = await supabase
+      .from("factory_receipt_items")
+      .select("id,receipt_id")
+      .eq("order_id", orderId);
+
+    if (receiptItemsError) {
+      setCancelingImport(false);
+      setErr(receiptItemsError.message);
+      return;
+    }
+
+    const receiptIds = Array.from(new Set(((receiptItems ?? []) as Array<{ receipt_id: string }>).map((item) => item.receipt_id)));
+
+    if ((receiptItems ?? []).length > 0) {
+      const { error: deleteReceiptItemsError } = await supabase.from("factory_receipt_items").delete().eq("order_id", orderId);
+      if (deleteReceiptItemsError) {
+        setCancelingImport(false);
+        setErr(deleteReceiptItemsError.message);
+        return;
+      }
+    }
+
+    if (receiptIds.length > 0) {
+      for (const receiptId of receiptIds) {
+        const { count, error: countError } = await supabase
+          .from("factory_receipt_items")
+          .select("id", { count: "exact", head: true })
+          .eq("receipt_id", receiptId);
+
+        if (countError) {
+          setCancelingImport(false);
+          setErr(countError.message);
+          return;
+        }
+
+        if ((count || 0) === 0) {
+          const { error: deleteReceiptError } = await supabase.from("factory_receipts").delete().eq("id", receiptId);
+          if (deleteReceiptError) {
+            setCancelingImport(false);
+            setErr(deleteReceiptError.message);
+            return;
+          }
+        }
+      }
+    } else if (importReceipt?.receipt_id) {
+      const { count, error: countError } = await supabase
+        .from("factory_receipt_items")
+        .select("id", { count: "exact", head: true })
+        .eq("receipt_id", importReceipt.receipt_id);
+
+      if (countError) {
+        setCancelingImport(false);
+        setErr(countError.message);
+        return;
+      }
+
+      if ((count || 0) === 0) {
+        await supabase.from("factory_receipts").delete().eq("id", importReceipt.receipt_id);
+      }
+    }
+
+    if (labelData?.id) {
+      const { error: revertLabelError } = await supabase
+        .from("order_qr_labels")
+        .update({
+          label_status: "created",
+          received_at: null,
+          received_by: null,
+          last_scanned_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", labelData.id);
+
+      if (revertLabelError) {
+        setCancelingImport(false);
+        setErr(revertLabelError.message);
+        return;
+      }
+    }
+
+    const { error: revertOrderError } = await supabase
+      .from("orders")
+      .update({ production_completed_at: null })
+      .eq("id", orderId)
+      .eq("production_completed_at", order.production_completed_at);
+
+    setCancelingImport(false);
+
+    if (revertOrderError) {
+      setErr(revertOrderError.message);
+      return;
+    }
+
+    await safeInsertAction("cancel_factory_receipt", "Canceled imported stock from edit page");
+    await reloadAll();
+    toast.success("ຍົກເລີກນຳເຂົ້າສຳເລັດ");
+  };
+
   const handleDelete = async () => {
     if (!order || isReadOnlyAdmin) return;
     const ok = confirm(`ຕ້ອງການລຶບອໍເດີ ${order.order_code} ຫຼື ບໍ່?`);
@@ -421,6 +628,7 @@ export default function EditOrderPage() {
           <div className="text-sm text-slate-800 font-medium">ສ້າງເມື່ອ: {new Date(order.created_at).toLocaleString("en-US")}</div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {!isReadOnlyAdmin ? <button onClick={handleCancelImport} disabled={cancelingImport || !order.production_completed_at} className="rounded bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50">{cancelingImport ? "ກຳລັງຍົກເລີກ..." : "ຍົກເລີກນຳເຂົ້າ"}</button> : null}
           <Link href="/orders" className="rounded border border-slate-400 px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50">ກັບຄືນ</Link>
           {!isReadOnlyAdmin ? <button onClick={handleMarkProductionCompleted} className="rounded bg-indigo-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-indigo-700">ຜະລິດສຳເລັດ</button> : null}
           {!isReadOnlyAdmin ? <button onClick={handleCloseOrder} className="rounded bg-green-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-green-700">ປິດງານແລ້ວ</button> : null}
@@ -443,6 +651,10 @@ export default function EditOrderPage() {
             <div className="space-y-1">
               <label className="block text-xs font-black text-slate-800">ເບີໂທລູກຄ້າ</label>
               <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="ເບີໂທລູກຄ້າ" />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">ເບີ WhatsApp</label>
+              <input value={customerWhatsapp} onChange={(e) => setCustomerWhatsapp(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="ເບີ WhatsApp" />
             </div>
             <div className="space-y-1">
               <label className="block text-xs font-black text-slate-800">ລະຫັດບິນໂຮງງານ</label>
@@ -532,6 +744,13 @@ export default function EditOrderPage() {
                 </div>
               ))}
             </div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-900 shadow-sm space-y-2">
+            <div className="font-black text-slate-900">ຂໍ້ມູນການນຳເຂົ້າ</div>
+            <div><span className="font-black">ສະຖານະ:</span> <span className="font-bold">{order.production_completed_at ? "ນຳເຂົ້າແລ້ວ" : "ຍັງບໍ່ໄດ້ນຳເຂົ້າ"}</span></div>
+            <div><span className="font-black">ວັນທີນຳເຂົ້າ:</span> <span className="font-bold">{importReceipt?.received_at ? new Date(importReceipt.received_at).toLocaleString("en-US") : (order.production_completed_at ? new Date(order.production_completed_at).toLocaleString("en-US") : "-")}</span></div>
+            <div><span className="font-black">ຜູ້ນຳເຂົ້າ:</span> <span className="font-bold">{importReceipt?.received_by || "-"}</span></div>
+            <div><span className="font-black">ໝາຍເຫດ:</span> <span className="font-bold">{importReceipt?.note?.trim() || "-"}</span></div>
           </div>
         </div>
 

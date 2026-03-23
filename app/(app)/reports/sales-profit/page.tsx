@@ -11,20 +11,24 @@ type ReportOrder = {
   order_code: string;
   order_date: string;
   production_completed_at: string | null;
-  shipped_at: string | null;
+  shipment_completed_at: string | null;
+  shipment_status: "pending" | "shipped";
   balance: number;
   short_qty: number;
   long_qty: number;
   net_total: number;
   factory_cost: number;
-  status: "in_progress" | "completed";
 };
 
 type StatusFilter = "all" | "in_progress" | "completed";
 
-function getStatusLabel(status: ReportOrder["status"]) {
-  if (status === "in_progress") return "ກຳລັງດຳເນີນການ";
-  return "ສຳເລັດແລ້ວ";
+function getProductionStatus(order: Pick<ReportOrder, "production_completed_at">): Exclude<StatusFilter, "all"> {
+  return order.production_completed_at ? "completed" : "in_progress";
+}
+
+function getStatusLabel(status: Exclude<StatusFilter, "all">) {
+  if (status === "in_progress") return "ກຳລັງຜະລິດ";
+  return "ຜະລິດສຳເລັດ";
 }
 
 export default function SalesProfitReportPage() {
@@ -41,13 +45,10 @@ export default function SalesProfitReportPage() {
   const load = async () => {
     setLoading(true);
     setErr(null);
-    const [{ data: orderData, error: orderError }, { data: shipmentData, error: shipmentError }] = await Promise.all([
-      supabase
-        .from("orders")
-        .select("id,order_code,order_date,production_completed_at,balance,short_qty,long_qty,net_total,factory_cost,status")
-        .order("order_date", { ascending: false }),
-      supabase.from("shipment_records").select("order_id,shipped_at").order("shipped_at", { ascending: false }),
-    ]);
+    const { data: orderData, error: orderError } = await supabase
+      .from("orders")
+      .select("id,order_code,order_date,production_completed_at,shipment_completed_at,shipment_status,balance,short_qty,long_qty,net_total,factory_cost")
+      .order("order_date", { ascending: false });
 
     if (orderError) {
       setErr(orderError.message);
@@ -55,24 +56,7 @@ export default function SalesProfitReportPage() {
       setLoading(false);
       return;
     }
-    if (shipmentError) {
-      setErr(shipmentError.message);
-      setRows([]);
-      setLoading(false);
-      return;
-    }
-
-    const shippedByOrder = new Map<string, string>();
-    ((shipmentData ?? []) as { order_id: string; shipped_at: string }[]).forEach((row) => {
-      if (!shippedByOrder.has(row.order_id)) shippedByOrder.set(row.order_id, row.shipped_at);
-    });
-
-    const mergedRows = ((orderData ?? []) as Omit<ReportOrder, "shipped_at">[]).map((row) => ({
-      ...row,
-      shipped_at: shippedByOrder.get(row.id) || null,
-    }));
-
-    setRows(mergedRows);
+    setRows((orderData ?? []) as ReportOrder[]);
     setLoading(false);
   };
 
@@ -89,7 +73,8 @@ export default function SalesProfitReportPage() {
       const date = new Date(`${r.order_date}T00:00:00`).toISOString();
       if (!(date >= start && date < endExclusive)) return false;
       if (!matchPrefix(r.order_code, prefix)) return false;
-      if (status !== "all" && r.status !== status) return false;
+      const productionStatus = getProductionStatus(r);
+      if (status !== "all" && productionStatus !== status) return false;
       return true;
     });
   }, [rows, month, year, prefix, status]);
@@ -97,11 +82,12 @@ export default function SalesProfitReportPage() {
   const filteredForProfit = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
     return rows.filter((r) => {
-      const effectiveProfitAt = r.shipped_at || (Number(r.balance) === 0 ? r.production_completed_at : null);
+      const effectiveProfitAt = r.shipment_completed_at;
       if (!effectiveProfitAt) return false;
       if (!(effectiveProfitAt >= start && effectiveProfitAt < endExclusive)) return false;
       if (!matchPrefix(r.order_code, prefix)) return false;
-      if (status !== "all" && r.status !== status) return false;
+      const productionStatus = getProductionStatus(r);
+      if (status !== "all" && productionStatus !== status) return false;
       return true;
     });
   }, [rows, month, year, prefix, status]);
@@ -125,7 +111,7 @@ export default function SalesProfitReportPage() {
     const exportRows = filteredByOrderDate.map((r) => ({
       "ວັນທີສັ່ງ": r.order_date,
       "ວັນທີຜະລິດສຳເລັດ": toDateOnly(r.production_completed_at),
-      "ວັນທີຈັດສົ່ງສຳເລັດ": toDateOnly(r.shipped_at),
+      "ວັນທີຈັດສົ່ງສຳເລັດ": toDateOnly(r.shipment_completed_at),
       "ລະຫັດອໍເດີ": r.order_code,
       "ຈຳນວນເສື້ອ": (Number(r.short_qty) || 0) + (Number(r.long_qty) || 0),
       "ແຂນສັ້ນ": Number(r.short_qty) || 0,
@@ -133,7 +119,7 @@ export default function SalesProfitReportPage() {
       "ຍອດຂາຍສຸດທິ": Number(r.net_total) || 0,
       "ຕົ້ນທຶນໂຮງງານ": Number(r.factory_cost) || 0,
       "ກຳໄລ": (Number(r.net_total) || 0) - (Number(r.factory_cost) || 0),
-      "ສະຖານະ": getStatusLabel(r.status),
+      "ສະຖານະ": `${getStatusLabel(getProductionStatus(r))} / ${r.shipment_status === "shipped" ? "ຈັດສົ່ງສຳເລັດ" : "ລໍຖ້າຈັດສົ່ງ"}`,
     }));
 
     exportRows.push({
@@ -182,9 +168,9 @@ export default function SalesProfitReportPage() {
             ))}
           </select>
           <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-900">
-            <option value="all">ສະຖານະທັງໝົດ</option>
-            <option value="in_progress">ກຳລັງດຳເນີນການ</option>
-            <option value="completed">ສຳເລັດແລ້ວ</option>
+            <option value="all">ສະຖານະຜະລິດທັງໝົດ</option>
+            <option value="in_progress">ກຳລັງຜະລິດ</option>
+            <option value="completed">ຜະລິດສຳເລັດ</option>
           </select>
         </div>
 
@@ -244,7 +230,7 @@ export default function SalesProfitReportPage() {
                     <td className="p-3 text-right text-slate-800">{(Number(r.net_total) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(r.factory_cost) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-blue-600 font-bold">{((Number(r.net_total) || 0) - (Number(r.factory_cost) || 0)).toLocaleString()}</td>
-                    <td className="p-3 text-slate-800 font-medium">{getStatusLabel(r.status)}</td>
+                    <td className="p-3 text-slate-800 font-medium">{getStatusLabel(getProductionStatus(r))}</td>
                   </tr>
                 ))
               )}

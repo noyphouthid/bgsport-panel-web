@@ -31,30 +31,31 @@ export default function NewOrderPage() {
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // ===== 1) ຂໍ້ມູນພື້ນຖານ =====
+  // ===== 1) ข้อมูลพื้นฐาน =====
   const [orderDate, setOrderDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [orderCode, setOrderCode] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [customerWhatsapp, setCustomerWhatsapp] = useState("");
   const [factoryBillCode, setFactoryBillCode] = useState(""); // optional
   const [fabricId, setFabricId] = useState<string>("");
   const [adminUserId, setAdminUserId] = useState<string>("");
   const [graphicUserId, setGraphicUserId] = useState<string>("");
 
-  // ===== 2) ຈຳນວນ & ຂະໜາດ =====
+  // ===== 2) จำนวน & ขนาด =====
   const [shortQty, setShortQty] = useState<number>(0);
   const [longQty, setLongQty] = useState<number>(0);
-  const [freeQty, setFreeQty] = useState<number>(0); // ແຖມ (ບໍ່ຄິດເງິນ)
+  const [freeQty, setFreeQty] = useState<number>(0); // แถม (ไม่คิดเงิน)
   const [qty3XL, setQty3XL] = useState<number>(0);
   const [qty4XL, setQty4XL] = useState<number>(0);
   const [qty5XL, setQty5XL] = useState<number>(0);
 
-  // ===== 3) ການເງິນ & ຄ່າທຳນຽມ =====
+  // ===== 3) การเงิน & ค่าธรรมเนียม =====
   const [extraCharge, setExtraCharge] = useState<number>(0);
   const [designDeposit, setDesignDeposit] = useState<number>(0);
   const [initialDeposit, setInitialDeposit] = useState<number>(0);
   const [factoryCost, setFactoryCost] = useState<number>(0);
 
-  // ===== ກົດກາ =====
+  // ===== กฎการ =====
   const sizeUpcharge = 20000;
 
   const loadFabrics = async () => {
@@ -166,7 +167,7 @@ export default function NewOrderPage() {
     const result = await Swal.fire({
       icon: "warning",
       title: "ອອກຈາກໜ້ານີ້?",
-      text: "ຂໍ້ມູນທີ່ຍັງບໍ່ບັນທຶກຈະຫາຍ",
+      text: "ຂໍ້ມູນທີ່ຍັງບໍ່ໄດ້ບັນທຶກຈະຫາຍ",
       showCancelButton: true,
       confirmButtonText: "ອອກ",
       cancelButtonText: "ຢູ່ຕໍ່",
@@ -201,6 +202,7 @@ export default function NewOrderPage() {
       order_code: orderCode.trim(),
       order_date: orderDate,
       customer_phone: customerPhone.trim() || null,
+      customer_whatsapp: customerWhatsapp.trim() || null,
       factory_bill_code: factoryBillCode.trim() || null,
       admin_user_id: adminUserId || null,
       graphic_user_id: graphicUserId || null,
@@ -264,8 +266,8 @@ export default function NewOrderPage() {
 
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">ເພີ່ມອໍເດີ້ໃໝ່</h1>
-          <div className="text-sm text-slate-500 font-medium">ບັນທຶກອໍເດີ້ (ດຶງລາຄາຜ້າຈາກ Supabase)</div>
+          <h1 className="text-2xl font-bold text-slate-800">ເພີ່ມອໍເດີໃໝ່</h1>
+          <div className="text-sm text-slate-500 font-medium">ບັນທຶກອໍເດີ (ດຶງລາຄາຜ້າຈາກ Supabase)</div>
         </div>
 
         <div className="flex gap-2">
@@ -285,11 +287,9 @@ export default function NewOrderPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Left */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Basic */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">1) ກ່ຽວກັບອໍເດີ້ </div>
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">1) ກ່ຽວກັບອໍເດີ </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
@@ -298,13 +298,18 @@ export default function NewOrderPage() {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ລະຫັດອໍເດີ້</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ລະຫັດອໍເດີ</label>
                 <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="PKF26-001" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold placeholder-slate-300" />
               </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">ເບີໂທລູກຄ້າ ຫຼື FB (ຖ້າມີ)</label>
                 <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="020xxxxxxxx" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ເບີ WhatsApp (ຖ້າມີ)</label>
+                <input value={customerWhatsapp} onChange={(e) => setCustomerWhatsapp(e.target.value)} placeholder="020xxxxxxxx" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
               </div>
 
               <div>
@@ -320,7 +325,7 @@ export default function NewOrderPage() {
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold bg-white"
                   disabled={loadingUsers}
                 >
-                  <option value="">Select admin</option>
+                  <option value="">ເລືອກ admin</option>
                   {adminOptions.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.full_name}
@@ -337,7 +342,7 @@ export default function NewOrderPage() {
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold bg-white"
                   disabled={loadingUsers}
                 >
-                  <option value="">Select graphic</option>
+                  <option value="">ເລືອກ graphic</option>
                   {graphicOptions.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.full_name}
@@ -370,9 +375,8 @@ export default function NewOrderPage() {
             </div>
           </div>
 
-          {/* Qty */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">2) ຈຳນວນ & ບວກເພີ່ມໄຊທ໌</div>
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">2) ຈຳນວນ & ບວກເພີ່ມໄຊສ໌</div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
@@ -410,13 +414,12 @@ export default function NewOrderPage() {
             </div>
           </div>
 
-          {/* Finance */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
             <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">3) ຮູບແບບມັດຈຳ & ລາຍການບວກເພີ່ມ</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ບວກເພີ່ມ (ງານດ່ວນ,ອື່ນໆ)</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ)</label>
                 <input type="number" value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold" min={0} />
               </div>
 
@@ -439,7 +442,7 @@ export default function NewOrderPage() {
 
           <div className="flex gap-2">
             <button onClick={handleSave} className="bg-emerald-600 text-white px-8 py-2.5 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95">
-              ບັນທຶກອໍເດີ້
+              ບັນທຶກອໍເດີ
             </button>
             <button onClick={handleCancelReset} className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-slate-200 border border-slate-200 transition-all">
               ຍົກເລີກ / ລ້າງ
@@ -447,10 +450,9 @@ export default function NewOrderPage() {
           </div>
         </div>
 
-        {/* Right summary */}
         <div className="space-y-4">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 sticky top-4">
-            <div className="font-bold text-slate-800 mb-4 uppercase text-xs tracking-widest border-b pb-3 border-slate-50">4) ສະຫຼຸບອໍເດີ້</div>
+            <div className="font-bold text-slate-800 mb-4 uppercase text-xs tracking-widest border-b pb-3 border-slate-50">4) ສະຫຼຸບອໍເດີ</div>
 
             <div className="space-y-3 text-sm">
               <div className="flex justify-between items-center">
@@ -469,7 +471,7 @@ export default function NewOrderPage() {
               </div>
 
               <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ບວກເພີ່ມ (ງານດ່ວນ,ອື່ນໆ):</span>
+                <span className="text-slate-500 font-medium">ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ):</span>
                 <span className="font-bold text-slate-800">{extraCharge.toLocaleString()}</span>
               </div>
 

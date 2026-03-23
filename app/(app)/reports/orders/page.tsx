@@ -11,6 +11,8 @@ type OrderRow = {
   order_code: string;
   order_date: string;
   production_completed_at: string | null;
+  shipment_completed_at: string | null;
+  shipment_status: "pending" | "shipped";
   customer_phone: string | null;
   initial_deposit: number;
   balance: number;
@@ -39,7 +41,7 @@ export default function OrdersReportPage() {
     setErr(null);
     const { data, error } = await supabase
       .from("orders")
-      .select("id,order_code,order_date,production_completed_at,customer_phone,initial_deposit,balance,net_total,status,closed_at")
+      .select("id,order_code,order_date,production_completed_at,shipment_completed_at,shipment_status,customer_phone,initial_deposit,balance,net_total,status,closed_at")
       .order("order_date", { ascending: false });
     if (error) {
       setErr(error.message);
@@ -88,6 +90,7 @@ export default function OrdersReportPage() {
       customer_phone: string;
       order_date: string;
       production_completed_date: string;
+      shipment_completed_date: string;
       net_total: number;
       paid_amount: number;
       outstanding_amount: number;
@@ -100,11 +103,16 @@ export default function OrdersReportPage() {
       customer_phone: r.customer_phone ?? "",
       order_date: r.order_date,
       production_completed_date: toDateOnly(r.production_completed_at),
+      shipment_completed_date: toDateOnly(r.shipment_completed_at),
       net_total: Number(r.net_total) || 0,
       paid_amount: Number(r.initial_deposit) || 0,
       outstanding_amount: Number(r.balance) || 0,
       payment_status: Number(r.balance) === 0 ? "ຈ່າຍແລ້ວ" : "ຄ້າງຈ່າຍ",
-      production_status: r.production_completed_at ? "ຜະລິດສຳເລັດ" : "ກຳລັງຜະລິດ",
+      production_status: r.production_completed_at
+        ? r.shipment_status === "shipped"
+          ? "ຈັດສົ່ງສຳເລັດ"
+          : "ຜະລິດສຳເລັດ"
+        : "ກຳລັງຜະລິດ",
     }));
 
     out.push({
@@ -112,6 +120,7 @@ export default function OrdersReportPage() {
       customer_phone: periodLabel,
       order_date: `prefix=${prefix}`,
       production_completed_date: `payment=${paymentStatus} production=${productionStatus}`,
+      shipment_completed_date: "-",
       net_total: 0,
       paid_amount: summary.paidAmount,
       outstanding_amount: summary.outstandingAmount,
@@ -193,6 +202,7 @@ export default function OrdersReportPage() {
                 <th className="p-3 text-left text-xs uppercase font-black">ເບີໂທລູກຄ້າ</th>
                 <th className="p-3 text-left text-xs uppercase font-black">ວັນທີສັ່ງ</th>
                 <th className="p-3 text-left text-xs uppercase font-black">ຜະລິດສຳເລັດ</th>
+                <th className="p-3 text-left text-xs uppercase font-black">ຈັດສົ່ງສຳເລັດ</th>
                 <th className="p-3 text-right text-xs uppercase font-black">ຈ່າຍແລ້ວ</th>
                 <th className="p-3 text-right text-xs uppercase font-black">ຄ້າງຈ່າຍ</th>
                 <th className="p-3 text-left text-xs uppercase font-black">ການຊຳລະ</th>
@@ -201,7 +211,7 @@ export default function OrdersReportPage() {
             <tbody className="divide-y divide-slate-50">
               {!loading && filteredRows.length === 0 ? (
                 <tr>
-                  <td className="p-8 text-center text-slate-500 font-bold" colSpan={7}>ບໍ່ມີຂໍ້ມູນ</td>
+                  <td className="p-8 text-center text-slate-500 font-bold" colSpan={8}>ບໍ່ມີຂໍ້ມູນ</td>
                 </tr>
               ) : (
                 filteredRows.map((r) => (
@@ -210,6 +220,7 @@ export default function OrdersReportPage() {
                     <td className="p-3 text-slate-800">{r.customer_phone || "-"}</td>
                     <td className="p-3 text-slate-800">{r.order_date}</td>
                     <td className="p-3 text-slate-800">{toDateOnly(r.production_completed_at) || "-"}</td>
+                    <td className="p-3 text-slate-800">{toDateOnly(r.shipment_completed_at) || "-"}</td>
                     <td className="p-3 text-right text-emerald-600 font-bold">{(Number(r.initial_deposit) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-rose-600 font-bold">{(Number(r.balance) || 0).toLocaleString()}</td>
                     <td className="p-3 text-slate-800 font-medium">{Number(r.balance) === 0 ? "ຈ່າຍແລ້ວ" : "ຄ້າງຈ່າຍ"}</td>

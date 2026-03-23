@@ -1,20 +1,25 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { MessageCircleMore } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
+import { WhatsappMessageModal } from "../_components/whatsapp-message-modal";
+import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
 
 const PREFIXES = ["PKF26", "PKLF26", "MKF26", "MKLF26", "PMF26", "PMLF26", "MMF26", "MMLF26"] as const;
 type Prefix = (typeof PREFIXES)[number];
 
-type StatusFilter = "all" | "in_progress" | "completed" | "producing" | "production_completed" | "closed";
+type StatusFilter = "all" | "in_progress" | "completed" | "producing" | "production_completed" | "shipment_completed" | "closed";
+type FactoryBillFilter = "all" | "has_code" | "no_code";
 
 type OrderRow = {
   id: string;
   order_code: string;
   order_date: string;
   customer_phone: string | null;
+  customer_whatsapp: string | null;
   factory_bill_code: string | null;
   fabric_name: string;
   net_total: number;
@@ -23,8 +28,16 @@ type OrderRow = {
   factory_cost: number;
   status: "in_progress" | "completed";
   production_completed_at: string | null;
+  shipment_status: "pending" | "shipped";
+  shipment_completed_at: string | null;
   closed_at: string | null;
   updated_at: string;
+  short_qty: number;
+  long_qty: number;
+  free_qty: number;
+  qty_3xl: number;
+  qty_4xl: number;
+  qty_5xl: number;
 };
 
 export default function OrdersPage() {
@@ -35,10 +48,12 @@ export default function OrdersPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
+  const [activeWhatsappOrder, setActiveWhatsappOrder] = useState<OrderRow | null>(null);
 
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [factoryBillFilter, setFactoryBillFilter] = useState<FactoryBillFilter>("all");
   const [prefix, setPrefix] = useState<Prefix | "ALL">("ALL");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -51,7 +66,7 @@ export default function OrdersPage() {
     let q = supabase
       .from("orders")
       .select(
-        "id,order_code,order_date,customer_phone,factory_bill_code,fabric_name,net_total,initial_deposit,balance,factory_cost,status,production_completed_at,closed_at,updated_at",
+        "id,order_code,order_date,customer_phone,customer_whatsapp,factory_bill_code,fabric_name,net_total,initial_deposit,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,updated_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl",
         { count: "exact" }
       )
       .order("order_date", { ascending: false })
@@ -76,11 +91,16 @@ export default function OrdersPage() {
       setFilteredTotal(0);
     } else {
       const filteredRows = ((data ?? []) as OrderRow[]).filter((row) => {
+        const hasFactoryBillCode = Boolean(row.factory_bill_code?.trim());
+        if (factoryBillFilter === "has_code" && !hasFactoryBillCode) return false;
+        if (factoryBillFilter === "no_code" && hasFactoryBillCode) return false;
         if (status === "all") return true;
         const isClosed = row.status === "completed" || Boolean(row.closed_at);
+        const isShipmentCompleted = row.shipment_status === "shipped" || Boolean(row.shipment_completed_at);
         const isProductionCompleted = Boolean(row.production_completed_at) && !isClosed;
         const isProducing = !row.production_completed_at && !isClosed;
         if (status === "closed") return isClosed;
+        if (status === "shipment_completed") return isShipmentCompleted;
         if (status === "completed") return isProductionCompleted || isClosed;
         if (status === "production_completed") return isProductionCompleted;
         if (status === "in_progress") return isProducing;
@@ -99,6 +119,7 @@ export default function OrdersPage() {
       void load();
     }, 0);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
   useEffect(() => {
@@ -129,6 +150,7 @@ export default function OrdersPage() {
     setFromDate("");
     setToDate("");
     setStatus("all");
+    setFactoryBillFilter("all");
     setPrefix("ALL");
     setQuery("");
     setPage(1);
@@ -198,22 +220,53 @@ export default function OrdersPage() {
     if (row.status === "completed" || row.closed_at) {
       return statusBadge("completed");
     }
+    if (row.shipment_status === "shipped" || row.shipment_completed_at) {
+      return <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-200">ຈັດສົ່ງສຳເລັດ</span>;
+    }
     if (row.production_completed_at) {
       return <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200">ຜະລິດສຳເລັດ</span>;
     }
     return <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200">ກຳລັງຜະລິດ</span>;
   };
 
+  const activeWhatsappOptions = activeWhatsappOrder
+    ? getWhatsappContactOptions(activeWhatsappOrder.customer_phone, activeWhatsappOrder.customer_whatsapp)
+    : [];
+
+  const activeWhatsappMessage = activeWhatsappOrder
+    ? buildProductionCompletedWhatsappMessage({
+        orderCode: activeWhatsappOrder.order_code,
+        totalQty:
+          (Number(activeWhatsappOrder.short_qty) || 0) +
+          (Number(activeWhatsappOrder.long_qty) || 0) +
+          (Number(activeWhatsappOrder.free_qty) || 0) +
+          (Number(activeWhatsappOrder.qty_3xl) || 0) +
+          (Number(activeWhatsappOrder.qty_4xl) || 0) +
+          (Number(activeWhatsappOrder.qty_5xl) || 0),
+        balance: Number(activeWhatsappOrder.balance) || 0,
+      })
+    : "";
+
   return (
     <div className="text-slate-900 antialiased">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">ອໍເດີ</h1>
-        {!isAdminLimited ? <Link
-          href="/orders/new"
-          className="bg-emerald-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95"
-        >
-          + ເພີ່ມອໍເດີ
-        </Link> : null}
+        {!isAdminLimited ? (
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/quotations/new"
+              className="bg-sky-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-sky-700 shadow-md transition-all active:scale-95"
+            >
+              + ເພີ່ມໃບປະເມີນລາຄາ
+            </Link>
+            <Link
+              href="/orders/new"
+              className="bg-emerald-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95"
+            >
+              + ເພີ່ມອໍເດີ
+            </Link>
+          </div>
+        ) : null}
       </div>
 
       {err && (
@@ -223,7 +276,7 @@ export default function OrdersPage() {
       )}
 
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end">
           <div>
             <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ຈາກວັນທີ</label>
             <input
@@ -251,7 +304,10 @@ export default function OrdersPage() {
             >
               <option value="all">ທັງໝົດ</option>
               <option value="in_progress">ກຳລັງຜະລິດ</option>
+              <option value="production_completed">ຜະລິດສຳເລັດ</option>
+              <option value="shipment_completed">ຈັດສົ່ງສຳເລັດ</option>
               <option value="completed">ສຳເລັດແລ້ວ</option>
+              <option value="closed">ປິດງານແລ້ວ</option>
             </select>
           </div>
           <div>
@@ -265,6 +321,18 @@ export default function OrdersPage() {
               {PREFIXES.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ລະຫັດບິນໂຮງງານ</label>
+            <select
+              value={factoryBillFilter}
+              onChange={(e) => setFactoryBillFilter(e.target.value as FactoryBillFilter)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white"
+            >
+              <option value="all">ທັງໝົດ</option>
+              <option value="has_code">ມີລະຫັດບິນໂຮງງານ</option>
+              <option value="no_code">ຍັງບໍ່ມີລະຫັດບິນໂຮງງານ</option>
+            </select>
+          </div>
           <div className="md:col-span-2">
             <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ຄົ້ນຫາ</label>
             <input
@@ -274,7 +342,7 @@ export default function OrdersPage() {
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder-slate-300"
             />
           </div>
-          <div className="flex gap-2 md:col-span-6 mt-2">
+          <div className="flex gap-2 md:col-span-7 mt-2">
             {!isAdminLimited ? <button
               onClick={runSearch}
               className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
@@ -321,13 +389,14 @@ export default function OrdersPage() {
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຍອດສຸດທິ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຄ້າງ</th>
                 <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">ສະຖານະ</th>
+                <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">WhatsApp</th>
                 <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">ຈັດການ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={10}>
+                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={11}>
                     ບໍ່ພົບຂໍ້ມູນໃນລະບົບ
                   </td>
                 </tr>
@@ -350,6 +419,20 @@ export default function OrdersPage() {
                     <td className="p-4 text-right font-bold text-slate-600">{r.net_total.toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-rose-600 bg-rose-50/30">{r.balance.toLocaleString()}</td>
                     <td className="p-4 text-center">{displayStatusBadge(r)}</td>
+                    <td className="p-4 text-center">
+                      {getWhatsappContactOptions(r.customer_phone, r.customer_whatsapp).length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setActiveWhatsappOrder(r)}
+                          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-100"
+                        >
+                          <MessageCircleMore size={14} />
+                          ເປີດແຊັດ
+                        </button>
+                      ) : (
+                        <span className="text-xs font-bold text-slate-400">ບໍ່ມີເບີ</span>
+                      )}
+                    </td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-4">
                         <Link href={`/orders/${r.id}/edit`} className="text-blue-600 font-bold hover:text-blue-800 underline-offset-4 hover:underline transition-all">
@@ -392,6 +475,17 @@ export default function OrdersPage() {
           </div>
         </div>
       </div>
+
+      <WhatsappMessageModal
+        key={activeWhatsappOrder ? `${activeWhatsappOrder.id}-${activeWhatsappOrder.balance}` : "closed"}
+        open={Boolean(activeWhatsappOrder)}
+        title={activeWhatsappOrder ? `ແຈ້ງລູກຄ້າອໍເດີ ${activeWhatsappOrder.order_code}` : undefined}
+        message={activeWhatsappMessage}
+        phoneOptions={activeWhatsappOptions}
+        initialPhone={activeWhatsappOptions[0]?.value}
+        onClose={() => setActiveWhatsappOrder(null)}
+      />
     </div>
   );
 }
+

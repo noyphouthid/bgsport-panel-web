@@ -1,14 +1,30 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import QRCode from "qrcode";
 import toast from "react-hot-toast";
-import { CheckCheck, Factory, PackagePlus, Printer, ScanLine } from "lucide-react";
+import { CheckCheck, Factory, MessageCircleMore, PackagePlus, RotateCcw, ScanLine } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { formatDateTime, normalizeQrCode, type QrLabelRow } from "@/lib/inventory-qr";
+import {
+  buildOrderQrCode,
+  formatDateOnly,
+  formatDateTime,
+  formatTimeOnly,
+  getTotalUnits,
+  ORDER_QR_LABEL_SELECT,
+  parseQrInput,
+  type OrderSummary,
+  type QrLabelRow,
+} from "@/lib/inventory-qr";
+import { WhatsappMessageModal } from "../_components/whatsapp-message-modal";
+import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
 import { MobileQrScanner } from "../_components/mobile-qr-scanner";
 
-type QueueItem = QrLabelRow;
+type QueueItem = QrLabelRow & {
+  customer_phone: string | null;
+  customer_whatsapp: string | null;
+  balance: number;
+  total_qty: number;
+};
 
 type ReceiptRow = {
   id: string;
@@ -18,6 +34,22 @@ type ReceiptRow = {
   created_at: string;
 };
 
+type ReceiptDetailItem = {
+  qr_label_id: string;
+  order_id: string;
+  qr_code: string;
+  order_code: string;
+  customer_phone: string | null;
+  customer_whatsapp: string | null;
+  balance: number;
+  total_qty: number;
+  factory_bill_code: string | null;
+  label_status: QrLabelRow["label_status"];
+};
+
+const ORDER_SELECT =
+  "id,order_code,customer_phone,customer_whatsapp,factory_bill_code,production_completed_at,status,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,balance";
+
 export default function FactoryReceiptsPage() {
   const [scannerInput, setScannerInput] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -25,11 +57,18 @@ export default function FactoryReceiptsPage() {
   const [receivedBy, setReceivedBy] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
-  const [printing, setPrinting] = useState(false);
+  const [cancelingReceiptId, setCancelingReceiptId] = useState<string | null>(null);
   const [recentReceipts, setRecentReceipts] = useState<ReceiptRow[]>([]);
-  const [stickerLabels, setStickerLabels] = useState<QrLabelRow[]>([]);
-  const [stickerPreviewUrls, setStickerPreviewUrls] = useState<Record<string, string>>({});
+  const [receiptItemCounts, setReceiptItemCounts] = useState<Record<string, number>>({});
   const [activeReceiptId, setActiveReceiptId] = useState<string | null>(null);
+  const [activeReceiptItems, setActiveReceiptItems] = useState<ReceiptDetailItem[]>([]);
+  const [loadingReceiptItems, setLoadingReceiptItems] = useState(false);
+
+  const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
+  const [whatsappPhones, setWhatsappPhones] = useState<ReturnType<typeof getWhatsappContactOptions>>([]);
+  const [whatsappInitialPhone, setWhatsappInitialPhone] = useState("");
+  const [whatsappMessage, setWhatsappMessage] = useState("");
+  const [whatsappTitle, setWhatsappTitle] = useState("");
 
   const loadCurrentUser = async () => {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -48,10 +87,33 @@ export default function FactoryReceiptsPage() {
       .limit(8);
 
     if (error) {
-      toast.error(`ໂຫຼດລາຍການນຳເຂົ້າບໍ່ສຳເລັດ: ${error.message}`);
+      toast.error(`ໂຫຼດປະຫວັດຮັບເຂົ້າບໍ່ສຳເລັດ: ${error.message}`);
       return;
     }
-    setRecentReceipts((data ?? []) as ReceiptRow[]);
+
+    const receipts = (data ?? []) as ReceiptRow[];
+    setRecentReceipts(receipts);
+
+    if (receipts.length === 0) {
+      setReceiptItemCounts({});
+      return;
+    }
+
+    const { data: itemData, error: itemError } = await supabase
+      .from("factory_receipt_items")
+      .select("receipt_id")
+      .in("receipt_id", receipts.map((receipt) => receipt.id));
+
+    if (itemError) {
+      toast.error(`ໂຫຼດຈຳນວນລາຍການໃນໃບຮັບເຂົ້າບໍ່ສຳເລັດ: ${itemError.message}`);
+      return;
+    }
+
+    const counts: Record<string, number> = {};
+    ((itemData ?? []) as Array<{ receipt_id: string }>).forEach((item) => {
+      counts[item.receipt_id] = (counts[item.receipt_id] || 0) + 1;
+    });
+    setReceiptItemCounts(counts);
   };
 
   useEffect(() => {
@@ -62,222 +124,218 @@ export default function FactoryReceiptsPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const buildStickerPreviewUrls = async (labels: QrLabelRow[]) => {
-    const entries = await Promise.all(
-      labels.map(async (label) => [
-        label.id,
-        await QRCode.toDataURL(label.qr_code, {
-          width: 900,
-          margin: 1,
-          color: {
-            dark: "#1f2942",
-            light: "#ffffff",
-          },
-        }),
-      ])
-    );
-    return Object.fromEntries(entries);
-  };
-
-  const loadReceiptStickerList = async (receiptId: string) => {
+  const loadReceiptItems = async (receiptId: string) => {
     setActiveReceiptId(receiptId);
+    setLoadingReceiptItems(true);
 
     const { data: itemData, error: itemError } = await supabase
       .from("factory_receipt_items")
-      .select("qr_label_id")
+      .select("qr_label_id,order_id,qr_code")
       .eq("receipt_id", receiptId);
 
     if (itemError) {
-      toast.error(`ໂຫຼດລາຍການສະຕິກເກີບໍ່ສຳເລັດ: ${itemError.message}`);
+      setLoadingReceiptItems(false);
+      toast.error(`ໂຫຼດລາຍການໃນໃບຮັບເຂົ້າບໍ່ສຳເລັດ: ${itemError.message}`);
       return;
     }
 
-    const labelIds = (itemData ?? []).map((item) => String(item.qr_label_id));
+    const labelIds = ((itemData ?? []) as Array<{ qr_label_id: string }>).map((item) => item.qr_label_id);
     if (labelIds.length === 0) {
-      setStickerLabels([]);
-      setStickerPreviewUrls({});
-      toast("ບໍ່ພົບລາຍການສະຕິກເກີໃນຮອບນີ້");
+      setActiveReceiptItems([]);
+      setLoadingReceiptItems(false);
       return;
     }
 
     const { data: labelData, error: labelError } = await supabase
       .from("order_qr_labels")
-      .select("id,order_id,qr_code,order_code,factory_bill_code,label_status,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at")
-      .in("id", labelIds)
-      .order("order_code", { ascending: true });
+      .select(ORDER_QR_LABEL_SELECT)
+      .in("id", labelIds);
 
     if (labelError) {
-      toast.error(`ໂຫຼດຂໍ້ມູນ QR ສຳລັບພິມບໍ່ສຳເລັດ: ${labelError.message}`);
+      setLoadingReceiptItems(false);
+      toast.error(`ໂຫຼດລາຍການ QR ບໍ່ສຳເລັດ: ${labelError.message}`);
       return;
     }
 
-    const labels = (labelData ?? []) as QrLabelRow[];
-    setStickerLabels(labels);
-    setStickerPreviewUrls(await buildStickerPreviewUrls(labels));
+    const orderIds = ((itemData ?? []) as Array<{ order_id: string }>).map((item) => item.order_id);
+    const { data: orderData, error: orderError } = await supabase
+      .from("orders")
+      .select("id,customer_phone,customer_whatsapp,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,balance")
+      .in("id", orderIds);
+
+    setLoadingReceiptItems(false);
+
+    if (orderError) {
+      toast.error(`ໂຫຼດເບີລູກຄ້າບໍ່ສຳເລັດ: ${orderError.message}`);
+      return;
+    }
+
+    const labelMap = new Map(((labelData ?? []) as QrLabelRow[]).map((label) => [label.id, label]));
+    const orderMap = new Map(
+      ((orderData ?? []) as Array<{
+        id: string;
+        customer_phone: string | null;
+        customer_whatsapp: string | null;
+        short_qty: number;
+        long_qty: number;
+        free_qty: number;
+        qty_3xl: number;
+        qty_4xl: number;
+        qty_5xl: number;
+        balance: number;
+      }>).map((order) => [order.id, order])
+    );
+
+    const details = ((itemData ?? []) as Array<{ qr_label_id: string; order_id: string; qr_code: string }>).map((item) => {
+      const label = labelMap.get(item.qr_label_id);
+      const order = orderMap.get(item.order_id);
+      return {
+        qr_label_id: item.qr_label_id,
+        order_id: item.order_id,
+        qr_code: item.qr_code,
+        order_code: label?.order_code || "-",
+        customer_phone: order?.customer_phone || null,
+        customer_whatsapp: order?.customer_whatsapp || null,
+        balance: Number(order?.balance) || 0,
+        total_qty:
+          (Number(order?.short_qty) || 0) +
+          (Number(order?.long_qty) || 0) +
+          (Number(order?.free_qty) || 0) +
+          (Number(order?.qty_3xl) || 0) +
+          (Number(order?.qty_4xl) || 0) +
+          (Number(order?.qty_5xl) || 0),
+        factory_bill_code: label?.factory_bill_code || null,
+        label_status: label?.label_status || "received",
+      } satisfies ReceiptDetailItem;
+    });
+
+    setActiveReceiptItems(details);
   };
 
-  const printStickerBatch = async () => {
-    if (stickerLabels.length === 0) {
-      toast.error("ບໍ່ມີລາຍການສະຕິກເກີສຳລັບພິມ");
-      return;
+  const findOrderByInput = async (rawValue: string) => {
+    const parsed = parseQrInput(rawValue);
+    if (!parsed.normalized) return null;
+
+    if (parsed.kind === "shop_qr") {
+      const { data, error } = await supabase
+        .from("order_qr_labels")
+        .select(ORDER_QR_LABEL_SELECT)
+        .eq("qr_code", parsed.normalized)
+        .maybeSingle();
+
+      if (error) throw new Error(error.message);
+      if (!data) return null;
+
+      const { data: orderData, error: orderError } = await supabase.from("orders").select(ORDER_SELECT).eq("id", data.order_id).maybeSingle();
+      if (orderError) throw new Error(orderError.message);
+      if (!orderData) return null;
+
+      return {
+        order: orderData as OrderSummary,
+        existingLabel: data as QrLabelRow,
+      };
     }
 
-    setPrinting(true);
-    const previewMap =
-      Object.keys(stickerPreviewUrls).length === stickerLabels.length ? stickerPreviewUrls : await buildStickerPreviewUrls(stickerLabels);
-    setStickerPreviewUrls(previewMap);
-
-    const popup = window.open("", "_blank", "width=960,height=1200");
-    if (!popup) {
-      setPrinting(false);
-      toast.error("ບໍ່ສາມາດເປີດໜ້າພິມໄດ້");
-      return;
+    let orderQuery = supabase.from("orders").select(ORDER_SELECT).limit(1);
+    if ((parsed.kind === "factory_qr" || parsed.kind === "factory_bill_code") && parsed.factoryBillCode) {
+      orderQuery = orderQuery.eq("factory_bill_code", parsed.factoryBillCode);
+    } else {
+      orderQuery = orderQuery.eq("order_code", parsed.normalized);
     }
 
-    const stickersHtml = stickerLabels
-      .map((label) => {
-        const qrImage = previewMap[label.id];
-        return `
-          <section class="sticker">
-            <div class="title">ສະຕິກເກີຮັບສິນຄ້າ BG SPORT</div>
-            <div class="qr-shell">
-              <img src="${qrImage}" alt="${label.order_code}" />
-            </div>
-            <div class="order-code">${label.order_code}</div>
-            <div class="factory-bill">ລະຫັດບິນໂຮງງານ: ${label.factory_bill_code?.trim() || "-"}</div>
-          </section>
-        `;
-      })
-      .join("");
+    const { data: orders, error } = await orderQuery;
+    if (error) throw new Error(error.message);
+    const order = ((orders ?? [])[0] as OrderSummary | undefined) || null;
+    if (!order) return null;
 
-    popup.document.write(`
-      <!DOCTYPE html>
-      <html lang="lo">
-        <head>
-          <meta charset="utf-8" />
-          <title>BG SPORT STICKERS</title>
-          <style>
-            @page {
-              size: 80mm 100mm;
-              margin: 0;
-            }
-            * {
-              box-sizing: border-box;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-            body {
-              margin: 0;
-              background: #ecebea;
-              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
-            }
-            .sticker {
-              width: 80mm;
-              height: 100mm;
-              padding: 6mm 7mm 8mm;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              background: #f6f4f1;
-              page-break-after: always;
-              overflow: hidden;
-            }
-            .title {
-              margin-top: 0;
-              color: #8a98b6;
-              font-size: 3.1mm;
-              font-weight: 700;
-              letter-spacing: 0.35mm;
-              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", sans-serif;
-              text-align: center;
-              white-space: nowrap;
-            }
-            .qr-shell {
-              width: 56mm;
-              height: 56mm;
-              margin-top: 5.5mm;
-              border-radius: 5.5mm;
-              border: 0.4mm solid #e5e7eb;
-              background: #ffffff;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              box-shadow: 0 1mm 2mm rgba(15, 23, 42, 0.08);
-              flex-shrink: 0;
-            }
-            .qr-shell img {
-              width: 48mm;
-              height: 48mm;
-              display: block;
-            }
-            .order-code {
-              margin-top: 7.5mm;
-              color: #111827;
-              font-size: 8mm;
-              font-weight: 900;
-              letter-spacing: -0.1mm;
-              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
-              line-height: 1.05;
-              text-align: center;
-              white-space: nowrap;
-              max-width: 100%;
-            }
-            .factory-bill {
-              margin-top: 4.5mm;
-              color: #6b7280;
-              font-size: 3.5mm;
-              font-weight: 700;
-              font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
-              text-align: center;
-              line-height: 1.3;
-              max-width: 100%;
-              white-space: nowrap;
-            }
-          </style>
-        </head>
-        <body>${stickersHtml}</body>
-      </html>
-    `);
-    popup.document.close();
-    popup.focus();
-    popup.print();
-    setPrinting(false);
+    const { data: labelData, error: labelError } = await supabase
+      .from("order_qr_labels")
+      .select(ORDER_QR_LABEL_SELECT)
+      .eq("order_id", order.id)
+      .maybeSingle();
+    if (labelError) throw new Error(labelError.message);
+
+    return {
+      order,
+      existingLabel: (labelData as QrLabelRow | null) || null,
+    };
+  };
+
+  const ensureLabelForOrder = async (order: OrderSummary, existingLabel: QrLabelRow | null) => {
+    if (existingLabel) {
+      return {
+        ...existingLabel,
+        order_code: order.order_code,
+        factory_bill_code: order.factory_bill_code || null,
+      } as QrLabelRow;
+    }
+
+    if (!order.factory_bill_code?.trim()) {
+      throw new Error(`ອໍເດີ ${order.order_code} ຍັງບໍ່ມີລະຫັດບິນໂຮງງານ`);
+    }
+
+    const qrCode = buildOrderQrCode(order);
+    const { data, error } = await supabase
+      .from("order_qr_labels")
+      .upsert(
+        {
+          order_id: order.id,
+          qr_code: qrCode,
+          order_code: order.order_code,
+          factory_bill_code: order.factory_bill_code.trim(),
+          label_status: "created",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "order_id" }
+      )
+      .select(ORDER_QR_LABEL_SELECT)
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data as QrLabelRow;
   };
 
   const lookupLabel = async (rawValue: string) => {
-    const qrCode = normalizeQrCode(rawValue);
-    if (!qrCode) return;
-    if (queue.some((item) => item.qr_code === qrCode)) {
-      toast("QR ນີ້ຢູ່ໃນລາຍການນຳເຂົ້າແລ້ວ");
+    const input = rawValue.trim();
+    if (!input) return;
+
+    try {
+      const resolved = await findOrderByInput(input);
+      if (!resolved) {
+        toast.error("ບໍ່ພົບອໍເດີທີ່ກົງກັນ");
+        return;
+      }
+
+      const label = await ensureLabelForOrder(resolved.order, resolved.existingLabel);
+      if (queue.some((item) => item.id === label.id || item.order_id === label.order_id)) {
+        toast("ອໍເດີນີ້ຢູ່ໃນລາຍການຮັບເຂົ້າແລ້ວ");
+        setScannerInput("");
+        return;
+      }
+      if (label.label_status === "received") {
+        toast.error("ອໍເດີນີ້ຮັບເຂົ້າຄັງແລ້ວ");
+        return;
+      }
+      if (label.label_status === "shipped") {
+        toast.error("ອໍເດີນີ້ຖືກຈັດສົ່ງແລ້ວ");
+        return;
+      }
+
+      setQueue((prev) => [
+        ...prev,
+        {
+          ...label,
+          customer_phone: resolved.order.customer_phone || null,
+          customer_whatsapp: resolved.order.customer_whatsapp || null,
+          balance: Number(resolved.order.balance) || 0,
+          total_qty: getTotalUnits(resolved.order),
+        },
+      ]);
       setScannerInput("");
-      return;
+      toast.success(`ເພີ່ມ ${label.order_code} ເຂົ້າລາຍການແລ້ວ`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ກວດສອບຂໍ້ມູນບໍ່ສຳເລັດ");
     }
-
-    const { data, error } = await supabase
-      .from("order_qr_labels")
-      .select("id,order_id,qr_code,order_code,factory_bill_code,label_status,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at")
-      .eq("qr_code", qrCode)
-      .maybeSingle();
-
-    if (error) {
-      toast.error(`ກວດສອບ QR ບໍ່ສຳເລັດ: ${error.message}`);
-      return;
-    }
-    if (!data) {
-      toast.error("ບໍ່ພົບ QR ນີ້");
-      return;
-    }
-
-    const label = data as QrLabelRow;
-    if (label.label_status === "shipped") {
-      toast.error("ລາຍການນີ້ຖືກຈັດສົ່ງແລ້ວ");
-      return;
-    }
-
-    setQueue((prev) => [...prev, label]);
-    setScannerInput("");
-    toast.success(`ເພີ່ມ ${label.order_code} ເຂົ້າລາຍການນຳເຂົ້າແລ້ວ`);
   };
 
   const submitImport = async () => {
@@ -286,12 +344,31 @@ export default function FactoryReceiptsPage() {
       return;
     }
     if (!receivedBy.trim()) {
-      toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ນຳເຂົ້າ");
+      toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ຮັບເຂົ້າ");
       return;
     }
 
     setSaving(true);
     const isoReceivedAt = new Date(receivedAt).toISOString();
+    const queueOrderIds = queue.map((item) => item.order_id);
+
+    const { data: existingReceiptItems, error: existingReceiptError } = await supabase
+      .from("factory_receipt_items")
+      .select("order_id")
+      .in("order_id", queueOrderIds);
+
+    if (existingReceiptError) {
+      setSaving(false);
+      toast.error(`ກວດສອບລາຍການຮັບເຂົ້າຊ້ຳບໍ່ສຳເລັດ: ${existingReceiptError.message}`);
+      return;
+    }
+
+    if ((existingReceiptItems ?? []).length > 0) {
+      setSaving(false);
+      toast.error("ມີບາງອໍເດີຖືກນຳເຂົ້າເຂົ້າຄັງແລ້ວ");
+      return;
+    }
+
     const { data: receipt, error: receiptError } = await supabase
       .from("factory_receipts")
       .insert({
@@ -304,7 +381,7 @@ export default function FactoryReceiptsPage() {
 
     if (receiptError || !receipt) {
       setSaving(false);
-      toast.error(`ສ້າງຮອບນຳເຂົ້າບໍ່ສຳເລັດ: ${receiptError?.message || "ຂໍ້ຜິດພາດບໍ່ຮູ້ສາເຫດ"}`);
+      toast.error(`ສ້າງບັນທຶກຮັບເຂົ້າບໍ່ສຳເລັດ: ${receiptError?.message || "ບໍ່ຮູ້ສາເຫດ"}`);
       return;
     }
 
@@ -318,7 +395,7 @@ export default function FactoryReceiptsPage() {
     const { error: itemError } = await supabase.from("factory_receipt_items").insert(itemPayload);
     if (itemError) {
       setSaving(false);
-      toast.error(`ບັນທຶກລາຍການນຳເຂົ້າບໍ່ສຳເລັດ: ${itemError.message}`);
+      toast.error(`ບັນທຶກລາຍການຮັບເຂົ້າບໍ່ສຳເລັດ: ${itemError.message}`);
       return;
     }
 
@@ -333,30 +410,151 @@ export default function FactoryReceiptsPage() {
       })
       .in("id", queue.map((item) => item.id));
 
-    setSaving(false);
-
     if (labelError) {
-      toast.error(`ນຳເຂົ້າສຳເລັດ ແຕ່ອັບເດດສະຖານະ QR ບໍ່ສຳເລັດ: ${labelError.message}`);
+      setSaving(false);
+      toast.error(`ບັນທຶກຮັບເຂົ້າແລ້ວ ແຕ່ອັບເດດສະຖານະ QR ບໍ່ສຳເລັດ: ${labelError.message}`);
       return;
     }
 
-    const receivedLabels = queue.map((item) => ({
-      ...item,
-      label_status: "received" as const,
-      received_at: isoReceivedAt,
-      received_by: receivedBy.trim(),
-      last_scanned_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }));
+    const { error: orderUpdateError } = await supabase
+      .from("orders")
+      .update({
+        production_completed_at: isoReceivedAt,
+      })
+      .in("id", queueOrderIds)
+      .is("production_completed_at", null);
+
+    setSaving(false);
+
+    if (orderUpdateError) {
+      toast.error(`ນຳເຂົ້າແລ້ວ ແຕ່ອັບເດດສະຖານະອໍເດີບໍ່ສຳເລັດ: ${orderUpdateError.message}`);
+      return;
+    }
 
     setQueue([]);
     setNote("");
     setScannerInput("");
-    setActiveReceiptId(receipt.id);
-    setStickerLabels(receivedLabels);
-    setStickerPreviewUrls(await buildStickerPreviewUrls(receivedLabels));
     await loadRecentReceipts();
+    await loadReceiptItems(receipt.id);
     toast.success(`ນຳເຂົ້າ ${itemPayload.length} ລາຍການເຂົ້າຄັງຮ້ານສຳເລັດ`);
+  };
+
+  const cancelReceipt = async (receipt: ReceiptRow) => {
+    const confirmed = window.confirm(`ຕ້ອງການຍົກເລີກໃບຮັບເຂົ້າຮອບ ${formatDateTime(receipt.received_at)} ແທ້ບໍ?`);
+    if (!confirmed) return;
+
+    setCancelingReceiptId(receipt.id);
+
+    const { data: itemData, error: itemError } = await supabase
+      .from("factory_receipt_items")
+      .select("qr_label_id,order_id")
+      .eq("receipt_id", receipt.id);
+
+    if (itemError) {
+      setCancelingReceiptId(null);
+      toast.error(`ໂຫຼດລາຍການເພື່ອຍົກເລີກບໍ່ສຳເລັດ: ${itemError.message}`);
+      return;
+    }
+
+    const qrLabelIds = ((itemData ?? []) as Array<{ qr_label_id: string }>).map((item) => item.qr_label_id);
+    const orderIds = ((itemData ?? []) as Array<{ order_id: string }>).map((item) => item.order_id);
+
+    if (qrLabelIds.length > 0) {
+      const { data: labelData, error: labelError } = await supabase
+        .from("order_qr_labels")
+        .select("id,label_status,order_code")
+        .in("id", qrLabelIds);
+
+      if (labelError) {
+        setCancelingReceiptId(null);
+        toast.error(`ໂຫຼດສະຖານະ QR ບໍ່ສຳເລັດ: ${labelError.message}`);
+        return;
+      }
+
+      const shippedLabels = ((labelData ?? []) as Array<{ id: string; label_status: string; order_code: string }>).filter(
+        (label) => label.label_status === "shipped"
+      );
+
+      if (shippedLabels.length > 0) {
+        setCancelingReceiptId(null);
+        toast.error("ບໍ່ສາມາດຍົກເລີກໄດ້ ເພາະບາງອໍເດີຖືກຈັດສົ່ງແລ້ວ");
+        return;
+      }
+
+      const { error: revertLabelError } = await supabase
+        .from("order_qr_labels")
+        .update({
+          label_status: "created",
+          received_at: null,
+          received_by: null,
+          last_scanned_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .in("id", qrLabelIds);
+
+      if (revertLabelError) {
+        setCancelingReceiptId(null);
+        toast.error(`ຍ້ອນກັບສະຖານະ QR ບໍ່ສຳເລັດ: ${revertLabelError.message}`);
+        return;
+      }
+    }
+
+    if (orderIds.length > 0) {
+      const { error: revertOrderError } = await supabase
+        .from("orders")
+        .update({ production_completed_at: null })
+        .in("id", orderIds)
+        .eq("production_completed_at", receipt.received_at);
+
+      if (revertOrderError) {
+        setCancelingReceiptId(null);
+        toast.error(`ຍ້ອນກັບສະຖານະອໍເດີບໍ່ສຳເລັດ: ${revertOrderError.message}`);
+        return;
+      }
+    }
+
+    const { error: deleteReceiptError } = await supabase.from("factory_receipts").delete().eq("id", receipt.id);
+
+    setCancelingReceiptId(null);
+
+    if (deleteReceiptError) {
+      toast.error(`ລຶບໃບຮັບເຂົ້າບໍ່ສຳເລັດ: ${deleteReceiptError.message}`);
+      return;
+    }
+
+    if (activeReceiptId === receipt.id) {
+      setActiveReceiptId(null);
+      setActiveReceiptItems([]);
+    }
+
+    await loadRecentReceipts();
+    toast.success("ຍົກເລີກໃບຮັບເຂົ້າສຳເລັດ");
+  };
+
+  const openWhatsappModal = (params: {
+    orderCode: string;
+    customerPhone: string | null;
+    customerWhatsapp: string | null;
+    totalQty: number;
+    balance: number;
+  }) => {
+    const options = getWhatsappContactOptions(params.customerPhone, params.customerWhatsapp);
+    if (options.length === 0) {
+      toast.error("ບໍ່ພົບເບີ WhatsApp ສຳລັບລູກຄ້າ");
+      return;
+    }
+
+    setWhatsappPhones(options);
+    setWhatsappInitialPhone(options[0]?.value || "");
+    setWhatsappTitle(`ແຈ້ງລູກຄ້າອໍເດີ ${params.orderCode}`);
+    setWhatsappMessage(
+      buildProductionCompletedWhatsappMessage({
+        orderCode: params.orderCode,
+        totalQty: params.totalQty,
+        balance: params.balance,
+      })
+    );
+    setWhatsappModalOpen(true);
   };
 
   return (
@@ -368,14 +566,12 @@ export default function FactoryReceiptsPage() {
               <Factory size={14} />
               ຮັບສິນຄ້າເຂົ້າ
             </div>
-            <h1 className="mt-4 text-3xl font-black tracking-tight">ຮັບສິນຄ້າຈາກໂຮງງານເຂົ້າຮ້ານ</h1>
+            <h1 className="mt-4 text-3xl font-black tracking-tight">ຮັບສິນຄ້າເຂົ້າດ້ວຍ QR ໂຮງງານ ຫຼື QR ຂອງຮ້ານ</h1>
             <p className="mt-2 max-w-2xl text-sm font-medium text-emerald-50">
-              ສະແກນ QR ໄດ້ຫຼາຍລາຍການ, ກວດສອບລາຍການນຳເຂົ້າ ແລ້ວ ນຳເຂົ້າເຂົ້າຄັງຮ້ານໃນຄັ້ງດຽວ.
+              ໜ້ານີ້ຮອງຮັບທັງ QR ຂອງໂຮງງານ ແລະ QR ຂອງຮ້ານ. ຖ້າສະແກນ QR ໂຮງງານກ່ອນ ລະບົບຈະສ້າງ QR ຂອງຮ້ານ ແລະ ລິ້ງໃຫ້ອັດຕະໂນມັດ.
             </p>
           </div>
-          <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-emerald-50">
-            ອອກແບບສຳລັບໃຊ້ງານຜ່ານມືຖືເວລາໄປຮັບສິນຄ້າ
-          </div>
+          <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-emerald-50">ຍ້າຍຟັງຊັນພິມໄປຢູ່ໜ້າ Inventory QR ແລ້ວ</div>
         </div>
       </section>
 
@@ -395,48 +591,28 @@ export default function FactoryReceiptsPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void lookupLabel(scannerInput);
                 }}
-                placeholder="ວາງ ຫຼື ສະແກນຄ່າ QR"
+                placeholder="ວາງ QR ໂຮງງານ, QR ຂອງຮ້ານ, ລະຫັດບິນໂຮງງານ ຫຼື ລະຫັດອໍເດີ"
                 className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
               />
-              <button
-                type="button"
-                onClick={() => void lookupLabel(scannerInput)}
-                className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700"
-              >
-                ເພີ່ມເຂົ້າລາຍການ
+              <button type="button" onClick={() => void lookupLabel(scannerInput)} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700">
+                ເພີ່ມ
               </button>
             </div>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-bold text-slate-700">
                 ວັນທີ/ເວລານຳເຂົ້າ
-                <input
-                  type="datetime-local"
-                  value={receivedAt}
-                  onChange={(e) => setReceivedAt(e.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+                <input type="datetime-local" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500" />
               </label>
               <label className="text-sm font-bold text-slate-700">
-                ຜູ້ນຳເຂົ້າ
-                <input
-                  value={receivedBy}
-                  onChange={(e) => setReceivedBy(e.target.value)}
-                  placeholder="ຊື່ແອດມິນ ຫຼື ພະນັກງານ"
-                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+                ຜູ້ຮັບເຂົ້າ
+                <input value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500" />
               </label>
             </div>
 
             <label className="mt-4 block text-sm font-bold text-slate-700">
               ໝາຍເຫດ
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={3}
-                placeholder="ໝາຍເຫດສຳລັບຮອບນຳເຂົ້ານີ້"
-                className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
-              />
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500" />
             </label>
           </div>
         </div>
@@ -444,25 +620,18 @@ export default function FactoryReceiptsPage() {
         <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-lg font-black text-slate-900">ລາຍການນຳເຂົ້າ</div>
-              <div className="text-sm font-medium text-slate-500">ສະແກນຫຼາຍລາຍການ ແລ້ວ ນຳເຂົ້າໃນຄັ້ງດຽວ</div>
+              <div className="text-lg font-black text-slate-900">ລາຍການຮັບເຂົ້າ</div>
+              <div className="text-sm font-medium text-slate-500">ສະແກນຫຼາຍອໍເດີ ແລ້ວ ນຳເຂົ້າໃນຄັ້ງດຽວ</div>
             </div>
-            <button
-              type="button"
-              onClick={() => void submitImport()}
-              disabled={saving || queue.length === 0}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
-            >
+            <button type="button" onClick={() => void submitImport()} disabled={saving || queue.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50">
               <PackagePlus size={16} />
-              {saving ? "ກຳລັງນຳເຂົ້າ..." : "ນຳເຂົ້າທັງໝົດ"}
+              {saving ? "ກຳລັງບັນທຶກ..." : "ນຳເຂົ້າທັງໝົດ"}
             </button>
           </div>
 
           <div className="mt-5 space-y-3">
             {queue.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">
-                ຍັງບໍ່ມີລາຍການທີ່ສະແກນ.
-              </div>
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">ຍັງບໍ່ມີລາຍການທີ່ສະແກນ.</div>
             ) : (
               queue.map((item) => (
                 <div key={item.id} className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
@@ -470,12 +639,30 @@ export default function FactoryReceiptsPage() {
                     <div className="text-lg font-black text-slate-900">{item.order_code}</div>
                     <div className="text-sm font-medium text-slate-500">ລະຫັດບິນໂຮງງານ: {item.factory_bill_code?.trim() || "-"}</div>
                     <div className="mt-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">ສະຖານະ QR: {item.label_status}</div>
+                    <div className="mt-3">
+                      {getWhatsappContactOptions(item.customer_phone, item.customer_whatsapp).length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openWhatsappModal({
+                              orderCode: item.order_code,
+                              customerPhone: item.customer_phone,
+                              customerWhatsapp: item.customer_whatsapp,
+                              totalQty: item.total_qty,
+                              balance: item.balance,
+                            })
+                          }
+                          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-100"
+                        >
+                          <MessageCircleMore size={14} />
+                          ເປີດແຊັດ
+                        </button>
+                      ) : (
+                        <span className="text-xs font-bold text-slate-400">ບໍ່ມີເບີ WhatsApp</span>
+                      )}
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setQueue((prev) => prev.filter((row) => row.id !== item.id))}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-100"
-                  >
+                  <button type="button" onClick={() => setQueue((prev) => prev.filter((row) => row.id !== item.id))} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-100">
                     ລຶບອອກ
                   </button>
                 </div>
@@ -486,42 +673,87 @@ export default function FactoryReceiptsPage() {
       </section>
 
       <section className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="flex items-center gap-2 text-lg font-black text-slate-900">
+          <CheckCheck size={20} />
+          ປະຫວັດຮັບເຂົ້າລ່າສຸດ
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {recentReceipts.map((receipt) => (
+            <button
+              type="button"
+              key={receipt.id}
+              onClick={() => void loadReceiptItems(receipt.id)}
+              className={`rounded-3xl border p-4 text-left transition ${activeReceiptId === receipt.id ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">ນຳເຂົ້າແລ້ວ</div>
+                <div className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-black text-slate-700">{receiptItemCounts[receipt.id] || 0} ລາຍການ</div>
+              </div>
+              <div className="mt-2 text-lg font-black text-slate-900">{formatDateOnly(receipt.received_at)}</div>
+              <div className="mt-1 text-sm font-bold text-emerald-700">ເວລາ: {formatTimeOnly(receipt.received_at)}</div>
+              <div className="mt-1 text-sm font-semibold text-slate-500">{receipt.received_by}</div>
+              <div className="mt-3 text-sm font-medium text-slate-500">{receipt.note?.trim() || "-"}</div>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="text-lg font-black text-slate-900">ລາຍການສະຕິກເກີສຳລັບພິມ</div>
-            <div className="text-sm font-medium text-slate-500">ຮອງຮັບເຄື່ອງພິມ Xprinter ຂະໜາດ 80 x 100 ມມ</div>
+            <div className="text-lg font-black text-slate-900">ລາຍລະອຽດໃບຮັບເຂົ້າ</div>
+            <div className="text-sm font-medium text-slate-500">{activeReceiptId ? `ສະແດງລາຍການໃນໃບຮັບເຂົ້າ ${activeReceiptId.slice(0, 8)}...` : "ເລືອກໃບຮັບເຂົ້າຈາກປະຫວັດດ້ານເທິງ"}</div>
           </div>
-          <button
-            type="button"
-            onClick={() => void printStickerBatch()}
-            disabled={printing || stickerLabels.length === 0}
-            className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
-          >
-            <Printer size={16} />
-            {printing ? "ກຳລັງຈັດໜ້າພິມ..." : "ພິມສະຕິກເກີ"}
-          </button>
+          {activeReceiptId ? (
+            <button
+              type="button"
+              onClick={() => {
+                const receipt = recentReceipts.find((item) => item.id === activeReceiptId);
+                if (receipt) void cancelReceipt(receipt);
+              }}
+              disabled={cancelingReceiptId === activeReceiptId}
+              className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+            >
+              <RotateCcw size={16} />
+              {cancelingReceiptId === activeReceiptId ? "ກຳລັງຍົກເລີກ..." : "ຍົກເລີກຮັບເຂົ້າ"}
+            </button>
+          ) : null}
         </div>
 
-        {stickerLabels.length === 0 ? (
+        {loadingReceiptItems ? (
+          <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">ກຳລັງໂຫຼດ...</div>
+        ) : activeReceiptItems.length === 0 ? (
           <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">
-            ຫຼັງຈາກນຳເຂົ້າສຳເລັດ ລາຍການສະຕິກເກີຈະສະແດງຢູ່ບ່ອນນີ້.
+            {activeReceiptId ? "ບໍ່ພົບລາຍການໃນໃບຮັບເຂົ້ານີ້" : "ຍັງບໍ່ໄດ້ເລືອກໃບຮັບເຂົ້າ"}
           </div>
         ) : (
-          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {stickerLabels.map((label) => (
-              <div key={label.id} className="rounded-[2rem] border border-slate-200 bg-[#f6f4f1] p-4 shadow-sm">
-                <div className="mx-auto max-w-[320px] rounded-[1.75rem] bg-[#f6f4f1] px-4 py-5 text-center">
-                  <div className='text-[11px] font-bold tracking-[0.18em] text-slate-400 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>ສະຕິກເກີຮັບສິນຄ້າ BG SPORT</div>
-                  <div className="mx-auto mt-5 flex h-[222px] w-[222px] items-center justify-center rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
-                    {stickerPreviewUrls[label.id] ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={stickerPreviewUrls[label.id]} alt={label.order_code} className="h-[182px] w-[182px]" />
-                    ) : (
-                      <div className="text-xs font-semibold text-slate-400">ກຳລັງສ້າງ QR...</div>
-                    )}
-                  </div>
-                  <div className='mt-6 text-[36px] font-black tracking-tight text-slate-950 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>{label.order_code}</div>
-                  <div className='mt-3 text-[14px] font-bold text-slate-500 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>ລະຫັດບິນໂຮງງານ: {label.factory_bill_code?.trim() || "-"}</div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {activeReceiptItems.map((item) => (
+              <div key={item.qr_label_id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-lg font-black text-slate-900">{item.order_code}</div>
+                <div className="mt-1 text-sm font-medium text-slate-500">ລະຫັດບິນໂຮງງານ: {item.factory_bill_code?.trim() || "-"}</div>
+                <div className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">ສະຖານະ QR: {item.label_status}</div>
+                <div className="mt-3">
+                  {getWhatsappContactOptions(item.customer_phone, item.customer_whatsapp).length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openWhatsappModal({
+                          orderCode: item.order_code,
+                          customerPhone: item.customer_phone,
+                          customerWhatsapp: item.customer_whatsapp,
+                          totalQty: item.total_qty,
+                          balance: item.balance,
+                        })
+                      }
+                      className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-100"
+                    >
+                      <MessageCircleMore size={14} />
+                      ເປີດແຊັດ
+                    </button>
+                  ) : (
+                    <span className="text-xs font-bold text-slate-400">ບໍ່ມີເບີ WhatsApp</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -529,30 +761,15 @@ export default function FactoryReceiptsPage() {
         )}
       </section>
 
-      <section className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="flex items-center gap-2 text-lg font-black text-slate-900">
-          <CheckCheck size={20} />
-          ຮອບນຳເຂົ້າລ່າສຸດ
-        </div>
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {recentReceipts.map((receipt) => (
-            <button
-              type="button"
-              key={receipt.id}
-              onClick={() => void loadReceiptStickerList(receipt.id)}
-              className={`rounded-3xl border p-4 text-left transition ${
-                activeReceiptId === receipt.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
-              }`}
-            >
-              <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">ນຳເຂົ້າແລ້ວ</div>
-              <div className="mt-2 text-lg font-black text-slate-900">{formatDateTime(receipt.received_at)}</div>
-              <div className="mt-1 text-sm font-semibold text-slate-500">{receipt.received_by}</div>
-              <div className="mt-3 text-sm font-medium text-slate-500">{receipt.note?.trim() || "ບໍ່ມີໝາຍເຫດ"}</div>
-              <div className="mt-4 text-xs font-black uppercase tracking-[0.2em] text-blue-600">ກົດເພື່ອໂຫຼດສະຕິກເກີ</div>
-            </button>
-          ))}
-        </div>
-      </section>
+      <WhatsappMessageModal
+        key={whatsappTitle ? `${whatsappTitle}-${whatsappInitialPhone}` : "closed"}
+        open={whatsappModalOpen}
+        title={whatsappTitle}
+        message={whatsappMessage}
+        phoneOptions={whatsappPhones}
+        initialPhone={whatsappInitialPhone}
+        onClose={() => setWhatsappModalOpen(false)}
+      />
     </div>
   );
 }

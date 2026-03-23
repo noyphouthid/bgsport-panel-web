@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { ReactNode, useEffect, useMemo, useState } from "react";
@@ -8,8 +8,10 @@ import toast from "react-hot-toast";
 import {
   LayoutDashboard,
   ClipboardList,
+  ReceiptText,
   Search,
   FileSpreadsheet,
+  Settings2,
   Wallet,
   Banknote,
   Users,
@@ -21,6 +23,7 @@ import {
   PanelLeftOpen,
   X,
   LogOut,
+  ChevronDown,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AppRole, canAccessPath } from "@/lib/access-control";
@@ -33,23 +36,55 @@ type UserProfile = {
   is_active: boolean;
 };
 
-const nav = [
-  { href: "/dashboard", label: "ໜ້າຫຼັກ", icon: LayoutDashboard },
-  { href: "/orders", label: "ລາຍການອໍເດີ", icon: ClipboardList },
-  { href: "/search", label: "ຄົ້ນຫາອໍເດີທັງໝົດ", icon: Search },
-  { href: "/reports", label: "ໜ້າຫຼັກລາຍງານ", icon: FileSpreadsheet },
-  { href: "/reports/sales-profit", label: "ລາຍງານຍອດຂາຍ-ກຳໄລ", icon: FileSpreadsheet },
-  { href: "/reports/orders", label: "ລາຍງານອໍເດີ້", icon: FileSpreadsheet },
-  { href: "/reports/admin-sales", label: "ລາຍງານຍອດຂາຍແອັດມິນ", icon: FileSpreadsheet },
-  { href: "/reports/graphic-work", label: "ລາຍງານກຣາຟິກ", icon: FileSpreadsheet },
-  { href: "/payments", label: "ບັນຊີການຊຳລະເງິນ", icon: Wallet },
-  { href: "/factory-payments", label: "ຊຳລະຄ່າໂຮງງານແບບກຸ່ມ", icon: Wallet },
-  { href: "/imports", label: "ນຳເຂົ້າ Excel", icon: FileSpreadsheet },
-  { href: "/fabric", label: "ລາຄາຜ້າ", icon: Banknote },
-  { href: "/users", label: "ຕັ້ງຄ່າຜູ້ໃຊ້", icon: Users },
-  { href: "/inventory-qr", label: "ສ້າງ QR", icon: QrCode },
-  { href: "/factory-receipts", label: "ຮັບສິນຄ້າເຂົ້າ", icon: PackagePlus },
-  { href: "/shipments", label: "ຈັດສົ່ງສິນຄ້າ", icon: Truck },
+type NavLinkItem = {
+  type: "link";
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+};
+
+type NavGroupItem = {
+  type: "group";
+  label: string;
+  icon: typeof LayoutDashboard;
+  items: NavLinkItem[];
+};
+
+type NavItem = NavLinkItem | NavGroupItem;
+
+const nav: NavItem[] = [
+  { type: "link", href: "/dashboard", label: "ໜ້າຫຼັກ", icon: LayoutDashboard },
+  { type: "link", href: "/orders", label: "ລາຍການອໍເດີ", icon: ClipboardList },
+  { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
+  { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
+  { type: "link", href: "/search", label: "ຄົ້ນຫາອໍເດີທັງໝົດ", icon: Search },
+  {
+    type: "group",
+    label: "ໜ້າລາຍງານ",
+    icon: FileSpreadsheet,
+    items: [
+      { type: "link", href: "/reports/sales-profit", label: "ລາຍງານຍອດຂາຍ-ກຳໄລ", icon: FileSpreadsheet },
+      { type: "link", href: "/reports/orders", label: "ລາຍງານອໍເດີ", icon: FileSpreadsheet },
+      { type: "link", href: "/reports/admin-sales", label: "ລາຍງານຍອດຂາຍແອັດມິນ", icon: FileSpreadsheet },
+      { type: "link", href: "/reports/graphic-work", label: "ລາຍງານກຣາຟິກ", icon: FileSpreadsheet },
+    ],
+  },
+  { type: "link", href: "/payments", label: "ບັນຊີການຊຳລະເງິນ", icon: Wallet },
+  { type: "link", href: "/factory-payments", label: "ຊຳລະຄ່າໂຮງງານແບບກຸ່ມ", icon: Wallet },
+  {
+    type: "group",
+    label: "ຕັ້ງຄ່າ",
+    icon: Settings2,
+    items: [
+      { type: "link", href: "/imports", label: "ນຳເຂົ້າ Excel", icon: FileSpreadsheet },
+      { type: "link", href: "/users", label: "ຕັ້ງຄ່າຜູ້ໃຊ້", icon: Users },
+      { type: "link", href: "/fabric", label: "ລາຄາຜ້າ", icon: Banknote },
+    ],
+  },
+  { type: "link", href: "/inventory-qr", label: "ສ້າງ QR", icon: QrCode },
+  { type: "link", href: "/factory-receipts", label: "ຮັບສິນຄ້າເຂົ້າ", icon: PackagePlus },
+  { type: "link", href: "/factory-receipts/orders", label: "ລາຍການອໍເດີນຳເຂົ້າ", icon: ClipboardList },
+  { type: "link", href: "/shipments", label: "ຈັດສົ່ງສິນຄ້າ", icon: Truck },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -59,6 +94,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    Reports: false,
+    Setting: false,
+  });
 
   useEffect(() => {
     let active = true;
@@ -168,7 +207,21 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const availableNav = useMemo(() => {
     if (!profile) return [];
-    return nav.filter((item) => canAccessPath(item.href, profile.role));
+    return nav
+      .map((item) => {
+        if (item.type === "link") {
+          return canAccessPath(item.href, profile.role) ? item : null;
+        }
+
+        const availableItems = item.items.filter((subItem) => canAccessPath(subItem.href, profile.role));
+        if (availableItems.length === 0) return null;
+
+        return {
+          ...item,
+          items: availableItems,
+        } satisfies NavGroupItem;
+      })
+      .filter((item): item is NavItem => item !== null);
   }, [profile]);
 
   const userInitials = useMemo(() => {
@@ -202,7 +255,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   if (!profile) return null;
 
   return (
-    <div className="min-h-screen min-h-[100dvh] md:h-screen md:flex bg-gray-100 overflow-x-hidden">
+    <div className="app-shell min-h-screen min-h-[100dvh] md:h-screen md:flex bg-gray-100 overflow-x-hidden">
       {sidebarOpen && (
         <button
           type="button"
@@ -213,7 +266,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 bg-slate-800 text-white h-[100dvh] overflow-y-auto overscroll-contain flex flex-col transition-all duration-300 md:sticky md:top-0 md:h-screen md:translate-x-0 ${
+        className={`app-sidebar fixed inset-y-0 left-0 z-40 bg-slate-800 text-white h-[100dvh] overflow-y-auto overscroll-contain flex flex-col transition-all duration-300 md:sticky md:top-0 md:h-screen md:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${sidebarCollapsed ? "md:w-20" : "md:w-64"} w-64`}
       >
@@ -247,21 +300,78 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
         <nav className="flex-1 overflow-y-auto px-3 py-6 space-y-1 text-sm font-medium">
           {availableNav.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(item.href + "/");
+            if (item.type === "link") {
+              const active = pathname === item.href || pathname.startsWith(item.href + "/");
+              const Icon = item.icon;
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
+                    active ? "bg-slate-700 text-white shadow-lg" : "text-slate-400 hover:bg-slate-700/50 hover:text-white"
+                  } ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
+                >
+                  <Icon size={18} className={active ? "text-blue-400" : "text-slate-400"} />
+                  <span className={sidebarCollapsed ? "md:hidden" : ""}>{item.label}</span>
+                </Link>
+              );
+            }
+
             const Icon = item.icon;
+            const groupActive = item.items.some((subItem) => pathname === subItem.href || pathname.startsWith(subItem.href + "/"));
+            const isOpen = sidebarCollapsed ? false : groupActive || openGroups[item.label] === true;
 
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
-                  active ? "bg-slate-700 text-white shadow-lg" : "text-slate-400 hover:bg-slate-700/50 hover:text-white"
-                } ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
-              >
-                <Icon size={18} className={active ? "text-blue-400" : "text-slate-400"} />
-                <span className={sidebarCollapsed ? "md:hidden" : ""}>{item.label}</span>
-              </Link>
+              <div key={item.label} className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sidebarCollapsed) {
+                      setSidebarCollapsed(false);
+                      setOpenGroups((prev) => ({ ...prev, [item.label]: true }));
+                      return;
+                    }
+                    setOpenGroups((prev) => ({ ...prev, [item.label]: !prev[item.label] }));
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left transition-all duration-200 ${
+                    groupActive ? "bg-slate-700 text-white shadow-lg" : "text-slate-400 hover:bg-slate-700/50 hover:text-white"
+                  } ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
+                >
+                  <Icon size={18} className={groupActive ? "text-blue-400" : "text-slate-400"} />
+                  <span className={`flex-1 ${sidebarCollapsed ? "md:hidden" : ""}`}>{item.label}</span>
+                  <ChevronDown
+                    size={16}
+                    className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""} ${
+                      sidebarCollapsed ? "md:hidden" : ""
+                    }`}
+                  />
+                </button>
+
+                {!sidebarCollapsed && isOpen ? (
+                  <div className="space-y-1 pl-4">
+                    {item.items.map((subItem) => {
+                      const subActive = pathname === subItem.href || pathname.startsWith(subItem.href + "/");
+                      const SubIcon = subItem.icon;
+
+                      return (
+                        <Link
+                          key={subItem.href}
+                          href={subItem.href}
+                          onClick={() => setSidebarOpen(false)}
+                          className={`flex items-center gap-3 rounded-lg px-4 py-2.5 transition-all duration-200 ${
+                            subActive ? "bg-slate-700/80 text-white" : "text-slate-400 hover:bg-slate-700/40 hover:text-white"
+                          }`}
+                        >
+                          <SubIcon size={16} className={subActive ? "text-blue-400" : "text-slate-500"} />
+                          <span>{subItem.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             );
           })}
         </nav>
@@ -271,12 +381,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             sidebarCollapsed ? "md:hidden" : ""
           }`}
         >
-          © 2026 BG SPORT System
+          Â© 2026 BG SPORT System
         </div>
       </aside>
 
-      <div className="min-h-screen min-h-[100dvh] md:flex-1 flex flex-col min-w-0">
-        <header className="sticky top-0 z-20 h-16 bg-white/95 backdrop-blur border-b flex items-center justify-between px-4 md:px-6 shadow-sm">
+      <div className="app-content min-h-screen min-h-[100dvh] md:flex-1 flex flex-col min-w-0">
+        <header className="app-header sticky top-0 z-20 h-16 bg-white/95 backdrop-blur border-b flex items-center justify-between px-4 md:px-6 shadow-sm">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -315,7 +425,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 p-4 md:p-6 overflow-visible md:overflow-auto">{children}</main>
+        <main className="app-main flex-1 p-4 md:p-6 overflow-visible md:overflow-auto">{children}</main>
       </div>
       <Toaster
         position="top-right"

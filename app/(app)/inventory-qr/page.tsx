@@ -3,32 +3,45 @@
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import toast from "react-hot-toast";
-import { Download, QrCode, RefreshCw, Search } from "lucide-react";
+import { Download, Printer, QrCode, RefreshCw, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { buildOrderQrCode, formatDateTime, getTotalUnits, type OrderSummary, type QrLabelRow } from "@/lib/inventory-qr";
+import {
+  buildOrderLookupOrFilter,
+  buildOrderQrCode,
+  formatDateTime,
+  getOrderQrPrintHtml,
+  getTotalUnits,
+  ORDER_QR_LABEL_SELECT,
+  type OrderSummary,
+  type QrLabelRow,
+} from "@/lib/inventory-qr";
 
 type SearchOrderRow = OrderSummary;
 
 export default function InventoryQrPage() {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [results, setResults] = useState<SearchOrderRow[]>([]);
   const [labelsByOrderId, setLabelsByOrderId] = useState<Record<string, QrLabelRow>>({});
   const [activeLabel, setActiveLabel] = useState<QrLabelRow | null>(null);
   const [activePreviewUrl, setActivePreviewUrl] = useState("");
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
   const [recentLabels, setRecentLabels] = useState<QrLabelRow[]>([]);
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
 
   const loadRecentLabels = async () => {
     const { data, error } = await supabase
       .from("order_qr_labels")
-      .select("id,order_id,qr_code,order_code,factory_bill_code,label_status,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at")
+      .select(ORDER_QR_LABEL_SELECT)
       .order("created_at", { ascending: false })
-      .limit(8);
+      .limit(20);
 
     if (error) {
-      toast.error(`ໂຫຼດຂໍ້ມູນ QR ບໍ່ສຳເລັດ: ${error.message}`);
+      toast.error(`ໂຫຼດລາຍການ QR ບໍ່ສຳເລັດ: ${error.message}`);
       return;
     }
+
     setRecentLabels((data ?? []) as QrLabelRow[]);
   };
 
@@ -39,6 +52,26 @@ export default function InventoryQrPage() {
     return () => clearTimeout(timer);
   }, []);
 
+  const generatePreviewDataUrl = async (qrCode: string) =>
+    QRCode.toDataURL(qrCode, {
+      width: 720,
+      margin: 2,
+      color: {
+        dark: "#0f172a",
+        light: "#ffffff",
+      },
+    });
+
+  const showLabelPreview = async (label: QrLabelRow) => {
+    const existingPreviewUrl = previewUrls[label.id];
+    const dataUrl = existingPreviewUrl || (await generatePreviewDataUrl(label.qr_code));
+    if (!existingPreviewUrl) {
+      setPreviewUrls((prev) => ({ ...prev, [label.id]: dataUrl }));
+    }
+    setActiveLabel(label);
+    setActivePreviewUrl(dataUrl);
+  };
+
   const searchOrders = async () => {
     const term = query.trim();
     if (!term) {
@@ -47,18 +80,17 @@ export default function InventoryQrPage() {
     }
 
     setSearching(true);
-    const escaped = term.replace(/%/g, "\\%").replace(/_/g, "\\_");
     const { data, error } = await supabase
       .from("orders")
       .select("id,order_code,factory_bill_code,order_date,production_completed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,status")
-      .or(`order_code.ilike.%${escaped}%,factory_bill_code.ilike.%${escaped}%`)
+      .or(buildOrderLookupOrFilter(term))
       .order("order_date", { ascending: false })
-      .limit(12);
+      .limit(20);
 
     setSearching(false);
 
     if (error) {
-      toast.error(`ຄົ້ນຫາບໍ່ສຳເລັດ: ${error.message}`);
+      toast.error(`ຄົ້ນຫາຂໍ້ມູນບໍ່ສຳເລັດ: ${error.message}`);
       return;
     }
 
@@ -73,7 +105,7 @@ export default function InventoryQrPage() {
 
     const { data: labelData, error: labelError } = await supabase
       .from("order_qr_labels")
-      .select("id,order_id,qr_code,order_code,factory_bill_code,label_status,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at")
+      .select(ORDER_QR_LABEL_SELECT)
       .in("order_id", orders.map((item) => item.id));
 
     if (labelError) {
@@ -88,26 +120,25 @@ export default function InventoryQrPage() {
     setLabelsByOrderId(nextLabels);
   };
 
-  const generatePreview = async (label: QrLabelRow) => {
-    const dataUrl = await QRCode.toDataURL(label.qr_code, {
-      width: 720,
-      margin: 2,
-      color: {
-        dark: "#0f172a",
-        light: "#ffffff",
-      },
-    });
-    setActiveLabel(label);
-    setActivePreviewUrl(dataUrl);
-  };
-
   const createLabel = async (order: SearchOrderRow) => {
-    const qrCode = buildOrderQrCode(order);
+    if (!order.factory_bill_code?.trim()) {
+      toast.error(`ອໍເດີ ${order.order_code} ຍັງບໍ່ມີລະຫັດບິນໂຮງງານ`);
+      return;
+    }
+
+    let qrCode = "";
+    try {
+      qrCode = buildOrderQrCode(order);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ສ້າງ QR ບໍ່ສຳເລັດ");
+      return;
+    }
+
     const payload = {
       order_id: order.id,
       qr_code: qrCode,
       order_code: order.order_code,
-      factory_bill_code: order.factory_bill_code || null,
+      factory_bill_code: order.factory_bill_code.trim(),
       label_status: labelsByOrderId[order.id]?.label_status || "created",
       updated_at: new Date().toISOString(),
     };
@@ -115,7 +146,7 @@ export default function InventoryQrPage() {
     const { data, error } = await supabase
       .from("order_qr_labels")
       .upsert(payload, { onConflict: "order_id" })
-      .select("id,order_id,qr_code,order_code,factory_bill_code,label_status,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at")
+      .select(ORDER_QR_LABEL_SELECT)
       .single();
 
     if (error) {
@@ -125,10 +156,27 @@ export default function InventoryQrPage() {
 
     const label = data as QrLabelRow;
     setLabelsByOrderId((prev) => ({ ...prev, [label.order_id]: label }));
-    await generatePreview(label);
-    await loadRecentLabels();
+    setRecentLabels((prev) => {
+      const next = [label, ...prev.filter((item) => item.id !== label.id)];
+      return next.slice(0, 20);
+    });
+    setSelectedLabelIds((prev) => (prev.includes(label.id) ? prev : [...prev, label.id]));
+    await showLabelPreview(label);
     toast.success(`ສ້າງ QR ສຳເລັດສຳລັບ ${order.order_code}`);
   };
+
+  const toggleLabelSelection = (labelId: string) => {
+    setSelectedLabelIds((prev) => (prev.includes(labelId) ? prev.filter((id) => id !== labelId) : [...prev, labelId]));
+  };
+
+  const selectedLabels = useMemo(() => {
+    const map = new Map<string, QrLabelRow>();
+    Object.values(labelsByOrderId).forEach((label) => map.set(label.id, label));
+    recentLabels.forEach((label) => map.set(label.id, label));
+    return selectedLabelIds.map((id) => map.get(id)).filter(Boolean) as QrLabelRow[];
+  }, [labelsByOrderId, recentLabels, selectedLabelIds]);
+
+  const allRecentSelected = recentLabels.length > 0 && recentLabels.every((label) => selectedLabelIds.includes(label.id));
 
   const downloadLabel = () => {
     if (!activePreviewUrl || !activeLabel) return;
@@ -136,6 +184,82 @@ export default function InventoryQrPage() {
     link.href = activePreviewUrl;
     link.download = `${activeLabel.order_code}-qr-label.png`;
     link.click();
+  };
+
+  const printSelectedLabels = async () => {
+    if (selectedLabels.length === 0) {
+      toast.error("ກະລຸນາເລືອກ QR ຢ່າງໜ້ອຍ 1 ລາຍການ");
+      return;
+    }
+
+    setPrinting(true);
+    const nextPreviewUrls = { ...previewUrls };
+    for (const label of selectedLabels) {
+      if (!nextPreviewUrls[label.id]) {
+        nextPreviewUrls[label.id] = await generatePreviewDataUrl(label.qr_code);
+      }
+    }
+    setPreviewUrls(nextPreviewUrls);
+
+    const popup = window.open("", "_blank", "width=960,height=1200");
+    if (!popup) {
+      setPrinting(false);
+      toast.error("ບໍ່ສາມາດເປີດໜ້າພິມໄດ້");
+      return;
+    }
+
+    popup.document.write(getOrderQrPrintHtml(selectedLabels, nextPreviewUrls));
+    popup.document.close();
+    popup.focus();
+    popup.print();
+    setPrinting(false);
+  };
+
+  const toggleSelectAllRecent = () => {
+    if (recentLabels.length === 0) return;
+
+    if (allRecentSelected) {
+      setSelectedLabelIds((prev) => prev.filter((id) => !recentLabels.some((label) => label.id === id)));
+      return;
+    }
+
+    setSelectedLabelIds((prev) => {
+      const next = new Set(prev);
+      recentLabels.forEach((label) => next.add(label.id));
+      return Array.from(next);
+    });
+  };
+
+  const deleteLabel = async (label: QrLabelRow) => {
+    const confirmed = window.confirm(`ຕ້ອງການລຶບ QR ຂອງ ${label.order_code} ແທ້ບໍ?`);
+    if (!confirmed) return;
+
+    const { error } = await supabase.from("order_qr_labels").delete().eq("id", label.id);
+
+    if (error) {
+      toast.error(`ລຶບ QR ບໍ່ສຳເລັດ: ${error.message}`);
+      return;
+    }
+
+    setRecentLabels((prev) => prev.filter((item) => item.id !== label.id));
+    setLabelsByOrderId((prev) => {
+      const next = { ...prev };
+      if (next[label.order_id]?.id === label.id) {
+        delete next[label.order_id];
+      }
+      return next;
+    });
+    setSelectedLabelIds((prev) => prev.filter((id) => id !== label.id));
+    setPreviewUrls((prev) => {
+      const next = { ...prev };
+      delete next[label.id];
+      return next;
+    });
+    if (activeLabel?.id === label.id) {
+      setActiveLabel(null);
+      setActivePreviewUrl("");
+    }
+    toast.success(`ລຶບ QR ຂອງ ${label.order_code} ສຳເລັດ`);
   };
 
   const selectedOrder = useMemo(() => {
@@ -152,13 +276,13 @@ export default function InventoryQrPage() {
               <QrCode size={14} />
               ສ້າງ QR
             </div>
-            <h1 className="mt-4 text-3xl font-black tracking-tight">ສ້າງສະຕິກເກີ QR ສຳລັບຮັບສິນຄ້າເຂົ້າຮ້ານ</h1>
+            <h1 className="mt-4 text-3xl font-black tracking-tight">ສ້າງ QR ຂອງຮ້ານທີ່ລິ້ງກັບລະຫັດບິນໂຮງງານ</h1>
             <p className="mt-2 max-w-2xl text-sm font-medium text-slate-200">
-              ຄົ້ນຫາດ້ວຍລະຫັດອໍເດີ ຫຼື ລະຫັດບິນໂຮງງານ, ສ້າງ QR ສຳລັບພິມ ແລະ ດາວໂຫຼດເປັນໄຟລ໌ PNG ໄວ້ແນບໃບບິນ ຫຼື ພິມຜ່ານເຄື່ອງພິມຄວາມຮ້ອນ.
+              ຄົ້ນຫາດ້ວຍລະຫັດບິນໂຮງງານ ຫຼື ລະຫັດອໍເດີ, ສ້າງ QR ຂອງຮ້ານຈາກລະຫັດບິນໂຮງງານ ແລ້ວ ຮວບຮວມຫຼາຍ QR ເພື່ອພິມເປັນກຸ່ມໃນຄັ້ງດຽວ.
             </p>
           </div>
           <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-slate-100">
-            ສະຕິກເກີຈະສະແດງ: QR + ລະຫັດອໍເດີ + ລະຫັດບິນໂຮງງານ
+            QR ຂອງຮ້ານຈະໃຊ້ລະຫັດບິນໂຮງງານດຽວກັນກັບ QR ຂອງໂຮງງານ
           </div>
         </div>
       </section>
@@ -185,7 +309,7 @@ export default function InventoryQrPage() {
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-60"
             >
               <Search size={18} />
-              {searching ? "ກຳລັງຄົ້ນຫາ..." : "ຄົ້ນຫາອໍເດີ"}
+              {searching ? "ກຳລັງຄົ້ນຫາ..." : "ຄົ້ນຫາ"}
             </button>
           </div>
 
@@ -197,6 +321,7 @@ export default function InventoryQrPage() {
             ) : (
               results.map((order) => {
                 const label = labelsByOrderId[order.id];
+                const isSelected = label ? selectedLabelIds.includes(label.id) : false;
                 return (
                   <div key={order.id} className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -210,6 +335,12 @@ export default function InventoryQrPage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
+                        {label && (
+                          <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700">
+                            <input type="checkbox" checked={isSelected} onChange={() => toggleLabelSelection(label.id)} />
+                            ເລືອກ
+                          </label>
+                        )}
                         {label && (
                           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-[0.2em] text-emerald-700">
                             {label.label_status}
@@ -226,7 +357,7 @@ export default function InventoryQrPage() {
                         {label && (
                           <button
                             type="button"
-                            onClick={() => void generatePreview(label)}
+                            onClick={() => void showLabelPreview(label)}
                             className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-100"
                           >
                             ເບິ່ງຕົວຢ່າງ
@@ -234,6 +365,11 @@ export default function InventoryQrPage() {
                         )}
                       </div>
                     </div>
+                    {!order.factory_bill_code?.trim() && (
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                        ກະລຸນາເພີ່ມລະຫັດບິນໂຮງງານໃຫ້ອໍເດີນີ້ກ່ອນສ້າງ QR ໃໝ່ຂອງຮ້ານ.
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -244,8 +380,8 @@ export default function InventoryQrPage() {
         <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-lg font-black text-slate-900">ຕົວຢ່າງສະຕິກເກີ</div>
-              <div className="text-sm font-medium text-slate-500">ດາວໂຫຼດ PNG ສຳລັບໃບບິນ ແລະ ເຄື່ອງພິມຄວາມຮ້ອນ</div>
+              <div className="text-lg font-black text-slate-900">ຕົວຢ່າງ QR</div>
+              <div className="text-sm font-medium text-slate-500">ດາວໂຫຼດສະຕິກເກີແບບດ່ຽວ ຫຼື ພິມຫຼາຍລາຍການພ້ອມກັນດ້ານລຸ່ມ</div>
             </div>
             <button
               type="button"
@@ -261,7 +397,7 @@ export default function InventoryQrPage() {
           {activeLabel ? (
             <div className="mt-5 rounded-[2rem] border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-5">
               <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-white p-5 shadow-inner">
-                <div className="text-center text-xs font-black uppercase tracking-[0.35em] text-slate-400">ສະຕິກເກີຮັບສິນຄ້າ BG Sport</div>
+                <div className="text-center text-xs font-black uppercase tracking-[0.35em] text-slate-400">ສະຕິກເກີ QR BG SPORT</div>
                 <div className="mt-4 flex justify-center">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={activePreviewUrl} alt={activeLabel.order_code} className="h-56 w-56 rounded-2xl border border-slate-100 object-contain p-3 shadow-sm" />
@@ -269,7 +405,7 @@ export default function InventoryQrPage() {
                 <div className="mt-4 text-center">
                   <div className="text-2xl font-black tracking-tight text-slate-950">{activeLabel.order_code}</div>
                   <div className="mt-1 text-sm font-semibold text-slate-500">ລະຫັດບິນໂຮງງານ: {activeLabel.factory_bill_code?.trim() || "-"}</div>
-                  <div className="mt-2 text-xs font-semibold text-slate-400">{activeLabel.qr_code}</div>
+                  <div className="mt-2 break-all text-xs font-semibold text-slate-400">{activeLabel.qr_code}</div>
                 </div>
               </div>
 
@@ -288,33 +424,91 @@ export default function InventoryQrPage() {
             </div>
           ) : (
             <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">
-              ສ້າງ QR ເພື່ອເບິ່ງຕົວຢ່າງສະຕິກເກີສຳລັບພິມທີ່ນີ້.
+              ສ້າງ QR ຫຼື ເປີດ QR ເພື່ອເບິ່ງຕົວຢ່າງທີ່ນີ້.
             </div>
           )}
         </div>
       </section>
 
       <section className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="text-lg font-black text-slate-900">QR ລ່າສຸດ</div>
-            <div className="text-sm font-medium text-slate-500">ລາຍການ QR ທີ່ສ້າງຫຼ້າສຸດໃນລະບົບ</div>
+            <div className="text-lg font-black text-slate-900">ລາຍການພິມແບບກຸ່ມ</div>
+            <div className="text-sm font-medium text-slate-500">ເລືອກແລ້ວ {selectedLabels.length} QR ສຳລັບການພິມຄັ້ງດຽວ</div>
           </div>
-        </div>
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {recentLabels.map((label) => (
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              key={label.id}
-              onClick={() => void generatePreview(label)}
-              className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:-translate-y-0.5 hover:bg-slate-100"
+              onClick={toggleSelectAllRecent}
+              disabled={recentLabels.length === 0}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
             >
-              <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{label.label_status}</div>
-              <div className="mt-2 text-lg font-black text-slate-900">{label.order_code}</div>
-              <div className="text-sm font-medium text-slate-500">{label.factory_bill_code?.trim() || "-"}</div>
-              <div className="mt-3 text-xs font-semibold text-slate-400">{formatDateTime(label.created_at)}</div>
+              {allRecentSelected ? "ຍົກເລີກເລືອກທັງໝົດ" : "ເລືອກທັງໝົດ"}
             </button>
-          ))}
+            <button
+              type="button"
+              onClick={() => void printSelectedLabels()}
+              disabled={printing || selectedLabels.length === 0}
+              className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Printer size={16} />
+              {printing ? "ກຳລັງຈັດໜ້າ..." : "ພິມລາຍການທີ່ເລືອກ"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-slate-500">
+                <th className="px-3 py-3 font-bold">ເລືອກ</th>
+                <th className="px-3 py-3 font-bold">ອໍເດີ</th>
+                <th className="px-3 py-3 font-bold">ບິນໂຮງງານ</th>
+                <th className="px-3 py-3 font-bold">ສະຖານະ</th>
+                <th className="px-3 py-3 font-bold">ສ້າງເມື່ອ</th>
+                <th className="px-3 py-3 font-bold">ຈັດການ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentLabels.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-8 text-center font-medium text-slate-500">
+                    ຍັງບໍ່ມີ QR ທີ່ສ້າງໄວ້.
+                  </td>
+                </tr>
+              ) : (
+                recentLabels.map((label) => (
+                  <tr key={label.id} className="border-b border-slate-100">
+                    <td className="px-3 py-3">
+                      <input type="checkbox" checked={selectedLabelIds.includes(label.id)} onChange={() => toggleLabelSelection(label.id)} />
+                    </td>
+                    <td className="px-3 py-3 font-bold text-slate-900">{label.order_code}</td>
+                    <td className="px-3 py-3 text-slate-600">{label.factory_bill_code?.trim() || "-"}</td>
+                    <td className="px-3 py-3 text-slate-600">{label.label_status}</td>
+                    <td className="px-3 py-3 text-slate-500">{formatDateTime(label.created_at)}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void showLabelPreview(label)}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 font-bold text-slate-700 transition hover:bg-slate-100"
+                        >
+                          ເບິ່ງຕົວຢ່າງ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteLabel(label)}
+                          className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 font-bold text-rose-700 transition hover:bg-rose-100"
+                        >
+                          ລຶບ
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
     </div>
