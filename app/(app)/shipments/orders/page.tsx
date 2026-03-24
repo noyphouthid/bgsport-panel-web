@@ -13,10 +13,18 @@ import {
   type OrderChangeRequestRow,
 } from "@/lib/order-change-requests";
 import { WhatsappMessageModal } from "../../_components/whatsapp-message-modal";
-import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
+import { buildShipmentCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
 
-type ReceiptRow = { id: string; received_at: string; received_by: string; note: string | null };
-type ReceiptItemRow = { receipt_id: string; order_id: string };
+type ShipmentRecordRow = {
+  id: string;
+  order_id: string;
+  shipped_at: string;
+  shipped_by: string;
+  note: string | null;
+  collected_amount: number | null;
+  payment_method: "cash" | "transfer" | null;
+};
+
 type OrderRow = {
   id: string;
   order_code: string;
@@ -39,12 +47,14 @@ type OrderRow = {
   qty_5xl: number;
 };
 
-type ImportedOrderRow = {
-  receiptId: string;
+type ShippedOrderRow = {
+  shipmentId: string;
   orderId: string;
-  receivedAt: string;
-  receivedBy: string;
-  receiptNote: string | null;
+  shippedAt: string;
+  shippedBy: string;
+  shipmentNote: string | null;
+  collectedAmount: number;
+  paymentMethod: ShipmentRecordRow["payment_method"];
   orderCode: string;
   customerPhone: string | null;
   customerWhatsapp: string | null;
@@ -61,8 +71,10 @@ type ImportedOrderRow = {
 };
 
 type PhoneFilter = "all" | "has_phone" | "no_phone";
+type PaymentFilter = "all" | "cash" | "transfer" | "none";
 
-function formatDateTime(value: string) {
+function formatDateTime(value: string | null) {
+  if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleString("en-GB", {
@@ -74,13 +86,23 @@ function formatDateTime(value: string) {
   });
 }
 
-export default function FactoryReceiptOrdersPage() {
+function formatMoney(value: number) {
+  return (Number(value) || 0).toLocaleString();
+}
+
+function getPaymentLabel(method: ShipmentRecordRow["payment_method"]) {
+  if (method === "cash") return "ເງິນສົດ";
+  if (method === "transfer") return "ໂອນເງິນ";
+  return "ບໍ່ມີການຮັບເງິນ";
+}
+
+export default function ShipmentOrdersPage() {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const [rows, setRows] = useState<ImportedOrderRow[]>([]);
+  const [rows, setRows] = useState<ShippedOrderRow[]>([]);
   const [filteredTotal, setFilteredTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [activeWhatsappRow, setActiveWhatsappRow] = useState<ImportedOrderRow | null>(null);
+  const [activeWhatsappRow, setActiveWhatsappRow] = useState<ShippedOrderRow | null>(null);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [requestMap, setRequestMap] = useState<Record<string, OrderChangeRequestRow>>({});
@@ -88,8 +110,9 @@ export default function FactoryReceiptOrdersPage() {
 
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
-  const [receivedBy, setReceivedBy] = useState("");
+  const [shippedBy, setShippedBy] = useState("");
   const [phoneFilter, setPhoneFilter] = useState<PhoneFilter>("all");
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 20;
@@ -119,50 +142,36 @@ export default function FactoryReceiptOrdersPage() {
     setViewerRole(currentUser?.role ?? null);
     setViewerUserId(currentUser?.id ?? null);
 
-    let receiptQuery = supabase.from("factory_receipts").select("id,received_at,received_by,note").order("received_at", { ascending: false });
-    if (fromDate) receiptQuery = receiptQuery.gte("received_at", `${fromDate}T00:00:00`);
-    if (toDate) receiptQuery = receiptQuery.lte("received_at", `${toDate}T23:59:59.999`);
+    let shipmentQuery = supabase
+      .from("shipment_records")
+      .select("id,order_id,shipped_at,shipped_by,note,collected_amount,payment_method")
+      .order("shipped_at", { ascending: false });
 
-    const { data: receiptData, error: receiptError } = await receiptQuery;
-    if (receiptError) {
-      setErr(receiptError.message);
+    if (fromDate) shipmentQuery = shipmentQuery.gte("shipped_at", `${fromDate}T00:00:00`);
+    if (toDate) shipmentQuery = shipmentQuery.lte("shipped_at", `${toDate}T23:59:59.999`);
+
+    const { data: shipmentData, error: shipmentError } = await shipmentQuery;
+    if (shipmentError) {
+      setErr(shipmentError.message);
       setRows([]);
       setFilteredTotal(0);
       setLoading(false);
       return;
     }
 
-    const receiptRows = ((receiptData ?? []) as ReceiptRow[]).filter((receipt) => {
-      const keyword = receivedBy.trim().toLowerCase();
-      return !keyword || receipt.received_by.toLowerCase().includes(keyword);
+    const shipmentRows = ((shipmentData ?? []) as ShipmentRecordRow[]).filter((shipment) => {
+      const keyword = shippedBy.trim().toLowerCase();
+      return !keyword || shipment.shipped_by.toLowerCase().includes(keyword);
     });
 
-    if (receiptRows.length === 0) {
+    if (shipmentRows.length === 0) {
       setRows([]);
       setFilteredTotal(0);
       setLoading(false);
       return;
     }
 
-    const receiptIds = receiptRows.map((receipt) => receipt.id);
-    const { data: itemData, error: itemError } = await supabase.from("factory_receipt_items").select("receipt_id,order_id").in("receipt_id", receiptIds);
-    if (itemError) {
-      setErr(itemError.message);
-      setRows([]);
-      setFilteredTotal(0);
-      setLoading(false);
-      return;
-    }
-
-    const itemRows = (itemData ?? []) as ReceiptItemRow[];
-    if (itemRows.length === 0) {
-      setRows([]);
-      setFilteredTotal(0);
-      setLoading(false);
-      return;
-    }
-
-    const orderIds = [...new Set(itemRows.map((item) => item.order_id))];
+    const orderIds = [...new Set(shipmentRows.map((shipment) => shipment.order_id))];
     const { data: orderData, error: orderError } = await supabase
       .from("orders")
       .select("id,order_code,customer_phone,customer_whatsapp,factory_bill_code,fabric_name,net_total,balance,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl")
@@ -176,22 +185,22 @@ export default function FactoryReceiptOrdersPage() {
       return;
     }
 
-    const receiptById = new Map(receiptRows.map((receipt) => [receipt.id, receipt]));
     const orderById = new Map(((orderData ?? []) as OrderRow[]).map((order) => [order.id, order]));
     const search = query.trim().toLowerCase();
 
-    const mergedRows = itemRows
-      .map((item) => {
-        const receipt = receiptById.get(item.receipt_id);
-        const order = orderById.get(item.order_id);
-        if (!receipt || !order) return null;
+    const mergedRows = shipmentRows
+      .map((shipment) => {
+        const order = orderById.get(shipment.order_id);
+        if (!order) return null;
 
         return {
-          receiptId: receipt.id,
+          shipmentId: shipment.id,
           orderId: order.id,
-          receivedAt: receipt.received_at,
-          receivedBy: receipt.received_by,
-          receiptNote: receipt.note,
+          shippedAt: shipment.shipped_at,
+          shippedBy: shipment.shipped_by,
+          shipmentNote: shipment.note,
+          collectedAmount: Number(shipment.collected_amount) || 0,
+          paymentMethod: shipment.payment_method,
           orderCode: order.order_code,
           customerPhone: order.customer_phone,
           customerWhatsapp: order.customer_whatsapp,
@@ -211,20 +220,30 @@ export default function FactoryReceiptOrdersPage() {
             (Number(order.qty_3xl) || 0) +
             (Number(order.qty_4xl) || 0) +
             (Number(order.qty_5xl) || 0),
-        } satisfies ImportedOrderRow;
+        } satisfies ShippedOrderRow;
       })
-      .filter((row): row is ImportedOrderRow => row !== null)
+      .filter((row): row is ShippedOrderRow => row !== null)
       .filter((row) => {
         const hasPhone = getWhatsappContactOptions(row.customerPhone, row.customerWhatsapp).length > 0;
         if (phoneFilter === "has_phone" && !hasPhone) return false;
         if (phoneFilter === "no_phone" && hasPhone) return false;
+        if (paymentFilter === "cash" && row.paymentMethod !== "cash") return false;
+        if (paymentFilter === "transfer" && row.paymentMethod !== "transfer") return false;
+        if (paymentFilter === "none" && row.collectedAmount > 0) return false;
         if (!search) return true;
-        return [row.orderCode, row.factoryBillCode ?? "", row.customerPhone ?? "", row.customerWhatsapp ?? "", row.receivedBy, row.receiptNote ?? ""]
+        return [
+          row.orderCode,
+          row.factoryBillCode ?? "",
+          row.customerPhone ?? "",
+          row.customerWhatsapp ?? "",
+          row.shippedBy,
+          row.shipmentNote ?? "",
+        ]
           .join(" ")
           .toLowerCase()
           .includes(search);
       })
-      .sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+      .sort((a, b) => new Date(b.shippedAt).getTime() - new Date(a.shippedAt).getTime());
 
     const from = (page - 1) * pageSize;
     const pagedRows = mergedRows.slice(from, from + pageSize);
@@ -241,7 +260,7 @@ export default function FactoryReceiptOrdersPage() {
     const { data: requestData, error: requestError } = await supabase
       .from("order_change_requests")
       .select("*")
-      .eq("request_type", "cancel_factory_receipt")
+      .eq("request_type", "cancel_shipment")
       .in("order_id", pagedOrderIds)
       .order("requested_at", { ascending: false });
 
@@ -275,38 +294,53 @@ export default function FactoryReceiptOrdersPage() {
   const resetAll = () => {
     setFromDate(today);
     setToDate(today);
-    setReceivedBy("");
+    setShippedBy("");
     setPhoneFilter("all");
+    setPaymentFilter("all");
     setQuery("");
     setPage(1);
     setTimeout(() => void load(), 0);
   };
 
-  const displayStatusBadge = (row: ImportedOrderRow) => {
-    if (row.status === "completed" || row.closedAt) return <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">ສຳເລັດແລ້ວ</span>;
-    if (row.shipmentStatus === "shipped" || row.shipmentCompletedAt) return <span className="px-3 py-1 rounded-full bg-sky-100 text-sky-700 text-xs font-bold border border-sky-200">ຈັດສົ່ງແລ້ວ</span>;
-    if (row.productionCompletedAt) return <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200">ນຳເຂົ້າແລ້ວ</span>;
-    return <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200">ລໍຖ້າດຳເນີນການ</span>;
+  const displayStatusBadge = (row: ShippedOrderRow) => {
+    if (row.status === "completed" || row.closedAt) {
+      return <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">ສຳເລັດແລ້ວ</span>;
+    }
+    if (row.shipmentStatus === "shipped" || row.shipmentCompletedAt) {
+      return <span className="rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-xs font-bold text-orange-700">ຈັດສົ່ງແລ້ວ</span>;
+    }
+    if (row.productionCompletedAt) {
+      return <span className="rounded-full border border-blue-200 bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">ນຳເຂົ້າແລ້ວ</span>;
+    }
+    return <span className="rounded-full border border-amber-200 bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700">ລໍຖ້າດຳເນີນການ</span>;
   };
 
   const activeWhatsappOptions = activeWhatsappRow
     ? getWhatsappContactOptions(activeWhatsappRow.customerPhone, activeWhatsappRow.customerWhatsapp)
     : [];
 
-  const handleSubmitRequest = async (row: ImportedOrderRow) => {
+  const activeWhatsappMessage = activeWhatsappRow
+    ? buildShipmentCompletedWhatsappMessage({
+        orderCode: activeWhatsappRow.orderCode,
+        totalQty: activeWhatsappRow.totalQty,
+        balance: activeWhatsappRow.balance,
+      })
+    : "";
+
+  const handleSubmitRequest = async (row: ShippedOrderRow) => {
     if (!viewerRole || !viewerUserId || !canSubmitOrderChangeRequest(viewerRole)) {
       toast.error("ທ່ານບໍ່ມີສິດສົ່ງຄຳຂໍ");
       return;
     }
-    const reason = window.prompt(`ລະບຸເຫດຜົນຂໍຍົກເລີກນຳເຂົ້າ ${row.orderCode}`, "")?.trim();
+    const reason = window.prompt(`ລະບຸເຫດຜົນຂໍຍົກເລີກຈັດສົ່ງ ${row.orderCode}`, "")?.trim();
     if (!reason) return;
 
     setRequestingOrderId(row.orderId);
     try {
       const { error } = await supabase.from("order_change_requests").insert({
         order_id: row.orderId,
-        request_type: "cancel_factory_receipt",
-        target_receipt_id: row.receiptId,
+        request_type: "cancel_shipment",
+        target_shipment_id: row.shipmentId,
         request_reason: reason,
         requested_by_user_id: viewerUserId,
       });
@@ -325,13 +359,13 @@ export default function FactoryReceiptOrdersPage() {
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-slate-800">
-            <ClipboardCheck size={24} className="text-emerald-600" />
-            ລາຍການອໍເດີທີ່ນຳເຂົ້າແລ້ວ
+            <ClipboardCheck size={24} className="text-orange-600" />
+            ລາຍການອໍເດີຈັດສົ່ງແລ້ວ
           </h1>
-          <div className="text-sm font-medium text-slate-500">ເບິ່ງອໍເດີທີ່ສະແກນຮັບເຂົ້າແລ້ວ ເພື່ອຕິດຕາມ ແລະ ແຈ້ງລູກຄ້າ</div>
+          <div className="text-sm font-medium text-slate-500">ເບິ່ງອໍເດີທີ່ຖືກຈັດສົ່ງແລ້ວ ເພື່ອຕິດຕາມ, ຄົ້ນຫາ, ແລະ ແຈ້ງລູກຄ້າ</div>
         </div>
-        <Link href="/factory-receipts" className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700">
-          ໄປໜ້າຮັບສິນຄ້າເຂົ້າ
+        <Link href="/shipments" className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-orange-700">
+          ໄປໜ້າຈັດສົ່ງ
         </Link>
       </div>
 
@@ -340,31 +374,40 @@ export default function FactoryReceiptOrdersPage() {
       <div className="mb-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
         <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-6">
           <div>
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຈາກວັນທີຮັບເຂົ້າ</label>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500" />
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຈາກວັນທີຈັດສົ່ງ</label>
+            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-orange-500" />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຫາວັນທີຮັບເຂົ້າ</label>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500" />
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຫາວັນທີຈັດສົ່ງ</label>
+            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-orange-500" />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຜູ້ນຳເຂົ້າ</label>
-            <input value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} placeholder="ຊື່ພະນັກງານ" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all placeholder-slate-300 focus:ring-2 focus:ring-blue-500" />
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຜູ້ຈັດສົ່ງ</label>
+            <input value={shippedBy} onChange={(e) => setShippedBy(e.target.value)} placeholder="ຊື່ພະນັກງານ" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all placeholder-slate-300 focus:ring-2 focus:ring-orange-500" />
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ເບີລູກຄ້າ</label>
-            <select value={phoneFilter} onChange={(e) => setPhoneFilter(e.target.value as PhoneFilter)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500">
+            <select value={phoneFilter} onChange={(e) => setPhoneFilter(e.target.value as PhoneFilter)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-orange-500">
               <option value="all">ທັງໝົດ</option>
               <option value="has_phone">ມີເບີ</option>
               <option value="no_phone">ບໍ່ມີເບີ</option>
             </select>
           </div>
-          <div className="md:col-span-2">
+          <div>
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ການຮັບເງິນ</label>
+            <select value={paymentFilter} onChange={(e) => setPaymentFilter(e.target.value as PaymentFilter)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-orange-500">
+              <option value="all">ທັງໝົດ</option>
+              <option value="cash">ເງິນສົດ</option>
+              <option value="transfer">ໂອນເງິນ</option>
+              <option value="none">ບໍ່ມີການຮັບເງິນ</option>
+            </select>
+          </div>
+          <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຄົ້ນຫາ</label>
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ລະຫັດອໍເດີ / ບິນໂຮງງານ / ເບີ / ໝາຍເຫດ" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all placeholder-slate-300 focus:ring-2 focus:ring-blue-500" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ລະຫັດອໍເດີ / ບິນໂຮງງານ / ເບີ / ໝາຍເຫດ" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all placeholder-slate-300 focus:ring-2 focus:ring-orange-500" />
           </div>
           <div className="mt-2 flex gap-2 md:col-span-6">
-            <button onClick={runSearch} className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700">ຄົ້ນຫາ</button>
+            <button onClick={runSearch} className="rounded-lg bg-orange-600 px-6 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-orange-700">ຄົ້ນຫາ</button>
             <button onClick={resetAll} className="rounded-lg border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200">ລ້າງ</button>
           </div>
         </div>
@@ -372,7 +415,7 @@ export default function FactoryReceiptOrdersPage() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-50 bg-slate-50/50 p-4">
-          <div className="text-sm font-bold uppercase tracking-widest text-slate-700">ລາຍການອໍເດີທີ່ນຳເຂົ້າແລ້ວ</div>
+          <div className="text-sm font-bold uppercase tracking-widest text-slate-700">ລາຍການອໍເດີຈັດສົ່ງແລ້ວ</div>
           <div className="text-xs font-bold text-slate-500">{loading ? "ກຳລັງໂຫຼດ..." : `ສະແດງ ${rows.length} / ${filteredTotal} ລາຍການ`}</div>
         </div>
 
@@ -380,14 +423,15 @@ export default function FactoryReceiptOrdersPage() {
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-slate-700">
-                <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ວັນທີຮັບເຂົ້າ</th>
-                <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ຜູ້ນຳເຂົ້າ</th>
+                <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ວັນທີຈັດສົ່ງ</th>
+                <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ຜູ້ຈັດສົ່ງ</th>
                 <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ລະຫັດອໍເດີ</th>
                 <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ບິນໂຮງງານ</th>
                 <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ເບີໂທ / WhatsApp</th>
                 <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ຜ້າ</th>
-                <th className="p-4 text-right text-[14px] font-bold uppercase tracking-widest">ຍອດສຸດທິ</th>
-                <th className="p-4 text-right text-[14px] font-bold uppercase tracking-widest">ຄ້າງ</th>
+                <th className="p-4 text-right text-[14px] font-bold uppercase tracking-widest">ຍອດຮັບເງິນ</th>
+                <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ວິທີຮັບເງິນ</th>
+                <th className="p-4 text-right text-[14px] font-bold uppercase tracking-widest">ຍອດຄ້າງ</th>
                 <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ໝາຍເຫດ</th>
                 <th className="p-4 text-center text-[14px] font-bold uppercase tracking-widest">ສະຖານະ</th>
                 <th className="p-4 text-center text-[14px] font-bold uppercase tracking-widest">ຈັດການ</th>
@@ -396,15 +440,15 @@ export default function FactoryReceiptOrdersPage() {
             <tbody className="divide-y divide-slate-50">
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td className="p-10 text-center font-medium text-slate-400" colSpan={11}>
-                    ບໍ່ພົບອໍເດີທີ່ນຳເຂົ້າໃນເງື່ອນໄຂນີ້
+                  <td className="p-10 text-center font-medium text-slate-400" colSpan={12}>
+                    ບໍ່ພົບອໍເດີທີ່ຈັດສົ່ງໃນເງື່ອນໄຂນີ້
                   </td>
                 </tr>
               ) : (
                 rows.map((row) => (
-                  <tr key={`${row.receiptId}-${row.orderId}`} className="transition-colors hover:bg-slate-50/80">
-                    <td className="whitespace-nowrap p-4 font-medium text-slate-600">{formatDateTime(row.receivedAt)}</td>
-                    <td className="p-4 font-semibold text-slate-700">{row.receivedBy}</td>
+                  <tr key={`${row.shipmentId}-${row.orderId}`} className="transition-colors hover:bg-slate-50/80">
+                    <td className="whitespace-nowrap p-4 font-medium text-slate-600">{formatDateTime(row.shippedAt)}</td>
+                    <td className="p-4 font-semibold text-slate-700">{row.shippedBy}</td>
                     <td className="p-4 font-bold text-slate-700">{row.orderCode}</td>
                     <td className="p-4 text-slate-500">{row.factoryBillCode?.trim() ? row.factoryBillCode : "-"}</td>
                     <td className="p-4">
@@ -427,20 +471,21 @@ export default function FactoryReceiptOrdersPage() {
                       </div>
                     </td>
                     <td className="p-4 font-medium text-slate-600">{row.fabricName}</td>
-                    <td className="p-4 text-right font-bold text-slate-600">{row.netTotal.toLocaleString()}</td>
-                    <td className="bg-rose-50/30 p-4 text-right font-bold text-rose-600">{row.balance.toLocaleString()}</td>
-                    <td className="max-w-48 truncate p-4 text-slate-500" title={row.receiptNote ?? ""}>{row.receiptNote?.trim() ? row.receiptNote : "-"}</td>
+                    <td className="p-4 text-right font-bold text-emerald-700">{formatMoney(row.collectedAmount)}</td>
+                    <td className="p-4 text-slate-500">{getPaymentLabel(row.paymentMethod)}</td>
+                    <td className="bg-rose-50/30 p-4 text-right font-bold text-rose-600">{formatMoney(row.balance)}</td>
+                    <td className="max-w-48 truncate p-4 text-slate-500" title={row.shipmentNote ?? ""}>{row.shipmentNote?.trim() ? row.shipmentNote : "-"}</td>
                     <td className="p-4 text-center">{displayStatusBadge(row)}</td>
                     <td className="p-4 text-center">
                       <div className="flex flex-col items-center gap-2">
-                      <Link href={`/orders/${row.orderId}/edit`} className="font-bold text-blue-600 underline-offset-4 transition-all hover:text-blue-800 hover:underline">
+                        <Link href={`/orders/${row.orderId}/edit`} className="font-bold text-blue-600 underline-offset-4 transition-all hover:text-blue-800 hover:underline">
                         ເປີດອໍເດີ
-                      </Link>
+                        </Link>
                         {requestMap[row.orderId] ? (
                           <span className={`rounded-full px-3 py-1 text-[11px] font-black ${ORDER_CHANGE_REQUEST_STATUS_STYLES[requestMap[row.orderId].status]}`}>
                             {ORDER_CHANGE_REQUEST_STATUS_LABELS[requestMap[row.orderId].status]}
                           </span>
-                        ) : row.productionCompletedAt && row.status !== "completed" && row.shipmentStatus !== "shipped" ? (
+                        ) : row.shipmentStatus === "shipped" && row.status !== "completed" && !row.closedAt ? (
                           <button
                             type="button"
                             onClick={() => void handleSubmitRequest(row)}
@@ -462,29 +507,33 @@ export default function FactoryReceiptOrdersPage() {
         </div>
 
         <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/30 p-4">
-          <div className="text-xs font-bold uppercase tracking-tighter text-slate-400">ຊ່ວງວັນທີຮັບເຂົ້າ: {fromDate || "-"} - {toDate || "-"}</div>
-          <div className="flex gap-2">
-            <button className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 disabled:opacity-40" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← ກ່ອນໜ້າ</button>
-            <button className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50" disabled={!hasNextPage} onClick={() => setPage((p) => p + 1)}>ຖັດໄປ →</button>
+          <div className="text-xs font-bold uppercase tracking-tighter text-slate-400">ຊ່ວງວັນທີຈັດສົ່ງ: {fromDate || "-"} - {toDate || "-"}</div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ກ່ອນໜ້າ
+            </button>
+            <div className="min-w-[90px] text-center text-sm font-bold text-slate-500">ໜ້າ {page}</div>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={!hasNextPage}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ໜ້າຕໍ່ໄປ
+            </button>
           </div>
         </div>
       </div>
 
       <WhatsappMessageModal
-        key={activeWhatsappRow ? `${activeWhatsappRow.receiptId}-${activeWhatsappRow.orderId}-${activeWhatsappRow.balance}` : "closed"}
         open={Boolean(activeWhatsappRow)}
-        title={activeWhatsappRow ? `ແຈ້ງລູກຄ້າອໍເດີ ${activeWhatsappRow.orderCode}` : undefined}
-        message={
-          activeWhatsappRow
-            ? buildProductionCompletedWhatsappMessage({
-                orderCode: activeWhatsappRow.orderCode,
-                totalQty: activeWhatsappRow.totalQty,
-                balance: activeWhatsappRow.balance,
-              })
-            : ""
-        }
+        title={activeWhatsappRow ? `ແຈ້ງລູກຄ້າອໍເດີ ${activeWhatsappRow.orderCode}` : ""}
         phoneOptions={activeWhatsappOptions}
-        initialPhone={activeWhatsappOptions[0]?.value}
+        initialPhone={activeWhatsappOptions[0]?.value || ""}
+        message={activeWhatsappMessage}
         onClose={() => setActiveWhatsappRow(null)}
       />
     </div>

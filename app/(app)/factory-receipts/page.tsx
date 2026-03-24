@@ -50,6 +50,25 @@ type ReceiptDetailItem = {
 const ORDER_SELECT =
   "id,order_code,customer_phone,customer_whatsapp,factory_bill_code,production_completed_at,status,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,balance";
 
+function getImportBlockReason(
+  order: Pick<OrderSummary, "order_code" | "production_completed_at" | "status">,
+  label: Pick<QrLabelRow, "label_status"> | null
+) {
+  if (order.status === "completed") {
+    return `ອໍເດີ ${order.order_code} ຖືກປິດງານແລ້ວ`;
+  }
+  if (order.production_completed_at) {
+    return `ອໍເດີ ${order.order_code} ຖືກບັນທຶກວ່າຜະລິດສຳເລັດແລ້ວ`;
+  }
+  if (label?.label_status === "received") {
+    return `ອໍເດີ ${order.order_code} ຮັບເຂົ້າແລ້ວ`;
+  }
+  if (label?.label_status === "shipped") {
+    return `ອໍເດີ ${order.order_code} ຖືກຈັດສົ່ງແລ້ວ`;
+  }
+  return null;
+}
+
 export default function FactoryReceiptsPage() {
   const [scannerInput, setScannerInput] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -307,6 +326,7 @@ export default function FactoryReceiptsPage() {
       }
 
       const label = await ensureLabelForOrder(resolved.order, resolved.existingLabel);
+      const blockedReason = getImportBlockReason(resolved.order, label);
       if (queue.some((item) => item.id === label.id || item.order_id === label.order_id)) {
         toast("ອໍເດີນີ້ຢູ່ໃນລາຍການຮັບເຂົ້າແລ້ວ");
         setScannerInput("");
@@ -318,6 +338,11 @@ export default function FactoryReceiptsPage() {
       }
       if (label.label_status === "shipped") {
         toast.error("ອໍເດີນີ້ຖືກຈັດສົ່ງແລ້ວ");
+        return;
+      }
+
+      if (blockedReason) {
+        toast.error(blockedReason);
         return;
       }
 
@@ -366,6 +391,34 @@ export default function FactoryReceiptsPage() {
     if ((existingReceiptItems ?? []).length > 0) {
       setSaving(false);
       toast.error("ມີບາງອໍເດີຖືກນຳເຂົ້າເຂົ້າຄັງແລ້ວ");
+      return;
+    }
+
+    const { data: latestOrders, error: latestOrdersError } = await supabase
+      .from("orders")
+      .select("id,order_code,production_completed_at,status")
+      .in("id", queueOrderIds);
+
+    if (latestOrdersError) {
+      setSaving(false);
+      toast.error(`ກວດສອບສະຖານະອໍເດີກ່ອນນຳເຂົ້າບໍ່ສຳເລັດ: ${latestOrdersError.message}`);
+      return;
+    }
+
+    const latestOrderMap = new Map(
+      ((latestOrders ?? []) as Array<Pick<OrderSummary, "id" | "order_code" | "production_completed_at" | "status">>).map((order) => [order.id, order])
+    );
+    const blockedOrderReason = queue
+      .map((item) => {
+        const latestOrder = latestOrderMap.get(item.order_id);
+        if (!latestOrder) return `ບໍ່ພົບຂໍ້ມູນອໍເດີ ${item.order_code}`;
+        return getImportBlockReason(latestOrder, item);
+      })
+      .find((reason) => Boolean(reason));
+
+    if (blockedOrderReason) {
+      setSaving(false);
+      toast.error(blockedOrderReason);
       return;
     }
 
@@ -639,7 +692,10 @@ export default function FactoryReceiptsPage() {
                     <div className="text-lg font-black text-slate-900">{item.order_code}</div>
                     <div className="text-sm font-medium text-slate-500">ລະຫັດບິນໂຮງງານ: {item.factory_bill_code?.trim() || "-"}</div>
                     <div className="mt-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">ສະຖານະ QR: {item.label_status}</div>
-                    <div className="mt-3">
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-white px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
+                        {item.customer_phone?.trim() ? item.customer_phone : item.customer_whatsapp?.trim() ? item.customer_whatsapp : "ບໍ່ມີເບີ"}
+                      </span>
                       {getWhatsappContactOptions(item.customer_phone, item.customer_whatsapp).length > 0 ? (
                         <button
                           type="button"
@@ -733,7 +789,10 @@ export default function FactoryReceiptsPage() {
                 <div className="text-lg font-black text-slate-900">{item.order_code}</div>
                 <div className="mt-1 text-sm font-medium text-slate-500">ລະຫັດບິນໂຮງງານ: {item.factory_bill_code?.trim() || "-"}</div>
                 <div className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">ສະຖານະ QR: {item.label_status}</div>
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-white px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
+                    {item.customer_phone?.trim() ? item.customer_phone : item.customer_whatsapp?.trim() ? item.customer_whatsapp : "ບໍ່ມີເບີ"}
+                  </span>
                   {getWhatsappContactOptions(item.customer_phone, item.customer_whatsapp).length > 0 ? (
                     <button
                       type="button"

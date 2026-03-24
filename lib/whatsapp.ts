@@ -65,3 +65,31 @@ export function buildProductionCompletedWhatsappMessage(params: {
     "ຂອບໃຈ",
   ].join("\n");
 }
+
+export function buildShipmentCompletedWhatsappMessage(params: {
+  orderCode: string;
+  totalQty: number;
+  balance: number;
+}) {
+  const orderCode = String(params.orderCode || "").trim();
+  const totalQty = Math.max(0, Number(params.totalQty) || 0);
+  const balance = Math.max(0, Number(params.balance) || 0);
+
+  if (balance > 0) {
+    return [
+      "ສະບາຍດີ,",
+      `ອໍເດີ ${orderCode} ຂອງທ່ານຖືກຈັດສົ່ງແລ້ວ.`,
+      `ຈຳນວນທັງໝົດ ${totalQty} ຜືນ ແລະ ຍອດຄ້າງຊຳລະ ${balance.toLocaleString()} ກີບ`,
+      "ຖ້າຮັບສິນຄ້າແລ້ວ ຫຼື ຕ້ອງການສອບຖາມເພີ່ມ ສາມາດຕິດຕໍ່ກັບຮ້ານໄດ້ເລີຍ.",
+      "ຂອບໃຈ",
+    ].join("\n");
+  }
+
+  return [
+    "ສະບາຍດີ,",
+    `ອໍເດີ ${orderCode} ຂອງທ່ານຖືກຈັດສົ່ງແລ້ວ.`,
+    `ຈຳນວນທັງໝົດ ${totalQty} ຜືນ ແລະ ບໍ່ມີຍອດຄ້າງຊຳລະແລ້ວ`,
+    "ຖ້າຮັບສິນຄ້າແລ້ວ ຫຼື ຕ້ອງການສອບຖາມເພີ່ມ ສາມາດຕິດຕໍ່ກັບຮ້ານໄດ້ເລີຍ.",
+    "ຂອບໃຈ",
+  ].join("\n");
+}

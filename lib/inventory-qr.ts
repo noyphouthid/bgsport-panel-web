@@ -46,6 +46,7 @@ export type QrInputKind = "shop_qr" | "factory_qr" | "factory_bill_code" | "orde
 const QR_PREFIX = "BGSPORT-FACTORY";
 const FACTORY_URL_BILL_PATTERN = /\/orders\/(\d+)\/print(?:[/?#]|$)/i;
 const NUMERIC_CODE_PATTERN = /^\d{4,}$/;
+const ORDER_CODE_PATTERN = /^[A-Z]{2,6}\d{2}-\d{1,}$/i;
 const SHOP_QR_SPLITTER = /\|/;
 
 export function buildOrderQrCode(order: Pick<OrderSummary, "id" | "order_code" | "factory_bill_code">) {
@@ -100,6 +101,14 @@ export function parseQrInput(raw: string): { kind: QrInputKind; normalized: stri
       kind: factoryBillCode ? "factory_qr" : "unknown",
       normalized,
       factoryBillCode: factoryBillCode || null,
+    };
+  }
+
+  if (ORDER_CODE_PATTERN.test(normalized)) {
+    return {
+      kind: "order_code",
+      normalized: normalized.toUpperCase(),
+      factoryBillCode: null,
     };
   }
 

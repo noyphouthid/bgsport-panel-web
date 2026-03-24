@@ -11,7 +11,7 @@ import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } fr
 const PREFIXES = ["PKF26", "PKLF26", "MKF26", "MKLF26", "PMF26", "PMLF26", "MMF26", "MMLF26"] as const;
 type Prefix = (typeof PREFIXES)[number];
 
-type StatusFilter = "all" | "in_progress" | "completed" | "producing" | "production_completed" | "shipment_completed" | "closed";
+type StatusFilter = "all" | "in_progress" | "completed" | "producing" | "production_completed" | "shipment_completed";
 type FactoryBillFilter = "all" | "has_code" | "no_code";
 
 type OrderRow = {
@@ -80,7 +80,7 @@ export default function OrdersPage() {
     if (s) {
       const escaped = s.replace(/%/g, "\\%").replace(/_/g, "\\_");
       q = q.or(
-        `order_code.ilike.%${escaped}%,factory_bill_code.ilike.%${escaped}%,customer_phone.ilike.%${escaped}%`
+        `order_code.ilike.%${escaped}%,factory_bill_code.ilike.%${escaped}%,customer_phone.ilike.%${escaped}%,customer_whatsapp.ilike.%${escaped}%`
       );
     }
 
@@ -96,12 +96,11 @@ export default function OrdersPage() {
         if (factoryBillFilter === "no_code" && hasFactoryBillCode) return false;
         if (status === "all") return true;
         const isClosed = row.status === "completed" || Boolean(row.closed_at);
-        const isShipmentCompleted = row.shipment_status === "shipped" || Boolean(row.shipment_completed_at);
-        const isProductionCompleted = Boolean(row.production_completed_at) && !isClosed;
-        const isProducing = !row.production_completed_at && !isClosed;
-        if (status === "closed") return isClosed;
+        const isShipmentCompleted = !isClosed && (row.shipment_status === "shipped" || Boolean(row.shipment_completed_at));
+        const isProductionCompleted = !isClosed && !isShipmentCompleted && Boolean(row.production_completed_at);
+        const isProducing = !isClosed && !isShipmentCompleted && !row.production_completed_at;
         if (status === "shipment_completed") return isShipmentCompleted;
-        if (status === "completed") return isProductionCompleted || isClosed;
+        if (status === "completed") return isClosed;
         if (status === "production_completed") return isProductionCompleted;
         if (status === "in_progress") return isProducing;
         return isProducing;
@@ -307,7 +306,6 @@ export default function OrdersPage() {
               <option value="production_completed">ຜະລິດສຳເລັດ</option>
               <option value="shipment_completed">ຈັດສົ່ງສຳເລັດ</option>
               <option value="completed">ສຳເລັດແລ້ວ</option>
-              <option value="closed">ປິດງານແລ້ວ</option>
             </select>
           </div>
           <div>
@@ -384,19 +382,18 @@ export default function OrdersPage() {
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ວັນທີ</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ລະຫັດອໍເດີ</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ບິນໂຮງງານ</th>
-                <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ເບີໂທ</th>
+                <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ເບີໂທ / WhatsApp</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ຜ້າ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຍອດສຸດທິ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຄ້າງ</th>
                 <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">ສະຖານະ</th>
-                <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">WhatsApp</th>
                 <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">ຈັດການ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={11}>
+                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={10}>
                     ບໍ່ພົບຂໍ້ມູນໃນລະບົບ
                   </td>
                 </tr>
@@ -414,25 +411,29 @@ export default function OrdersPage() {
                     <td className="p-4 text-slate-600 font-medium">{r.order_date}</td>
                     <td className="p-4 font-bold text-slate-600">{r.order_code}</td>
                     <td className="p-4 text-slate-500">{r.factory_bill_code?.trim() ? r.factory_bill_code : "-"}</td>
-                    <td className="p-4 font-semibold text-slate-700">{r.customer_phone ?? "-"}</td>
+                    <td className="p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-slate-700">
+                          {r.customer_phone?.trim() ? r.customer_phone : r.customer_whatsapp?.trim() ? r.customer_whatsapp : "-"}
+                        </span>
+                        {getWhatsappContactOptions(r.customer_phone, r.customer_whatsapp).length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setActiveWhatsappOrder(r)}
+                            className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-100"
+                          >
+                            <MessageCircleMore size={14} />
+                            ເປີດແຊັດ
+                          </button>
+                        ) : (
+                          <span className="text-xs font-bold text-slate-400">ບໍ່ມີເບີ</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-4 text-slate-600 font-medium">{r.fabric_name}</td>
                     <td className="p-4 text-right font-bold text-slate-600">{r.net_total.toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-rose-600 bg-rose-50/30">{r.balance.toLocaleString()}</td>
                     <td className="p-4 text-center">{displayStatusBadge(r)}</td>
-                    <td className="p-4 text-center">
-                      {getWhatsappContactOptions(r.customer_phone, r.customer_whatsapp).length > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => setActiveWhatsappOrder(r)}
-                          className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-100"
-                        >
-                          <MessageCircleMore size={14} />
-                          ເປີດແຊັດ
-                        </button>
-                      ) : (
-                        <span className="text-xs font-bold text-slate-400">ບໍ່ມີເບີ</span>
-                      )}
-                    </td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-4">
                         <Link href={`/orders/${r.id}/edit`} className="text-blue-600 font-bold hover:text-blue-800 underline-offset-4 hover:underline transition-all">

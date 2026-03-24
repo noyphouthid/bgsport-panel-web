@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { Banknote, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import type { AppRole } from "@/lib/access-control";
 import {
   buildOrderQrCode,
   formatCurrency,
@@ -44,17 +46,32 @@ export default function ShipmentsPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("transfer");
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [note, setNote] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
   const [active, setActive] = useState<ShipmentInfo | null>(null);
   const [recentShipments, setRecentShipments] = useState<ShipmentRow[]>([]);
   const [saving, setSaving] = useState(false);
+  const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
+
+  const safeInsertAction = async (orderId: string, action: string, detail: string) => {
+    const { error } = await supabase.from("order_status_history").insert({
+      order_id: orderId,
+      action,
+      detail,
+      action_at: new Date().toISOString(),
+    });
+    if (error && !error.message.includes("Could not find the table")) {
+      toast.error(`ບັນທຶກປະຫວັດບໍ່ສຳເລັດ: ${error.message}`);
+    }
+  };
 
   const loadCurrentUser = async () => {
     const { data: sessionData } = await supabase.auth.getSession();
     const authUserId = sessionData.session?.user.id;
     if (!authUserId) return;
 
-    const { data } = await supabase.from("users").select("full_name").eq("auth_user_id", authUserId).maybeSingle();
+    const { data } = await supabase.from("users").select("full_name,role").eq("auth_user_id", authUserId).maybeSingle();
     if (data?.full_name) setShippedBy(data.full_name);
+    if (data?.role) setViewerRole(data.role as AppRole);
   };
 
   const loadRecentShipments = async () => {
@@ -188,6 +205,7 @@ export default function ShipmentsPage() {
       setScanValue("");
       setPaymentAmount(0);
       setNote("");
+      setCancelReason("");
 
       if (existingShipmentData?.shipped_at || resolved.label.label_status === "shipped") {
         toast.error(`ອໍເດີ ${resolved.order.order_code} ຖືກຈັດສົ່ງແລ້ວ`);
@@ -203,6 +221,7 @@ export default function ShipmentsPage() {
   const customerOutstanding = useMemo(() => Math.max(0, Number(active?.order.balance || 0)), [active]);
   const hasOutstandingBalance = customerOutstanding > 0;
   const shipmentLocked = Boolean(active?.existingShipmentAt || active?.label.label_status === "shipped");
+  const canCancelShipment = viewerRole === "superadmin" || viewerRole === "accountant";
 
   const submitShipment = async () => {
     if (!active) {
@@ -374,6 +393,14 @@ export default function ShipmentsPage() {
   };
 
   const cancelShipment = async () => {
+    if (!canCancelShipment) {
+      toast.error("ສິດນີ້ສຳລັບ accountant ຫຼື superadmin ເທົ່ານັ້ນ");
+      return;
+    }
+    if (!cancelReason.trim()) {
+      toast.error("ກະລຸນາລະບຸເຫດຜົນການຍົກເລີກກ່ອນ");
+      return;
+    }
     if (!active?.existingShipmentId) {
       toast.error("ບໍ່ພົບລາຍການຈັດສົ່ງທີ່ຈະຍົກເລີກ");
       return;
@@ -381,6 +408,24 @@ export default function ShipmentsPage() {
 
     const ok = confirm(`ຢືນຢັນຍົກເລີກຈັດສົ່ງ ${active.order.order_code}?`);
     if (!ok) return;
+
+    const { data: latestShipment, error: latestShipmentError } = await supabase
+      .from("shipment_records")
+      .select("id,shipped_at")
+      .eq("order_id", active.order.id)
+      .order("shipped_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestShipmentError) {
+      toast.error(`ກວດສອບລາຍການຈັດສົ່ງລ່າສຸດບໍ່ສຳເລັດ: ${latestShipmentError.message}`);
+      return;
+    }
+
+    if (!latestShipment || latestShipment.id !== active.existingShipmentId) {
+      toast.error("ສາມາດຍົກເລີກໄດ້ສະເພາະລາຍການຈັດສົ່ງລ່າສຸດເທົ່ານັ້ນ");
+      return;
+    }
 
     setSaving(true);
 
@@ -401,6 +446,20 @@ export default function ShipmentsPage() {
     );
     const nextBalance = Math.max(0, Number(active.order.balance || 0) + rollbackAmount);
     const revertedLabelStatus = active.label.received_at ? "received" : "created";
+
+    const confirmedDetail = confirm(
+      [
+        `ກຳລັງຍົກເລີກ ${active.order.order_code}`,
+        `ວັນທີຈັດສົ່ງ: ${formatDateTime(active.existingShipmentAt)}`,
+        `ຜູ້ຈັດສົ່ງ: ${active.existingShipmentBy || "-"}`,
+        `ຈະຍ້ອນການຮັບເງິນຈາກ shipment ຈຳນວນ ${formatCurrency(rollbackAmount)}`,
+        `ເຫດຜົນ: ${cancelReason.trim()}`,
+      ].join("\n")
+    );
+    if (!confirmedDetail) {
+      setSaving(false);
+      return;
+    }
 
     const { error: deleteShipmentPaymentsError } = await supabase
       .from("shipment_payments")
@@ -493,6 +552,13 @@ export default function ShipmentsPage() {
         : prev
     );
 
+    await safeInsertAction(
+      active.order.id,
+      "cancel_shipment",
+      `Canceled shipment ${active.existingShipmentId}; rollback_amount=${rollbackAmount}; reason=${cancelReason.trim()}`
+    );
+    setCancelReason("");
+
     await loadRecentShipments();
     toast.success(`ຍົກເລີກຈັດສົ່ງ ${active.order.order_code} ສຳເລັດ`);
   };
@@ -514,6 +580,12 @@ export default function ShipmentsPage() {
           <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-orange-50">
             ກຳໄລຈະນັບຕາມວັນຈັດສົ່ງສຳເລັດ
           </div>
+          <Link
+            href="/shipments/orders"
+            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
+          >
+            ເບິ່ງລາຍການອໍເດີຈັດສົ່ງ
+          </Link>
         </div>
       </section>
 
@@ -612,6 +684,14 @@ export default function ShipmentsPage() {
                   </div>
                 ) : null}
 
+                {shipmentLocked ? (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                    {canCancelShipment
+                      ? "ຖ້າກົດຜິດ ຫຼື ສະແກນຜິດ ສາມາດຍົກເລີກໄດ້ ແຕ່ຕ້ອງລະບຸເຫດຜົນ."
+                      : "ການຍົກເລີກການຈັດສົ່ງສະຫງວນໃຫ້ accountant ຫຼື superadmin ເທົ່ານັ້ນ."}
+                  </div>
+                ) : null}
+
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <label className="text-sm font-bold text-slate-700">
                     ວັນທີ/ເວລາຈັດສົ່ງ
@@ -685,6 +765,19 @@ export default function ShipmentsPage() {
                   />
                 </label>
 
+                {shipmentLocked ? (
+                  <label className="mt-4 block text-sm font-bold text-slate-700">
+                    ເຫດຜົນການຍົກເລີກ
+                    <textarea
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      rows={3}
+                      placeholder="ຕົວຢ່າງ: ສະແກນຜິດ, ກົດຈັດສົ່ງຜິດ, ລູກຄ້າຍັງບໍ່ຮັບສິນຄ້າ"
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </label>
+                ) : null}
+
                 <div className="mt-5 flex flex-wrap gap-3">
                   <button
                     type="button"
@@ -700,7 +793,7 @@ export default function ShipmentsPage() {
                     <button
                       type="button"
                       onClick={() => void cancelShipment()}
-                      disabled={saving}
+                      disabled={saving || !canCancelShipment || !cancelReason.trim()}
                       className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-white px-5 py-3 text-sm font-black text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:opacity-50"
                     >
                       <RotateCcw size={18} />

@@ -320,7 +320,7 @@ export default function DashboardPage() {
           <div className="text-2xl font-black text-slate-900 leading-none mb-2">
             {loading ? "..." : formatCurrency(stats.totalProfit)}
           </div>
-          <div className="text-xs text-slate-500 font-bold">ຈາກ {stats.completedOrders} ອໍເດີ້ທີ່ສຳເລັດ</div>
+          <div className="text-xs text-slate-500 font-bold">ຈາກ {stats.completedOrders} ອໍເດີ້ທີ່ສົ່ງມອບສຳເລັດ</div>
         </div>
 
         <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all">
