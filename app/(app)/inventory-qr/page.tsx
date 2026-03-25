@@ -17,6 +17,21 @@ import {
 } from "@/lib/inventory-qr";
 
 type SearchOrderRow = OrderSummary;
+type PrintFilter = "all" | "unprinted" | "printed";
+
+function isLabelPrinted(label: Pick<QrLabelRow, "print_count" | "printed_at" | "last_printed_at">) {
+  return Boolean((Number(label.print_count) || 0) > 0 || label.printed_at || label.last_printed_at);
+}
+
+function getPrintStatusLabel(label: Pick<QrLabelRow, "print_count" | "printed_at" | "last_printed_at">) {
+  return isLabelPrinted(label) ? `ພິມແລ້ວ ${Math.max(1, Number(label.print_count) || 0)} ຄັ້ງ` : "ຍັງບໍ່ພິມ";
+}
+
+function getPrintStatusStyles(label: Pick<QrLabelRow, "print_count" | "printed_at" | "last_printed_at">) {
+  return isLabelPrinted(label)
+    ? "border-sky-200 bg-sky-50 text-sky-700"
+    : "border-amber-200 bg-amber-50 text-amber-700";
+}
 
 export default function InventoryQrPage() {
   const [query, setQuery] = useState("");
@@ -29,6 +44,8 @@ export default function InventoryQrPage() {
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
   const [recentLabels, setRecentLabels] = useState<QrLabelRow[]>([]);
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
+  const [printFilter, setPrintFilter] = useState<PrintFilter>("all");
+  const [currentPrinter, setCurrentPrinter] = useState("");
 
   const loadRecentLabels = async () => {
     const { data, error } = await supabase
@@ -45,9 +62,43 @@ export default function InventoryQrPage() {
     setRecentLabels((data ?? []) as QrLabelRow[]);
   };
 
+  const loadCurrentPrinter = async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const authUserId = sessionData.session?.user.id ?? null;
+    const sessionEmail = String(sessionData.session?.user.email || "").trim();
+    if (!authUserId && !sessionEmail) return;
+
+    if (authUserId) {
+      const { data, error } = await supabase
+        .from("users")
+        .select("full_name")
+        .eq("auth_user_id", authUserId)
+        .maybeSingle();
+      if (!error && data?.full_name) {
+        setCurrentPrinter(String(data.full_name).trim());
+        return;
+      }
+    }
+
+    if (sessionEmail) {
+      const { data, error } = await supabase
+        .from("users")
+        .select("full_name")
+        .eq("email", sessionEmail)
+        .maybeSingle();
+      if (!error && data?.full_name) {
+        setCurrentPrinter(String(data.full_name).trim());
+        return;
+      }
+    }
+
+    setCurrentPrinter(sessionEmail);
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => {
       void loadRecentLabels();
+      void loadCurrentPrinter();
     }, 0);
     return () => clearTimeout(timer);
   }, []);
@@ -176,7 +227,19 @@ export default function InventoryQrPage() {
     return selectedLabelIds.map((id) => map.get(id)).filter(Boolean) as QrLabelRow[];
   }, [labelsByOrderId, recentLabels, selectedLabelIds]);
 
-  const allRecentSelected = recentLabels.length > 0 && recentLabels.every((label) => selectedLabelIds.includes(label.id));
+  const filteredRecentLabels = useMemo(() => {
+    return recentLabels.filter((label) => {
+      if (printFilter === "printed") return isLabelPrinted(label);
+      if (printFilter === "unprinted") return !isLabelPrinted(label);
+      return true;
+    });
+  }, [printFilter, recentLabels]);
+
+  const allVisibleRecentSelected =
+    filteredRecentLabels.length > 0 && filteredRecentLabels.every((label) => selectedLabelIds.includes(label.id));
+
+  const printedCount = useMemo(() => recentLabels.filter((label) => isLabelPrinted(label)).length, [recentLabels]);
+  const unprintedCount = recentLabels.length - printedCount;
 
   const downloadLabel = () => {
     if (!activePreviewUrl || !activeLabel) return;
@@ -191,6 +254,10 @@ export default function InventoryQrPage() {
       toast.error("ກະລຸນາເລືອກ QR ຢ່າງໜ້ອຍ 1 ລາຍການ");
       return;
     }
+    const confirmed = window.confirm(
+      `ຕ້ອງການພິມ ${selectedLabels.length} QR ແລະ ບັນທຶກສະຖານະວ່າພິມແລ້ວ ຫຼື ບໍ່?`
+    );
+    if (!confirmed) return;
 
     setPrinting(true);
     const nextPreviewUrls = { ...previewUrls };
@@ -212,20 +279,88 @@ export default function InventoryQrPage() {
     popup.document.close();
     popup.focus();
     popup.print();
+
+    const printedAt = new Date().toISOString();
+    const printedBy = currentPrinter.trim() || null;
+    const updates = selectedLabels.map((label) => {
+      const nextPrintCount = (Number(label.print_count) || 0) + 1;
+      return supabase
+        .from("order_qr_labels")
+        .update({
+          printed_at: label.printed_at || printedAt,
+          printed_by: printedBy,
+          print_count: nextPrintCount,
+          last_printed_at: printedAt,
+          updated_at: printedAt,
+        })
+        .eq("id", label.id);
+    });
+
+    const updateResults = await Promise.all(updates);
     setPrinting(false);
+
+    const updateError = updateResults.find((result) => result.error)?.error;
+    if (updateError) {
+      toast.error(`ພິມໄດ້ ແຕ່ບັນທຶກສະຖານະການພິມບໍ່ສຳເລັດ: ${updateError.message}`);
+      return;
+    }
+
+    setRecentLabels((prev) =>
+      prev.map((label) => {
+        const selected = selectedLabels.find((item) => item.id === label.id);
+        if (!selected) return label;
+        return {
+          ...label,
+          printed_at: label.printed_at || printedAt,
+          printed_by: printedBy,
+          print_count: (Number(label.print_count) || 0) + 1,
+          last_printed_at: printedAt,
+          updated_at: printedAt,
+        };
+      })
+    );
+    setLabelsByOrderId((prev) => {
+      const next = { ...prev };
+      selectedLabels.forEach((label) => {
+        const existing = next[label.order_id];
+        if (!existing) return;
+        next[label.order_id] = {
+          ...existing,
+          printed_at: existing.printed_at || printedAt,
+          printed_by: printedBy,
+          print_count: (Number(existing.print_count) || 0) + 1,
+          last_printed_at: printedAt,
+          updated_at: printedAt,
+        };
+      });
+      return next;
+    });
+    setActiveLabel((prev) =>
+      prev && selectedLabelIds.includes(prev.id)
+        ? {
+            ...prev,
+            printed_at: prev.printed_at || printedAt,
+            printed_by: printedBy,
+            print_count: (Number(prev.print_count) || 0) + 1,
+            last_printed_at: printedAt,
+            updated_at: printedAt,
+          }
+        : prev
+    );
+    toast.success(`ບັນທຶກການພິມ ${selectedLabels.length} QR ສຳເລັດ`);
   };
 
   const toggleSelectAllRecent = () => {
-    if (recentLabels.length === 0) return;
+    if (filteredRecentLabels.length === 0) return;
 
-    if (allRecentSelected) {
-      setSelectedLabelIds((prev) => prev.filter((id) => !recentLabels.some((label) => label.id === id)));
+    if (allVisibleRecentSelected) {
+      setSelectedLabelIds((prev) => prev.filter((id) => !filteredRecentLabels.some((label) => label.id === id)));
       return;
     }
 
     setSelectedLabelIds((prev) => {
       const next = new Set(prev);
-      recentLabels.forEach((label) => next.add(label.id));
+      filteredRecentLabels.forEach((label) => next.add(label.id));
       return Array.from(next);
     });
   };
@@ -346,6 +481,11 @@ export default function InventoryQrPage() {
                             {label.label_status}
                           </span>
                         )}
+                        {label && (
+                          <span className={`rounded-full border px-3 py-1 text-xs font-black ${getPrintStatusStyles(label)}`}>
+                            {getPrintStatusLabel(label)}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => void createLabel(order)}
@@ -419,6 +559,13 @@ export default function InventoryQrPage() {
                     <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">ສະຖານະ</div>
                     <div className="mt-1 text-2xl font-black text-slate-900">{activeLabel.label_status}</div>
                   </div>
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:col-span-2">
+                    <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">ສະຖານະການພິມ</div>
+                    <div className="mt-1 text-lg font-black text-slate-900">{getPrintStatusLabel(activeLabel)}</div>
+                    <div className="mt-1 text-sm font-medium text-slate-500">
+                      ພິມລ່າສຸດ: {formatDateTime(activeLabel.last_printed_at)} {activeLabel.printed_by ? `• ${activeLabel.printed_by}` : ""}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -434,16 +581,27 @@ export default function InventoryQrPage() {
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="text-lg font-black text-slate-900">ລາຍການພິມແບບກຸ່ມ</div>
-            <div className="text-sm font-medium text-slate-500">ເລືອກແລ້ວ {selectedLabels.length} QR ສຳລັບການພິມຄັ້ງດຽວ</div>
+            <div className="text-sm font-medium text-slate-500">
+              ເລືອກແລ້ວ {selectedLabels.length} QR • ຍັງບໍ່ພິມ {unprintedCount} • ພິມແລ້ວ {printedCount}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={printFilter}
+              onChange={(e) => setPrintFilter(e.target.value as PrintFilter)}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">ທັງໝົດ</option>
+              <option value="unprinted">ຍັງບໍ່ພິມ</option>
+              <option value="printed">ພິມແລ້ວ</option>
+            </select>
             <button
               type="button"
               onClick={toggleSelectAllRecent}
-              disabled={recentLabels.length === 0}
+              disabled={filteredRecentLabels.length === 0}
               className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
             >
-              {allRecentSelected ? "ຍົກເລີກເລືອກທັງໝົດ" : "ເລືອກທັງໝົດ"}
+              {allVisibleRecentSelected ? "ຍົກເລີກເລືອກທັງໝົດ" : "ເລືອກທັງໝົດ"}
             </button>
             <button
               type="button"
@@ -470,22 +628,34 @@ export default function InventoryQrPage() {
               </tr>
             </thead>
             <tbody>
-              {recentLabels.length === 0 ? (
+              {filteredRecentLabels.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-3 py-8 text-center font-medium text-slate-500">
-                    ຍັງບໍ່ມີ QR ທີ່ສ້າງໄວ້.
+                    ບໍ່ພົບ QR ຕາມ filter ການພິມນີ້.
                   </td>
                 </tr>
               ) : (
-                recentLabels.map((label) => (
+                filteredRecentLabels.map((label) => (
                   <tr key={label.id} className="border-b border-slate-100">
                     <td className="px-3 py-3">
                       <input type="checkbox" checked={selectedLabelIds.includes(label.id)} onChange={() => toggleLabelSelection(label.id)} />
                     </td>
                     <td className="px-3 py-3 font-bold text-slate-900">{label.order_code}</td>
                     <td className="px-3 py-3 text-slate-600">{label.factory_bill_code?.trim() || "-"}</td>
-                    <td className="px-3 py-3 text-slate-600">{label.label_status}</td>
-                    <td className="px-3 py-3 text-slate-500">{formatDateTime(label.created_at)}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-slate-600">{label.label_status}</span>
+                        <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-xs font-black ${getPrintStatusStyles(label)}`}>
+                          {getPrintStatusLabel(label)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-slate-500">
+                      <div>{formatDateTime(label.created_at)}</div>
+                      <div className="text-xs">
+                        ພິມລ່າສຸດ: {formatDateTime(label.last_printed_at)}
+                      </div>
+                    </td>
                     <td className="px-3 py-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <button

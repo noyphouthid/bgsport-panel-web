@@ -32,6 +32,10 @@ export type QrLabelRow = {
   order_code: string;
   factory_bill_code: string | null;
   label_status: OrderQrLabelStatus;
+  printed_at: string | null;
+  printed_by: string | null;
+  print_count: number;
+  last_printed_at: string | null;
   received_at: string | null;
   received_by: string | null;
   shipped_at: string | null;
@@ -132,7 +136,7 @@ export function getOrderQrLabelTitle() {
 }
 
 export const ORDER_QR_LABEL_SELECT =
-  "id,order_id,qr_code,order_code,factory_bill_code,label_status,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at";
+  "id,order_id,qr_code,order_code,factory_bill_code,label_status,printed_at,printed_by,print_count,last_printed_at,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at";
 
 export const ORDER_QR_ORDER_SELECT =
   "id,order_code,factory_bill_code,order_date,production_completed_at,shipment_status,shipment_completed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,net_total,initial_deposit,balance,factory_cost,customer_paid_full_at,factory_paid_full_at,status";

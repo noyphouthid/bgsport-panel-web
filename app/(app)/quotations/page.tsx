@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { FilePlus2, PencilLine, Printer, Trash2 } from "lucide-react";
+import { FilePlus2, PencilLine, Printer, Search, Trash2 } from "lucide-react";
 import { deleteQuotationDraft, getQuotationDrafts, type QuotationDraft } from "@/lib/quotation-drafts";
 
 const badgeStyles: Record<QuotationDraft["status"], string> = {
@@ -20,6 +20,18 @@ const badgeLabels: Record<QuotationDraft["status"], string> = {
 
 export default function QuotationsPage() {
   const [rows, setRows] = useState<QuotationDraft[]>(() => getQuotationDrafts());
+  const [query, setQuery] = useState("");
+
+  const filteredRows = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return rows;
+    return rows.filter((row) =>
+      [row.quoteNo, row.customerName, row.customerPhone, row.customerWhatsapp, row.fabricName]
+        .join(" ")
+        .toLowerCase()
+        .includes(keyword)
+    );
+  }, [query, rows]);
 
   const handleDelete = (id: string) => {
     const ok = window.confirm("ຢືນຢັນລົບໃບປະເມີນລາຄານີ້?");
@@ -51,7 +63,19 @@ export default function QuotationsPage() {
       <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 p-4">
           <div className="text-sm font-black uppercase tracking-[0.18em] text-slate-700">ລາຍການຮ່າງ</div>
-          <div className="text-xs font-bold text-slate-500">ທັງໝົດ {rows.length} ລາຍການ</div>
+          <div className="text-xs font-bold text-slate-500">ສະແດງ {filteredRows.length} / {rows.length} ລາຍການ</div>
+        </div>
+
+        <div className="border-b border-slate-100 p-4">
+          <div className="relative max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="ຄົ້ນຫາລະຫັດອໍເດີ / ເລກທີ່ / ຊື່ລູກຄ້າ / ເບີໂທ"
+              className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -69,14 +93,14 @@ export default function QuotationsPage() {
             </thead>
 
             <tbody className="divide-y divide-slate-50">
-              {rows.length === 0 ? (
+              {filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-10 text-center text-sm font-medium text-slate-400">
-                    ຍັງບໍ່ມີໃບປະເມີນລາຄາທີ່ບັນທຶກໄວ້
+                    {rows.length === 0 ? "ຍັງບໍ່ມີໃບປະເມີນລາຄາທີ່ບັນທຶກໄວ້" : "ບໍ່ພົບຂໍ້ມູນຕາມຄຳຄົ້ນຫາ"}
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
+                filteredRows.map((row) => (
                   <tr key={row.id} className="transition-colors hover:bg-slate-50/60">
                     <td className="p-4 font-medium text-slate-700">{row.quoteDate}</td>
                     <td className="p-4 font-black text-slate-900">{row.quoteNo}</td>
