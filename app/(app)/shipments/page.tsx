@@ -7,7 +7,6 @@ import { Banknote, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import {
-  buildOrderQrCode,
   formatCurrency,
   formatDateOnly,
   formatDateTime,
@@ -37,6 +36,22 @@ type ShipmentRow = {
   collected_amount: number;
   payment_method: PaymentMethod | null;
 };
+
+function getShipmentBlockReason(
+  order: Pick<OrderSummary, "order_code" | "production_completed_at" | "status">,
+  label: Pick<QrLabelRow, "label_status" | "received_at"> | null
+) {
+  if (order.status === "completed") {
+    return `ອໍເດີ ${order.order_code} ຖືກປິດງານແລ້ວ`;
+  }
+  if (!order.production_completed_at) {
+    return `ອໍເດີ ${order.order_code} ຍັງບໍ່ຜ່ານການນຳເຂົ້າຈາກ factory-receipts`;
+  }
+  if (!label?.received_at || label.label_status === "created") {
+    return `ອໍເດີ ${order.order_code} ຍັງບໍ່ໄດ້ນຳເຂົ້າຈາກ factory-receipts`;
+  }
+  return null;
+}
 
 export default function ShipmentsPage() {
   const [scanValue, setScanValue] = useState("");
@@ -146,29 +161,12 @@ export default function ShipmentsPage() {
     if (!order) return null;
 
     if (!existingLabel) {
-      if (!order.factory_bill_code?.trim()) {
-        throw new Error(`ອໍເດີ ${order.order_code} ຍັງບໍ່ມີລະຫັດບິນໂຮງງານ`);
-      }
+      throw new Error(`ອໍເດີ ${order.order_code} ຍັງບໍ່ໄດ້ນຳເຂົ້າຈາກ factory-receipts`);
+    }
 
-      const qrCode = buildOrderQrCode(order);
-      const { data, error } = await supabase
-        .from("order_qr_labels")
-        .upsert(
-          {
-            order_id: order.id,
-            qr_code: qrCode,
-            order_code: order.order_code,
-            factory_bill_code: order.factory_bill_code.trim(),
-            label_status: "created",
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "order_id" }
-        )
-        .select(ORDER_QR_LABEL_SELECT)
-        .single();
-
-      if (error) throw new Error(error.message);
-      existingLabel = data as QrLabelRow;
+    const blockReason = getShipmentBlockReason(order, existingLabel);
+    if (blockReason) {
+      throw new Error(blockReason);
     }
 
     return { order, label: existingLabel };
@@ -226,6 +224,11 @@ export default function ShipmentsPage() {
   const submitShipment = async () => {
     if (!active) {
       toast.error("ກະລຸນາສະແກນ QR ກ່ອນ");
+      return;
+    }
+    const blockReason = getShipmentBlockReason(active.order, active.label);
+    if (blockReason) {
+      toast.error(blockReason);
       return;
     }
     if (shipmentLocked) {

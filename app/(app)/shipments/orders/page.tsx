@@ -96,8 +96,21 @@ function getPaymentLabel(method: ShipmentRecordRow["payment_method"]) {
   return "ບໍ່ມີການຮັບເງິນ";
 }
 
+function toLocalDateInputValue(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
+}
+
+function getUtcIsoRangeForLocalDate(dateInput: string, boundary: "start" | "end") {
+  if (!dateInput) return null;
+  const time = boundary === "start" ? "T00:00:00.000" : "T23:59:59.999";
+  const localDate = new Date(`${dateInput}${time}`);
+  if (Number.isNaN(localDate.getTime())) return null;
+  return localDate.toISOString();
+}
+
 export default function ShipmentOrdersPage() {
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(() => toLocalDateInputValue(), []);
   const [rows, setRows] = useState<ShippedOrderRow[]>([]);
   const [filteredTotal, setFilteredTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -123,7 +136,7 @@ export default function ShipmentOrdersPage() {
 
     const [{ data: sessionData }, { data: userData, error: userError }] = await Promise.all([
       supabase.auth.getSession(),
-      supabase.from("users").select("id,auth_user_id,role").eq("is_active", true),
+      supabase.from("users").select("id,auth_user_id,email,role").eq("is_active", true),
     ]);
 
     if (userError) {
@@ -135,8 +148,13 @@ export default function ShipmentOrdersPage() {
     }
 
     const authUserId = sessionData.session?.user.id ?? null;
+    const sessionEmail = String(sessionData.session?.user.email || "").trim().toLowerCase();
     const currentUser =
-      (((userData ?? []) as Array<{ id: string; auth_user_id: string | null; role: AppRole }>).find((item) => item.auth_user_id === authUserId) as
+      (((userData ?? []) as Array<{ id: string; auth_user_id: string | null; email?: string | null; role: AppRole }>).find(
+        (item) =>
+          item.auth_user_id === authUserId ||
+          (!!sessionEmail && String(item.email || "").trim().toLowerCase() === sessionEmail)
+      ) as
         | { id: string; role: AppRole }
         | undefined) || null;
     setViewerRole(currentUser?.role ?? null);
@@ -147,8 +165,10 @@ export default function ShipmentOrdersPage() {
       .select("id,order_id,shipped_at,shipped_by,note,collected_amount,payment_method")
       .order("shipped_at", { ascending: false });
 
-    if (fromDate) shipmentQuery = shipmentQuery.gte("shipped_at", `${fromDate}T00:00:00`);
-    if (toDate) shipmentQuery = shipmentQuery.lte("shipped_at", `${toDate}T23:59:59.999`);
+    const fromDateUtc = getUtcIsoRangeForLocalDate(fromDate, "start");
+    const toDateUtc = getUtcIsoRangeForLocalDate(toDate, "end");
+    if (fromDateUtc) shipmentQuery = shipmentQuery.gte("shipped_at", fromDateUtc);
+    if (toDateUtc) shipmentQuery = shipmentQuery.lte("shipped_at", toDateUtc);
 
     const { data: shipmentData, error: shipmentError } = await shipmentQuery;
     if (shipmentError) {
@@ -485,7 +505,7 @@ export default function ShipmentOrdersPage() {
                           <span className={`rounded-full px-3 py-1 text-[11px] font-black ${ORDER_CHANGE_REQUEST_STATUS_STYLES[requestMap[row.orderId].status]}`}>
                             {ORDER_CHANGE_REQUEST_STATUS_LABELS[requestMap[row.orderId].status]}
                           </span>
-                        ) : row.shipmentStatus === "shipped" && row.status !== "completed" && !row.closedAt ? (
+                        ) : viewerRole && canSubmitOrderChangeRequest(viewerRole) && viewerUserId && row.shipmentStatus === "shipped" && row.status !== "completed" && !row.closedAt ? (
                           <button
                             type="button"
                             onClick={() => void handleSubmitRequest(row)}
