@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { FilePlus2, PencilLine, Printer, Search, Trash2 } from "lucide-react";
 import { deleteQuotationDraft, getQuotationDrafts, type QuotationDraft } from "@/lib/quotation-drafts";
@@ -19,8 +19,24 @@ const badgeLabels: Record<QuotationDraft["status"], string> = {
 };
 
 export default function QuotationsPage() {
-  const [rows, setRows] = useState<QuotationDraft[]>(() => getQuotationDrafts());
+  const [rows, setRows] = useState<QuotationDraft[]>([]);
   const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const loadRows = async () => {
+    setLoading(true);
+    try {
+      setRows(await getQuotationDrafts());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ໂຫຼດໃບປະເມີນລາຄາບໍ່ສຳເລັດ");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadRows();
+  }, []);
 
   const filteredRows = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -33,12 +49,16 @@ export default function QuotationsPage() {
     );
   }, [query, rows]);
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const ok = window.confirm("ຢືນຢັນລົບໃບປະເມີນລາຄານີ້?");
     if (!ok) return;
-    deleteQuotationDraft(id);
-    setRows(getQuotationDrafts());
-    toast.success("ລົບຮ່າງໃບປະເມີນລາຄາແລ້ວ");
+    try {
+      await deleteQuotationDraft(id);
+      await loadRows();
+      toast.success("ລົບຮ່າງໃບປະເມີນລາຄາແລ້ວ");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ລົບໃບປະເມີນລາຄາບໍ່ສຳເລັດ");
+    }
   };
 
   return (
@@ -93,7 +113,13 @@ export default function QuotationsPage() {
             </thead>
 
             <tbody className="divide-y divide-slate-50">
-              {filteredRows.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="p-10 text-center text-sm font-medium text-slate-400">
+                    ກຳລັງໂຫຼດ...
+                  </td>
+                </tr>
+              ) : filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-10 text-center text-sm font-medium text-slate-400">
                     {rows.length === 0 ? "ຍັງບໍ່ມີໃບປະເມີນລາຄາທີ່ບັນທຶກໄວ້" : "ບໍ່ພົບຂໍ້ມູນຕາມຄຳຄົ້ນຫາ"}
@@ -139,7 +165,7 @@ export default function QuotationsPage() {
                           ພິມ
                         </Link>
                         <button
-                          onClick={() => handleDelete(row.id)}
+                          onClick={() => void handleDelete(row.id!)}
                           className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-black text-rose-700 transition hover:bg-rose-50"
                         >
                           <Trash2 size={14} />

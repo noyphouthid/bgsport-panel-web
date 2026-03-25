@@ -252,7 +252,7 @@ export default function FactoryDepositOrderFormPage() {
         }
 
         if (draftId) {
-          const draft = getQuotationDraftById(draftId);
+          const draft = await getQuotationDraftById(draftId);
           if (draft) {
             setQuotationQuoteNo(draft.quoteNo);
             setDepositDate(draft.quoteDate || new Date().toISOString().slice(0, 10));
@@ -325,7 +325,7 @@ export default function FactoryDepositOrderFormPage() {
   const balance = useMemo(() => Math.max(0, netTotal - (Number(initialDeposit) || 0)), [netTotal, initialDeposit]);
 
   const buildQuotationDraft = (): QuotationDraft => ({
-    id: draftId || `quotation-${Date.now()}`,
+    id: draftId || undefined,
     quoteNo: quotationQuoteNo || orderCode || depositNo,
     quoteDate: depositDate,
     status: "draft" as QuotationDraftStatus,
@@ -469,11 +469,13 @@ export default function FactoryDepositOrderFormPage() {
     setErr(null);
 
     try {
-      const quotationDraft = buildQuotationDraft();
-      if (draftId) saveQuotationDraft(quotationDraft);
+      let quotationDraft = buildQuotationDraft();
+      if (draftId) {
+        quotationDraft = await saveQuotationDraft(quotationDraft);
+      }
 
       const payload = {
-        quotation_draft_id: draftId || null,
+        quotation_draft_id: quotationDraft.id || null,
         quotation_quote_no: quotationQuoteNo.trim() || null,
         quotation_snapshot: quotationDraft,
         deposit_no: depositNo.trim(),

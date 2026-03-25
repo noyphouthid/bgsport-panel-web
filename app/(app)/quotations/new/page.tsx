@@ -164,7 +164,7 @@ export default function NewQuotationPage() {
       }
 
       if (draftId) {
-        const draft = getQuotationDraftById(draftId);
+        const draft = await getQuotationDraftById(draftId);
         if (draft) {
           setQuoteNo(draft.quoteNo);
           setQuoteDate(draft.quoteDate);
@@ -257,7 +257,7 @@ export default function NewQuotationPage() {
   const derivedSleeveType: "short" | "long" | "mixed" = shortQty > 0 && longQty > 0 ? "mixed" : longQty > 0 ? "long" : "short";
 
   const buildDraft = (): QuotationDraft => ({
-    id: draftId || `quotation-${Date.now()}`,
+    id: draftId || undefined,
     quoteNo,
     quoteDate,
     status,
@@ -294,7 +294,7 @@ export default function NewQuotationPage() {
     updatedAt: new Date().toISOString(),
   });
 
-  const handleSaveDraft = () => {
+  const handleSaveDraft = async () => {
     if (!quoteNo.trim()) {
       toast.error("ກະລຸນາປ້ອນເລກທີ່ໃບປະເມີນ");
       return;
@@ -304,10 +304,15 @@ export default function NewQuotationPage() {
       return;
     }
     setSaving(true);
-    saveQuotationDraft(buildDraft());
-    setSaving(false);
-    toast.success("ບັນທຶກຮ່າງໃບປະເມີນລາຄາແລ້ວ");
-    router.push("/quotations");
+    try {
+      await saveQuotationDraft(buildDraft());
+      toast.success("ບັນທຶກຮ່າງໃບປະເມີນລາຄາແລ້ວ");
+      router.push("/quotations");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ບັນທຶກຮ່າງບໍ່ສຳເລັດ");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handlePrint = () => {
