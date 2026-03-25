@@ -26,6 +26,7 @@ type OrderDetail = {
   qty_3xl: number;
   qty_4xl: number;
   qty_5xl: number;
+  qty_6xl: number;
   size_upcharge: number;
   extra_charge: number;
   design_deposit: number;
@@ -83,6 +84,12 @@ type ImportReceiptInfo = {
   note: string | null;
 };
 
+const SIZE_UPCHARGES = {
+  "3XL": 20000,
+  "4XL": 30000,
+  "5XL": 35000,
+} as const;
+
 export default function EditOrderPage() {
   const params = useParams();
   const router = useRouter();
@@ -114,6 +121,7 @@ export default function EditOrderPage() {
   const [qty3XL, setQty3XL] = useState(0);
   const [qty4XL, setQty4XL] = useState(0);
   const [qty5XL, setQty5XL] = useState(0);
+  const [qty6XL, setQty6XL] = useState(0);
   const [extraCharge, setExtraCharge] = useState(0);
   const [designDeposit, setDesignDeposit] = useState(0);
   const [factoryCost, setFactoryCost] = useState(0);
@@ -164,6 +172,7 @@ export default function EditOrderPage() {
     setQty3XL(o.qty_3xl);
     setQty4XL(o.qty_4xl);
     setQty5XL(o.qty_5xl);
+    setQty6XL(o.qty_6xl);
     setExtraCharge(o.extra_charge);
     setDesignDeposit(o.design_deposit);
     setFactoryCost(o.factory_cost);
@@ -307,8 +316,14 @@ export default function EditOrderPage() {
     return shortQty * shortPrice + longQty * longPrice;
   }, [selectedFabric, order, shortQty, longQty]);
 
-  const plusSizeQty = useMemo(() => qty3XL + qty4XL + qty5XL, [qty3XL, qty4XL, qty5XL]);
-  const plusSizeTotal = useMemo(() => plusSizeQty * (order?.size_upcharge || 20000), [plusSizeQty, order]);
+  const plusSizeTotal = useMemo(
+    () =>
+      qty3XL * SIZE_UPCHARGES["3XL"] +
+      qty4XL * SIZE_UPCHARGES["4XL"] +
+      qty5XL * SIZE_UPCHARGES["5XL"] +
+      qty6XL * SIZE_UPCHARGES["5XL"],
+    [qty3XL, qty4XL, qty5XL, qty6XL]
+  );
   const grossTotal = useMemo(() => shirtsTotal + plusSizeTotal + extraCharge, [shirtsTotal, plusSizeTotal, extraCharge]);
   const netTotal = useMemo(() => Math.max(0, grossTotal - designDeposit), [grossTotal, designDeposit]);
 
@@ -353,6 +368,7 @@ export default function EditOrderPage() {
       qty_3xl: Math.max(0, qty3XL),
       qty_4xl: Math.max(0, qty4XL),
       qty_5xl: Math.max(0, qty5XL),
+      qty_6xl: Math.max(0, qty6XL),
       extra_charge: Math.max(0, extraCharge),
       design_deposit: Math.max(0, designDeposit),
       factory_cost: Math.max(0, factoryCost),
@@ -694,16 +710,20 @@ export default function EditOrderPage() {
               <input type="number" min={0} value={freeQty} onChange={(e) => setFreeQty(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
             <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">3XL</label>
+              <label className="block text-xs font-black text-slate-800">3XL (+20,000)</label>
               <input type="number" min={0} value={qty3XL} onChange={(e) => setQty3XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
             <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">4XL</label>
+              <label className="block text-xs font-black text-slate-800">4XL (+30,000)</label>
               <input type="number" min={0} value={qty4XL} onChange={(e) => setQty4XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
             <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">5XL</label>
+              <label className="block text-xs font-black text-slate-800">5XL (+35,000)</label>
               <input type="number" min={0} value={qty5XL} onChange={(e) => setQty5XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-black text-slate-800">6XL (+35,000)</label>
+              <input type="number" min={0} value={qty6XL} onChange={(e) => setQty6XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
             </div>
             <div className="space-y-1">
               <label className="block text-xs font-black text-slate-800">ຕົ້ນທຶນໂຮງງານ</label>

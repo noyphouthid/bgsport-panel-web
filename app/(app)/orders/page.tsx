@@ -40,6 +40,10 @@ type OrderRow = {
   qty_5xl: number;
 };
 
+function getDisplayShirtTotal(row: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
+  return (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0);
+}
+
 export default function OrdersPage() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [filteredTotal, setFilteredTotal] = useState(0);
@@ -236,9 +240,7 @@ export default function OrdersPage() {
     ? buildProductionCompletedWhatsappMessage({
         orderCode: activeWhatsappOrder.order_code,
         totalQty:
-          (Number(activeWhatsappOrder.short_qty) || 0) +
-          (Number(activeWhatsappOrder.long_qty) || 0) +
-          (Number(activeWhatsappOrder.free_qty) || 0) +
+          getDisplayShirtTotal(activeWhatsappOrder) +
           (Number(activeWhatsappOrder.qty_3xl) || 0) +
           (Number(activeWhatsappOrder.qty_4xl) || 0) +
           (Number(activeWhatsappOrder.qty_5xl) || 0),
@@ -384,6 +386,7 @@ export default function OrdersPage() {
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ບິນໂຮງງານ</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ເບີໂທ / WhatsApp</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ຜ້າ</th>
+                <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຈຳນວນເສື້ອ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຍອດສຸດທິ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຄ້າງ</th>
                 <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">ສະຖານະ</th>
@@ -393,7 +396,7 @@ export default function OrdersPage() {
             <tbody className="divide-y divide-slate-50">
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={10}>
+                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={11}>
                     ບໍ່ພົບຂໍ້ມູນໃນລະບົບ
                   </td>
                 </tr>
@@ -431,6 +434,7 @@ export default function OrdersPage() {
                       </div>
                     </td>
                     <td className="p-4 text-slate-600 font-medium">{r.fabric_name}</td>
+                    <td className="p-4 text-right font-bold text-slate-700">{getDisplayShirtTotal(r).toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-slate-600">{r.net_total.toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-rose-600 bg-rose-50/30">{r.balance.toLocaleString()}</td>
                     <td className="p-4 text-center">{displayStatusBadge(r)}</td>
@@ -489,4 +493,3 @@ export default function OrdersPage() {
     </div>
   );
 }
-

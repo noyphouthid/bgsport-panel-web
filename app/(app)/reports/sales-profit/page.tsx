@@ -10,25 +10,31 @@ type ReportOrder = {
   id: string;
   order_code: string;
   order_date: string;
+  status: "in_progress" | "completed";
   production_completed_at: string | null;
   shipment_completed_at: string | null;
   shipment_status: "pending" | "shipped";
   balance: number;
   short_qty: number;
   long_qty: number;
+  free_qty: number;
   net_total: number;
   factory_cost: number;
 };
 
-type StatusFilter = "all" | "in_progress" | "completed";
+type StatusFilter = "all" | "in_progress" | "production_completed" | "completed";
+type FactoryCostFilter = "all" | "missing_cost" | "has_cost";
 
-function getProductionStatus(order: Pick<ReportOrder, "production_completed_at">): Exclude<StatusFilter, "all"> {
-  return order.production_completed_at ? "completed" : "in_progress";
+function getProductionStatus(order: Pick<ReportOrder, "production_completed_at" | "status">): Exclude<StatusFilter, "all"> {
+  if (order.status === "completed") return "completed";
+  if (order.production_completed_at) return "production_completed";
+  return "in_progress";
 }
 
 function getStatusLabel(status: Exclude<StatusFilter, "all">) {
   if (status === "in_progress") return "ກຳລັງຜະລິດ";
-  return "ຜະລິດສຳເລັດ";
+  if (status === "production_completed") return "ອໍເດີ້ຜະລິດສຳເລັດ";
+  return "ອໍເດີ້ສຳເລັດແລ້ວ";
 }
 
 export default function SalesProfitReportPage() {
@@ -37,6 +43,7 @@ export default function SalesProfitReportPage() {
   const [year, setYear] = useState(now.getFullYear());
   const [prefix, setPrefix] = useState<PrefixFilter>("ALL");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [factoryCostFilter, setFactoryCostFilter] = useState<FactoryCostFilter>("all");
 
   const [rows, setRows] = useState<ReportOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +54,7 @@ export default function SalesProfitReportPage() {
     setErr(null);
     const { data: orderData, error: orderError } = await supabase
       .from("orders")
-      .select("id,order_code,order_date,production_completed_at,shipment_completed_at,shipment_status,balance,short_qty,long_qty,net_total,factory_cost")
+      .select("id,order_code,order_date,status,production_completed_at,shipment_completed_at,shipment_status,balance,short_qty,long_qty,free_qty,net_total,factory_cost")
       .order("order_date", { ascending: false });
 
     if (orderError) {
@@ -75,9 +82,11 @@ export default function SalesProfitReportPage() {
       if (!matchPrefix(r.order_code, prefix)) return false;
       const productionStatus = getProductionStatus(r);
       if (status !== "all" && productionStatus !== status) return false;
+      if (factoryCostFilter === "missing_cost" && Number(r.factory_cost || 0) > 0) return false;
+      if (factoryCostFilter === "has_cost" && Number(r.factory_cost || 0) <= 0) return false;
       return true;
     });
-  }, [rows, month, year, prefix, status]);
+  }, [rows, month, year, prefix, status, factoryCostFilter]);
 
   const filteredForProfit = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
@@ -88,14 +97,16 @@ export default function SalesProfitReportPage() {
       if (!matchPrefix(r.order_code, prefix)) return false;
       const productionStatus = getProductionStatus(r);
       if (status !== "all" && productionStatus !== status) return false;
+      if (factoryCostFilter === "missing_cost" && Number(r.factory_cost || 0) > 0) return false;
+      if (factoryCostFilter === "has_cost" && Number(r.factory_cost || 0) <= 0) return false;
       return true;
     });
-  }, [rows, month, year, prefix, status]);
+  }, [rows, month, year, prefix, status, factoryCostFilter]);
 
   const summary = useMemo(() => {
     const totalSales = filteredByOrderDate.reduce((sum, r) => sum + (Number(r.net_total) || 0), 0);
     const totalShirts = filteredByOrderDate.reduce(
-      (sum, r) => sum + (Number(r.short_qty) || 0) + (Number(r.long_qty) || 0),
+      (sum, r) => sum + (Number(r.short_qty) || 0) + (Number(r.long_qty) || 0) + (Number(r.free_qty) || 0),
       0
     );
     const totalOrders = filteredByOrderDate.length;
@@ -113,7 +124,8 @@ export default function SalesProfitReportPage() {
       "ວັນທີຜະລິດສຳເລັດ": toDateOnly(r.production_completed_at),
       "ວັນທີຈັດສົ່ງສຳເລັດ": toDateOnly(r.shipment_completed_at),
       "ລະຫັດອໍເດີ": r.order_code,
-      "ຈຳນວນເສື້ອ": (Number(r.short_qty) || 0) + (Number(r.long_qty) || 0),
+      "ຈຳນວນເສື້ອ": (Number(r.short_qty) || 0) + (Number(r.long_qty) || 0) + (Number(r.free_qty) || 0),
+      "ຈຳນວນແຖມ": Number(r.free_qty) || 0,
       "ແຂນສັ້ນ": Number(r.short_qty) || 0,
       "ແຂນຍາວ": Number(r.long_qty) || 0,
       "ຍອດຂາຍສຸດທິ": Number(r.net_total) || 0,
@@ -128,6 +140,7 @@ export default function SalesProfitReportPage() {
       "ວັນທີຈັດສົ່ງສຳເລັດ": periodLabel,
       "ລະຫັດອໍເດີ": `prefix=${prefix} status=${status}`,
       "ຈຳນວນເສື້ອ": summary.totalShirts,
+      "ຈຳນວນແຖມ": 0,
       "ແຂນສັ້ນ": 0,
       "ແຂນຍາວ": 0,
       "ຍອດຂາຍສຸດທິ": summary.totalSales,
@@ -151,7 +164,7 @@ export default function SalesProfitReportPage() {
       {err && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm font-bold">ຂໍ້ຜິດພາດ: {err}</div>}
 
       <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <select value={month} onChange={(e) => setMonth(e.target.value === "ALL" ? "ALL" : Number(e.target.value))} className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-900">
             {buildMonthOptions().map((m) => (
               <option key={m.value} value={m.value}>{m.label}</option>
@@ -170,7 +183,13 @@ export default function SalesProfitReportPage() {
           <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-900">
             <option value="all">ສະຖານະຜະລິດທັງໝົດ</option>
             <option value="in_progress">ກຳລັງຜະລິດ</option>
-            <option value="completed">ຜະລິດສຳເລັດ</option>
+            <option value="production_completed">ອໍເດີ້ຜະລິດສຳເລັດ</option>
+            <option value="completed">ອໍເດີ້ສຳເລັດແລ້ວ</option>
+          </select>
+          <select value={factoryCostFilter} onChange={(e) => setFactoryCostFilter(e.target.value as FactoryCostFilter)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-900">
+            <option value="all">ຕົ້ນທຶນໂຮງງານທັງໝົດ</option>
+            <option value="missing_cost">ຍັງບໍ່ມີຕົ້ນທຶນໂຮງງານ</option>
+            <option value="has_cost">ມີຕົ້ນທຶນໂຮງງານແລ້ວ</option>
           </select>
         </div>
 
@@ -226,7 +245,7 @@ export default function SalesProfitReportPage() {
                   <tr key={r.id}>
                     <td className="p-3 text-slate-800">{r.order_date}</td>
                     <td className="p-3 font-black text-slate-900">{r.order_code}</td>
-                    <td className="p-3 text-right text-slate-800">{((Number(r.short_qty) || 0) + (Number(r.long_qty) || 0)).toLocaleString()}</td>
+                    <td className="p-3 text-right text-slate-800">{((Number(r.short_qty) || 0) + (Number(r.long_qty) || 0) + (Number(r.free_qty) || 0)).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(r.net_total) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(r.factory_cost) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-blue-600 font-bold">{((Number(r.net_total) || 0) - (Number(r.factory_cost) || 0)).toLocaleString()}</td>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { ArrowLeft, Eye, FileUp, Save } from "lucide-react";
+import { ArrowLeft, Eye, FileImage, FileText, FileUp, Save } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import {
@@ -111,6 +111,10 @@ function buildDepositNo() {
 
 function formatMoney(value: number) {
   return `${Math.max(0, Number(value) || 0).toLocaleString()} ກີບ`;
+}
+
+function isImageFileName(name: string) {
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(name || ""));
 }
 
 export default function FactoryDepositOrderFormPage() {
@@ -323,6 +327,24 @@ export default function FactoryDepositOrderFormPage() {
   );
   const netTotal = useMemo(() => Math.max(0, grossTotal - (Number(designDeposit) || 0)), [grossTotal, designDeposit]);
   const balance = useMemo(() => Math.max(0, netTotal - (Number(initialDeposit) || 0)), [netTotal, initialDeposit]);
+  const pendingSlipPreviews = useMemo(
+    () =>
+      pendingSlipFiles.map((file) => ({
+        key: `${file.name}-${file.size}-${file.lastModified}`,
+        file,
+        isImage: file.type.startsWith("image/") || isImageFileName(file.name),
+        previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+      })),
+    [pendingSlipFiles]
+  );
+
+  useEffect(() => {
+    return () => {
+      pendingSlipPreviews.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
+    };
+  }, [pendingSlipPreviews]);
 
   const buildQuotationDraft = (): QuotationDraft => ({
     id: draftId || undefined,
@@ -727,27 +749,78 @@ export default function FactoryDepositOrderFormPage() {
                     <input type="file" accept="image/*,.pdf" multiple onChange={handleSlipChange} disabled={!canEdit} className="hidden" />
                   </label>
                 </div>
-                <div className="mt-3 space-y-2">
-                  {pendingSlipFiles.map((file) => (
-                    <div key={`pending-${file.name}-${file.size}`} className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-                      <span>{file.name}</span>
-                      <button type="button" onClick={() => removePendingSlip(file.name)} className="text-xs font-black text-rose-700">
-                        ລົບ
-                      </button>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {pendingSlipPreviews.map((item) => (
+                    <div key={item.key} className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/60">
+                      <div className="flex items-center justify-between border-b border-amber-200 px-3 py-2">
+                        <span className="inline-flex items-center gap-2 text-xs font-black text-amber-800">
+                          <FileUp size={14} />
+                          ລໍຖ້າອັບໂຫຼດ
+                        </span>
+                        <button type="button" onClick={() => removePendingSlip(item.file.name)} className="text-xs font-black text-rose-700">
+                          ລົບ
+                        </button>
+                      </div>
+                      <div className="p-3">
+                        <div className="mb-3 text-sm font-bold text-slate-800">{item.file.name}</div>
+                        {item.isImage && item.previewUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={item.previewUrl} alt={item.file.name} className="h-48 w-full rounded-xl border border-amber-100 object-cover bg-white" />
+                        ) : (
+                          <div className="flex h-48 items-center justify-center rounded-xl border border-amber-100 bg-white text-slate-500">
+                            <div className="text-center">
+                              <FileText size={28} className="mx-auto mb-2" />
+                              <div className="text-sm font-bold">ໄຟລ໌ເອກະສານ</div>
+                              <div className="mt-1 text-xs font-medium">ຈະເບິ່ງໄດ້ຫຼັງອັບໂຫຼດ</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
-                  {slipRows.map((slip) => (
-                    <div key={slip.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">
-                      <span>{slip.file_name || slip.file_path.split("/").pop()}</span>
-                      {slip.file_url ? (
-                        <Link href={slip.file_url} target="_blank" className="inline-flex items-center gap-2 text-xs font-bold text-sky-700">
-                          <Eye size={14} />
-                          ເບິ່ງ
-                        </Link>
-                      ) : null}
-                    </div>
-                  ))}
-                  {pendingSlipFiles.length === 0 && slipRows.length === 0 && (
+                  {slipRows.map((slip) => {
+                    const fileName = slip.file_name || slip.file_path.split("/").pop() || "slip";
+                    const isImage = isImageFileName(fileName);
+                    return (
+                      <div key={slip.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                          <span className="inline-flex items-center gap-2 text-xs font-black text-emerald-700">
+                            <Eye size={14} />
+                            ອັບໂຫຼດແລ້ວ
+                          </span>
+                          {slip.file_url ? (
+                            <Link href={slip.file_url} target="_blank" className="text-xs font-black text-sky-700">
+                              ເປີດໄຟລ໌
+                            </Link>
+                          ) : null}
+                        </div>
+                        <div className="p-3">
+                          <div className="mb-1 text-sm font-bold text-slate-800">{fileName}</div>
+                          <div className="mb-3 text-xs font-medium text-slate-400">{new Date(slip.uploaded_at).toLocaleString("en-GB")}</div>
+                          {isImage && slip.file_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={slip.file_url} alt={fileName} className="h-48 w-full rounded-xl border border-slate-100 object-cover bg-slate-50" />
+                          ) : (
+                            <div className="flex h-48 items-center justify-center rounded-xl border border-slate-100 bg-slate-50 text-slate-500">
+                              <div className="text-center">
+                                {isImage ? <FileImage size={28} className="mx-auto mb-2" /> : <FileText size={28} className="mx-auto mb-2" />}
+                                <div className="text-sm font-bold">{isImage ? "ໄຟລ໌ຮູບພາບ" : "ໄຟລ໌ເອກະສານ"}</div>
+                                <div className="mt-2">
+                                  {slip.file_url ? (
+                                    <Link href={slip.file_url} target="_blank" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-sky-700">
+                                      <Eye size={14} />
+                                      ເບິ່ງໄຟລ໌
+                                    </Link>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {pendingSlipPreviews.length === 0 && slipRows.length === 0 && (
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-400">
                       ຍັງບໍ່ມີສະລິບ
                     </div>

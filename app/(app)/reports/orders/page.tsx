@@ -22,7 +22,19 @@ type OrderRow = {
 };
 
 type PaymentStatus = "all" | "paid" | "unpaid";
-type ProductionStatus = "all" | "in_progress" | "completed";
+type ProductionStatus = "all" | "in_progress" | "production_completed" | "completed";
+
+function getProductionStatus(order: Pick<OrderRow, "production_completed_at" | "status">): Exclude<ProductionStatus, "all"> {
+  if (order.status === "completed") return "completed";
+  if (order.production_completed_at) return "production_completed";
+  return "in_progress";
+}
+
+function getProductionStatusLabel(status: Exclude<ProductionStatus, "all">) {
+  if (status === "in_progress") return "ກຳລັງຜະລິດ";
+  if (status === "production_completed") return "ອໍເດີ້ຜະລິດສຳເລັດ";
+  return "ອໍເດີ້ສຳເລັດແລ້ວ";
+}
 
 export default function OrdersReportPage() {
   const now = new Date();
@@ -69,7 +81,7 @@ export default function OrdersReportPage() {
       const isPaid = Number(r.balance) === 0;
       if (paymentStatus === "paid" && !isPaid) return false;
       if (paymentStatus === "unpaid" && isPaid) return false;
-      const productionState = r.production_completed_at ? "completed" : "in_progress";
+      const productionState = getProductionStatus(r);
       if (productionStatus !== "all" && productionState !== productionStatus) return false;
       return true;
     });
@@ -108,11 +120,7 @@ export default function OrdersReportPage() {
       paid_amount: Number(r.initial_deposit) || 0,
       outstanding_amount: Number(r.balance) || 0,
       payment_status: Number(r.balance) === 0 ? "ຈ່າຍແລ້ວ" : "ຄ້າງຈ່າຍ",
-      production_status: r.production_completed_at
-        ? r.shipment_status === "shipped"
-          ? "ຈັດສົ່ງສຳເລັດ"
-          : "ຜະລິດສຳເລັດ"
-        : "ກຳລັງຜະລິດ",
+      production_status: getProductionStatusLabel(getProductionStatus(r)),
     }));
 
     out.push({
@@ -161,7 +169,8 @@ export default function OrdersReportPage() {
           <select value={productionStatus} onChange={(e) => setProductionStatus(e.target.value as ProductionStatus)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-900">
             <option value="all">ສະຖານະຜະລິດທັງໝົດ</option>
             <option value="in_progress">ກຳລັງຜະລິດ</option>
-            <option value="completed">ຜະລິດສຳເລັດ</option>
+            <option value="production_completed">ອໍເດີ້ຜະລິດສຳເລັດ</option>
+            <option value="completed">ອໍເດີ້ສຳເລັດແລ້ວ</option>
           </select>
         </div>
 
@@ -234,4 +243,3 @@ export default function OrdersReportPage() {
     </div>
   );
 }
-

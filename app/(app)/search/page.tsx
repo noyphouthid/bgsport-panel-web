@@ -19,7 +19,14 @@ type OrderRow = {
   status: "in_progress" | "completed";
   shipment_status?: "pending" | "shipped";
   shipment_completed_at?: string | null;
+  short_qty: number;
+  long_qty: number;
+  free_qty: number;
 };
+
+function getDisplayShirtTotal(row: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
+  return (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0);
+}
 
 function monthRange(ym: string) {
   const [y, m] = ym.split("-").map(Number);
@@ -61,7 +68,7 @@ export default function SearchPage() {
 
     let q = supabase
       .from("orders")
-      .select("id,order_code,order_date,customer_phone,factory_bill_code,fabric_name,balance,status,shipment_status,shipment_completed_at")
+      .select("id,order_code,order_date,customer_phone,factory_bill_code,fabric_name,balance,status,shipment_status,shipment_completed_at,short_qty,long_qty,free_qty")
       .order("order_date", { ascending: false });
 
     if (activePrefix !== "ALL") q = q.ilike("order_code", `${activePrefix}%`);
@@ -223,6 +230,7 @@ export default function SearchPage() {
                 <th className="p-4 text-left text-[11px] font-bold uppercase tracking-wider">ບິນໂຮງງານ</th>
                 <th className="p-4 text-left text-[11px] font-bold uppercase tracking-wider">ເບີໂທ</th>
                 <th className="p-4 text-left text-[11px] font-bold uppercase tracking-wider">ຜ້າ</th>
+                <th className="p-4 text-right text-[11px] font-bold uppercase tracking-wider">ຈຳນວນເສື້ອ</th>
                 <th className="p-4 text-right text-[11px] font-bold uppercase tracking-wider">ຄ້າງ</th>
                 <th className="p-4 text-center text-[11px] font-bold uppercase tracking-wider">ສະຖານະ</th>
                 <th className="p-4 text-center text-[11px] font-bold uppercase tracking-wider">ຈັດການ</th>
@@ -232,7 +240,7 @@ export default function SearchPage() {
             <tbody className="divide-y divide-slate-50">
               {rows.length === 0 ? (
                 <tr>
-                  <td className="p-10 text-center font-medium text-slate-400" colSpan={8}>
+                  <td className="p-10 text-center font-medium text-slate-400" colSpan={9}>
                     ບໍ່ມີຂໍ້ມູນ
                   </td>
                 </tr>
@@ -244,6 +252,7 @@ export default function SearchPage() {
                     <td className="p-4 font-bold text-slate-600">{r.factory_bill_code?.trim() || "-"}</td>
                     <td className="p-4 font-medium text-slate-700">{r.customer_phone || "-"}</td>
                     <td className="p-4 font-bold text-slate-800">{r.fabric_name}</td>
+                    <td className="p-4 text-right font-bold text-slate-700">{getDisplayShirtTotal(r).toLocaleString()}</td>
                     <td className="p-4 text-right font-black text-red-600">{r.balance.toLocaleString()}</td>
                     <td className="p-4 text-center">{renderStatus(r)}</td>
                     <td className="p-4 text-center">
