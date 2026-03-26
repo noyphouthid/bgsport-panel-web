@@ -174,12 +174,7 @@ export default function ShipmentNotesPage() {
       return;
     }
 
-    popup.document.write(
-      getTransportNotePrintHtml(
-        selectedRows,
-        Object.fromEntries(Object.entries(ordersById).map(([id, order]) => [id, order.order_code]))
-      )
-    );
+    popup.document.write(getTransportNotePrintHtml(selectedRows));
     popup.document.close();
     popup.focus();
 

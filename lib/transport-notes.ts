@@ -79,12 +79,11 @@ export function getTransportNoteDisplayNo(row: Pick<TransportNoteRow, "note_no" 
   return row.note_no;
 }
 
-export function getTransportNotePrintHtml(rows: TransportNoteRow[], orderCodeByOrderId: Record<string, string> = {}) {
+export function getTransportNotePrintHtml(rows: TransportNoteRow[]) {
   const cards = rows
     .map((row) => {
       const shippingModeText = row.shipping_charge_mode === "origin" ? "ຈ່າຍຕົ້ນທາງ" : "ຈ່າຍປາຍທາງ";
       const transporters = row.transporters.join(", ");
-      const displayNo = getTransportNoteDisplayNo(row, row.order_id ? orderCodeByOrderId[row.order_id] : null);
       return `
         <section class="note">
           <div class="header">
@@ -96,7 +95,6 @@ export function getTransportNotePrintHtml(rows: TransportNoteRow[], orderCodeByO
           </div>
           <div class="chip">ຜູ້ຮັບ (Receiver):</div>
           <div class="body">
-            <div>ເລກອ້າງອີງ: <strong>${displayNo}</strong></div>
             <div>ຊື່ຜູ້ຮັບ: <strong>${row.receiver_name || "-"}</strong></div>
             <div>ເບີຜູ້ຮັບ: <strong>${row.receiver_phone || "-"}</strong></div>
             <div>ຝາກສາຂາ: <strong>${row.branch || "-"}</strong></div>
@@ -117,11 +115,19 @@ export function getTransportNotePrintHtml(rows: TransportNoteRow[], orderCodeByO
 <html>
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Transport Notes</title>
     <style>
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Lao+Looped:wght@400;700&display=swap');
       @page { size: 80mm 100mm; margin: 0; }
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: Arial, sans-serif; background: #fff; }
+      html, body {
+        margin: 0;
+        background: #fff;
+        font-family: "Noto Sans Lao Looped","Noto Sans Lao","Lao Sangam MN","Lao MN","Helvetica Neue",Arial,sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
       .sheet { display: flex; flex-wrap: wrap; gap: 0; }
       .note {
         width: 80mm;
@@ -165,11 +171,11 @@ export function getTransportNotePrintHtml(rows: TransportNoteRow[], orderCodeByO
       }
       .body {
         padding: 6px 10px 4px;
-        font-size: 10px;
-        line-height: 1.55;
+        font-size: 14px;
+        line-height: 1.78;
       }
       .body strong {
-        font-size: 10px;
+        font-size: 15px;
       }
       .divider {
         border-bottom: 1.5px solid #000;
