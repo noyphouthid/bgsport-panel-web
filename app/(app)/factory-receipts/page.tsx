@@ -50,6 +50,11 @@ type ReceiptDetailItem = {
 const ORDER_SELECT =
   "id,order_code,customer_phone,customer_whatsapp,factory_bill_code,production_completed_at,status,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,balance";
 
+function toLocalDateTimeInputValue(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
 function getImportBlockReason(
   order: Pick<OrderSummary, "order_code" | "production_completed_at" | "status">,
   label: Pick<QrLabelRow, "label_status"> | null
@@ -72,7 +77,7 @@ function getImportBlockReason(
 export default function FactoryReceiptsPage() {
   const [scannerInput, setScannerInput] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
-  const [receivedAt, setReceivedAt] = useState(() => new Date().toISOString().slice(0, 16));
+  const [receivedAt, setReceivedAt] = useState(() => toLocalDateTimeInputValue());
   const [receivedBy, setReceivedBy] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -356,6 +361,7 @@ export default function FactoryReceiptsPage() {
           total_qty: getTotalUnits(resolved.order),
         },
       ]);
+      setReceivedAt(toLocalDateTimeInputValue());
       setScannerInput("");
       toast.success(`ເພີ່ມ ${label.order_code} ເຂົ້າລາຍການແລ້ວ`);
     } catch (error) {
@@ -487,6 +493,7 @@ export default function FactoryReceiptsPage() {
     setQueue([]);
     setNote("");
     setScannerInput("");
+    setReceivedAt(toLocalDateTimeInputValue());
     await loadRecentReceipts();
     await loadReceiptItems(receipt.id);
     toast.success(`ນຳເຂົ້າ ${itemPayload.length} ລາຍການເຂົ້າຄັງຮ້ານສຳເລັດ`);

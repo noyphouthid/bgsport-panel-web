@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import Swal from "sweetalert2";
 import { ArrowLeft, Eye, FileImage, FileText, FileUp, Save } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import {
+  canApproveFactoryDepositOrder,
+  canConvertFactoryDepositOrder,
   canEditFactoryDepositOrder,
   FACTORY_DEPOSIT_ORDER_STATUS_LABELS,
   type FactoryDepositOrderStatus,
@@ -129,6 +132,7 @@ export default function FactoryDepositOrderFormPage() {
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [workingAction, setWorkingAction] = useState<"approve" | "convert" | null>(null);
   const [uploadingSlip, setUploadingSlip] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -261,6 +265,7 @@ export default function FactoryDepositOrderFormPage() {
             setQuotationQuoteNo(draft.quoteNo);
             setDepositDate(draft.quoteDate || new Date().toISOString().slice(0, 10));
             setOrderDate(draft.quoteDate || new Date().toISOString().slice(0, 10));
+            setOrderCode((prev) => prev || draft.quoteNo || "");
             setCustomerName(draft.customerName);
             setCustomerPhone(draft.customerPhone);
             setCustomerWhatsapp(draft.customerWhatsapp);
@@ -301,6 +306,9 @@ export default function FactoryDepositOrderFormPage() {
   );
   const graphicOptions = useMemo(() => users.filter((item) => item.role === "graphic"), [users]);
   const canEdit = viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false;
+  const isSuperAdmin = viewerRole === "superadmin";
+  const canApproveHere = !!recordId && !!viewerRole && isSuperAdmin && canApproveFactoryDepositOrder(viewerRole) && status === "submitted";
+  const canConvertHere = !!recordId && !!viewerRole && isSuperAdmin && canConvertFactoryDepositOrder(viewerRole) && status === "approved";
 
   const shirtTotal = useMemo(() => {
     if (!selectedFabric) return 0;
@@ -401,6 +409,36 @@ export default function FactoryDepositOrderFormPage() {
     });
   };
 
+  const confirmAction = async ({
+    title,
+    text,
+    confirmButtonText,
+    cancelToast,
+    icon = "question",
+  }: {
+    title: string;
+    text: string;
+    confirmButtonText: string;
+    cancelToast: string;
+    icon?: "question" | "warning";
+  }) => {
+    const result = await Swal.fire({
+      icon,
+      title,
+      text,
+      showCancelButton: true,
+      confirmButtonText,
+      cancelButtonText: "ຍົກເລີກ",
+      reverseButtons: true,
+    });
+
+    if (!result.isConfirmed) {
+      toast(cancelToast);
+    }
+
+    return result.isConfirmed;
+  };
+
   const uploadSlipIfNeeded = async (depositOrderId: string) => {
     if (pendingSlipFiles.length === 0) {
       return {
@@ -476,16 +514,45 @@ export default function FactoryDepositOrderFormPage() {
     setPendingSlipFiles((prev) => prev.filter((file) => file.name !== name));
   };
 
-  const handleSave = async (nextStatus: FactoryDepositOrderStatus) => {
+  const persistDepositOrder = async ({
+    nextStatus,
+    action,
+    detail,
+    successMessage,
+    redirectAfterSave = false,
+    extraOrderFields,
+  }: {
+    nextStatus: FactoryDepositOrderStatus;
+    action?: string;
+    detail?: string;
+    successMessage: string;
+    redirectAfterSave?: boolean;
+    extraOrderFields?: Record<string, string | null>;
+  }) => {
     if (!canEdit) {
       toast.error("ທ່ານບໍ່ມີສິດແກ້ໄຂໃບນີ້");
-      return;
+      return null;
     }
-    if (!depositNo.trim()) return toast.error("ກະລຸນາປ້ອນເລກທີ່ໃບມັດຈຳ");
-    if (!orderCode.trim()) return toast.error("ກະລຸນາປ້ອນລະຫັດອໍເດີ");
-    if (!selectedFabric) return toast.error("ກະລຸນາເລືອກຜ້າ");
-    if (!adminUserId) return toast.error("ກະລຸນາເລືອກແອັດມິນ");
-    if (!graphicUserId) return toast.error("ກະລຸນາເລືອກກຣາຟິກ");
+    if (!depositNo.trim()) {
+      toast.error("ກະລຸນາປ້ອນເລກທີ່ໃບມັດຈຳ");
+      return null;
+    }
+    if (!orderCode.trim()) {
+      toast.error("ກະລຸນາປ້ອນລະຫັດອໍເດີ");
+      return null;
+    }
+    if (!selectedFabric) {
+      toast.error("ກະລຸນາເລືອກຜ້າ");
+      return null;
+    }
+    if (!adminUserId) {
+      toast.error("ກະລຸນາເລືອກແອັດມິນ");
+      return null;
+    }
+    if (!graphicUserId) {
+      toast.error("ກະລຸນາເລືອກກຣາຟິກ");
+      return null;
+    }
 
     setSaving(true);
     setErr(null);
@@ -503,7 +570,7 @@ export default function FactoryDepositOrderFormPage() {
         deposit_no: depositNo.trim(),
         deposit_date: depositDate,
         order_code: orderCode.trim(),
-        order_date: orderDate,
+        order_date: orderDate || depositDate,
         status: nextStatus,
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
@@ -544,6 +611,7 @@ export default function FactoryDepositOrderFormPage() {
         created_by_user_id: viewerUserId,
         admin_user_id: adminUserId,
         graphic_user_id: graphicUserId,
+        ...(extraOrderFields ?? {}),
       };
 
       let depositOrderId = recordId;
@@ -578,21 +646,149 @@ export default function FactoryDepositOrderFormPage() {
 
       await insertHistory(
         depositOrderId,
-        recordId ? "update" : "create",
-        nextStatus === "submitted" ? "submit deposit order" : "save draft deposit order",
+        action || (recordId ? "update" : "create"),
+        detail || (nextStatus === "submitted" ? "submit deposit order" : "save draft deposit order"),
         recordId ? previousStatus : null,
         nextStatus
       );
 
       setStatus(nextStatus);
-      toast.success(nextStatus === "submitted" ? "ບັນທຶກ ແລະ ສົ່ງໃບມັດຈຳແລ້ວ" : "ບັນທຶກຮ່າງໃບມັດຈຳແລ້ວ");
-      router.push("/factory-deposit-orders");
+      toast.success(successMessage);
+      if (redirectAfterSave) {
+        router.push("/factory-deposit-orders");
+      }
+      return { depositOrderId, nextStatus };
     } catch (error) {
       const message = error instanceof Error ? error.message : "ບັນທຶກບໍ່ສຳເລັດ";
       setErr(message);
       toast.error(message);
+      return null;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSave = async (nextStatus: FactoryDepositOrderStatus) => {
+    const confirmed = await confirmAction({
+      title: nextStatus === "submitted" ? "ຢືນຢັນບັນທຶກ ແລະ ສົ່ງ?" : "ຢືນຢັນບັນທຶກຮ່າງ?",
+      text: `${quotationQuoteNo || depositNo} / ${orderCode || "-"}`,
+      confirmButtonText: nextStatus === "submitted" ? "ບັນທຶກ ແລະ ສົ່ງ" : "ບັນທຶກຮ່າງ",
+      cancelToast: nextStatus === "submitted" ? "ຍົກເລີກການສົ່ງແລ້ວ" : "ຍົກເລີກການບັນທຶກຮ່າງແລ້ວ",
+    });
+    if (!confirmed) return;
+
+    await persistDepositOrder({
+      nextStatus,
+      successMessage: nextStatus === "submitted" ? "ບັນທຶກ ແລະ ສົ່ງໃບມັດຈຳແລ້ວ" : "ບັນທຶກຮ່າງໃບມັດຈຳແລ້ວ",
+      redirectAfterSave: true,
+    });
+  };
+
+  const handleApprove = async () => {
+    if (!recordId) return toast.error("ບໍ່ພົບໃບມັດຈຳ");
+    if (!viewerRole || !canApproveFactoryDepositOrder(viewerRole) || !isSuperAdmin) return toast.error("ທ່ານບໍ່ມີສິດອະນຸມັດ");
+    if (status !== "submitted") return toast.error("ອະນຸມັດໄດ້ສະເພາະລາຍການທີ່ສົ່ງແລ້ວ");
+    const confirmed = await confirmAction({
+      title: "ຢືນຢັນອະນຸມັດ?",
+      text: `${depositNo} / ${orderCode || "-"}`,
+      confirmButtonText: "ອະນຸມັດ",
+      cancelToast: "ຍົກເລີກການອະນຸມັດແລ້ວ",
+    });
+    if (!confirmed) return;
+
+    setWorkingAction("approve");
+    try {
+      await persistDepositOrder({
+        nextStatus: "approved",
+        action: "approve",
+        detail: "approve deposit order",
+        successMessage: "ອະນຸມັດໃບມັດຈຳແລ້ວ",
+        extraOrderFields: {
+          approved_at: new Date().toISOString(),
+          approved_by_user_id: viewerUserId,
+        },
+      });
+    } finally {
+      setWorkingAction(null);
+    }
+  };
+
+  const handleConvert = async () => {
+    if (!recordId) return toast.error("ບໍ່ພົບໃບມັດຈຳ");
+    if (!viewerRole || !canConvertFactoryDepositOrder(viewerRole) || !isSuperAdmin) return toast.error("ທ່ານບໍ່ມີສິດບັນທຶກເປັນອໍເດີ");
+    if (status !== "approved") return toast.error("ກະລຸນາອະນຸມັດກ່ອນ");
+    if (!orderCode.trim()) return toast.error("ບໍ່ພົບລະຫັດອໍເດີ");
+    if (!selectedFabric) return toast.error("ກະລຸນາເລືອກຜ້າ");
+    const confirmed = await confirmAction({
+      title: "ຢືນຢັນບັນທຶກເປັນອໍເດີ?",
+      text: `${depositNo} -> ${orderCode}`,
+      confirmButtonText: "ບັນທຶກເປັນອໍເດີ",
+      cancelToast: "ຍົກເລີກການບັນທຶກເປັນອໍເດີແລ້ວ",
+    });
+    if (!confirmed) return;
+
+    setWorkingAction("convert");
+    setErr(null);
+    try {
+      const saved = await persistDepositOrder({
+        nextStatus: "approved",
+        successMessage: "ບັນທຶກຂໍ້ມູນກ່ອນແປງເປັນອໍເດີແລ້ວ",
+      });
+      if (!saved?.depositOrderId) return;
+
+      const orderPayload = {
+        order_code: orderCode.trim(),
+        order_date: orderDate || depositDate,
+        customer_phone: customerPhone.trim() || null,
+        customer_whatsapp: customerWhatsapp.trim() || null,
+        factory_bill_code: factoryBillCode.trim() || null,
+        admin_user_id: adminUserId || null,
+        graphic_user_id: graphicUserId || null,
+        fabric_id: selectedFabric.id,
+        fabric_name: selectedFabric.name,
+        fabric_short_price: Number(selectedFabric.short_price) || 0,
+        fabric_long_price: Number(selectedFabric.long_price) || 0,
+        short_qty: Math.max(0, shortQty),
+        long_qty: Math.max(0, longQty),
+        free_qty: Math.max(0, freeQty),
+        qty_3xl: Math.max(0, qty3XL),
+        qty_4xl: Math.max(0, qty4XL),
+        qty_5xl: Math.max(0, qty5XL),
+        size_upcharge: 20000,
+        extra_charge: Math.max(0, extraCharge),
+        design_deposit: Math.max(0, designDeposit),
+        initial_deposit: Math.max(0, initialDeposit),
+        factory_cost: Math.max(0, factoryCost),
+        gross_total: grossTotal,
+        net_total: netTotal,
+        balance,
+        status: "in_progress",
+      };
+
+      const { data: orderData, error: insertOrderError } = await supabase.from("orders").insert(orderPayload).select("id").single();
+      if (insertOrderError) throw insertOrderError;
+
+      const { error: updateDepositError } = await supabase
+        .from("factory_deposit_orders")
+        .update({
+          status: "converted",
+          order_id: orderData.id,
+          converted_at: new Date().toISOString(),
+          converted_by_user_id: viewerUserId,
+        })
+        .eq("id", saved.depositOrderId);
+      if (updateDepositError) throw updateDepositError;
+
+      await insertHistory(saved.depositOrderId, "convert_to_order", `convert to order ${orderCode.trim()}`, "approved", "converted");
+      setStatus("converted");
+      toast.success("ບັນທຶກເປັນອໍເດີແລ້ວ");
+      router.push("/factory-deposit-orders");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ບັນທຶກເປັນອໍເດີບໍ່ສຳເລັດ";
+      setErr(message);
+      toast.error(message);
+    } finally {
+      setWorkingAction(null);
     }
   };
 
@@ -623,7 +819,7 @@ export default function FactoryDepositOrderFormPage() {
           <button
             type="button"
             onClick={() => handleSave("draft")}
-            disabled={saving || uploadingSlip || !canEdit}
+            disabled={saving || uploadingSlip || workingAction !== null || !canEdit}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
           >
             <Save size={16} />
@@ -632,12 +828,34 @@ export default function FactoryDepositOrderFormPage() {
           <button
             type="button"
             onClick={() => handleSave("submitted")}
-            disabled={saving || uploadingSlip || !canEdit}
+            disabled={saving || uploadingSlip || workingAction !== null || !canEdit}
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50"
           >
             <Save size={16} />
             {saving ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກ ແລະ ສົ່ງ"}
           </button>
+          {canApproveHere && (
+            <button
+              type="button"
+              onClick={handleApprove}
+              disabled={saving || uploadingSlip || workingAction !== null}
+              className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-sky-700 disabled:opacity-50"
+            >
+              <Save size={16} />
+              {workingAction === "approve" ? "ກຳລັງອະນຸມັດ..." : "ອະນຸມັດ"}
+            </button>
+          )}
+          {canConvertHere && (
+            <button
+              type="button"
+              onClick={handleConvert}
+              disabled={saving || uploadingSlip || workingAction !== null}
+              className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-violet-700 disabled:opacity-50"
+            >
+              <Save size={16} />
+              {workingAction === "convert" ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກເປັນອໍເດີ"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -649,11 +867,11 @@ export default function FactoryDepositOrderFormPage() {
           <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
             <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ຂໍ້ມູນເອກະສານ</div>
             <div className="grid gap-4 md:grid-cols-2">
-              <input value={depositNo} onChange={(e) => setDepositNo(e.target.value)} disabled={!canEdit} placeholder="ເລກທີ່ໃບມັດຈຳ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              <input type="date" value={depositDate} onChange={(e) => setDepositDate(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} disabled={!canEdit} placeholder="ລະຫັດອໍເດີ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              <input value={quotationQuoteNo} onChange={(e) => setQuotationQuoteNo(e.target.value)} disabled={!canEdit} placeholder="ເລກທີ່ໃບປະເມີນລາຄາ" className="md:col-span-2 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              <input type="date" value={depositDate} onChange={(e) => {
+                setDepositDate(e.target.value);
+                setOrderDate(e.target.value);
+              }} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              <input value={quotationQuoteNo} onChange={(e) => setQuotationQuoteNo(e.target.value)} disabled={!canEdit} placeholder="ເລກທີ່ໃບປະເມີນລາຄາ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
             </div>
           </section>
 
@@ -684,6 +902,10 @@ export default function FactoryDepositOrderFormPage() {
                   <option value="">ເລືອກຜ້າ</option>
                   {fabrics.map((fabric) => <option key={fabric.id} value={fabric.id}>{fabric.name}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ລະຫັດອໍເດີ</label>
+                <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} disabled={!canEdit} placeholder="ລະຫັດອໍເດີ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ລະຫັດໂຮງງານ</label>

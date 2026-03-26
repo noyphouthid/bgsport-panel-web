@@ -19,6 +19,19 @@ import {
 type SearchOrderRow = OrderSummary;
 type PrintFilter = "all" | "unprinted" | "printed";
 
+function toLocalDateInputValue(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
+}
+
+function toDateOnly(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
+}
+
 function isLabelPrinted(label: Pick<QrLabelRow, "print_count" | "printed_at" | "last_printed_at">) {
   return Boolean((Number(label.print_count) || 0) > 0 || label.printed_at || label.last_printed_at);
 }
@@ -34,6 +47,7 @@ function getPrintStatusStyles(label: Pick<QrLabelRow, "print_count" | "printed_a
 }
 
 export default function InventoryQrPage() {
+  const today = useMemo(() => toLocalDateInputValue(), []);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -46,6 +60,8 @@ export default function InventoryQrPage() {
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
   const [printFilter, setPrintFilter] = useState<PrintFilter>("all");
   const [currentPrinter, setCurrentPrinter] = useState("");
+  const [importedFromDate, setImportedFromDate] = useState("");
+  const [importedToDate, setImportedToDate] = useState(today);
 
   const loadRecentLabels = async () => {
     const { data, error } = await supabase
@@ -232,8 +248,17 @@ export default function InventoryQrPage() {
       if (printFilter === "printed") return isLabelPrinted(label);
       if (printFilter === "unprinted") return !isLabelPrinted(label);
       return true;
+    }).filter((label) => {
+      const importedDate = toDateOnly(label.received_at);
+      if (importedFromDate) {
+        if (!importedDate || importedDate < importedFromDate) return false;
+      }
+      if (importedToDate) {
+        if (!importedDate || importedDate > importedToDate) return false;
+      }
+      return true;
     });
-  }, [printFilter, recentLabels]);
+  }, [importedFromDate, importedToDate, printFilter, recentLabels]);
 
   const allVisibleRecentSelected =
     filteredRecentLabels.length > 0 && filteredRecentLabels.every((label) => selectedLabelIds.includes(label.id));
@@ -586,6 +611,18 @@ export default function InventoryQrPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="date"
+              value={importedFromDate}
+              onChange={(e) => setImportedFromDate(e.target.value)}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="date"
+              value={importedToDate}
+              onChange={(e) => setImportedToDate(e.target.value)}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+            />
             <select
               value={printFilter}
               onChange={(e) => setPrintFilter(e.target.value as PrintFilter)}
@@ -623,6 +660,7 @@ export default function InventoryQrPage() {
                 <th className="px-3 py-3 font-bold">ອໍເດີ</th>
                 <th className="px-3 py-3 font-bold">ບິນໂຮງງານ</th>
                 <th className="px-3 py-3 font-bold">ສະຖານະ</th>
+                <th className="px-3 py-3 font-bold">ວັນທີນຳເຂົ້າ</th>
                 <th className="px-3 py-3 font-bold">ສ້າງເມື່ອ</th>
                 <th className="px-3 py-3 font-bold">ຈັດການ</th>
               </tr>
@@ -630,8 +668,8 @@ export default function InventoryQrPage() {
             <tbody>
               {filteredRecentLabels.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center font-medium text-slate-500">
-                    ບໍ່ພົບ QR ຕາມ filter ການພິມນີ້.
+                  <td colSpan={7} className="px-3 py-8 text-center font-medium text-slate-500">
+                    ບໍ່ພົບ QR ຕາມ filter ການພິມ ຫຼື ວັນທີນຳເຂົ້ານີ້.
                   </td>
                 </tr>
               ) : (
@@ -649,6 +687,9 @@ export default function InventoryQrPage() {
                           {getPrintStatusLabel(label)}
                         </span>
                       </div>
+                    </td>
+                    <td className="px-3 py-3 text-slate-500">
+                      {formatDateTime(label.received_at)}
                     </td>
                     <td className="px-3 py-3 text-slate-500">
                       <div>{formatDateTime(label.created_at)}</div>

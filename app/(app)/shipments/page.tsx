@@ -37,6 +37,11 @@ type ShipmentRow = {
   payment_method: PaymentMethod | null;
 };
 
+function toLocalDateTimeInputValue(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
 function getShipmentBlockReason(
   order: Pick<OrderSummary, "order_code" | "production_completed_at" | "status">,
   label: Pick<QrLabelRow, "label_status" | "received_at"> | null
@@ -56,8 +61,8 @@ function getShipmentBlockReason(
 export default function ShipmentsPage() {
   const [scanValue, setScanValue] = useState("");
   const [shippedBy, setShippedBy] = useState("");
-  const [shippedAt, setShippedAt] = useState(() => new Date().toISOString().slice(0, 16));
-  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 16));
+  const [shippedAt, setShippedAt] = useState(() => toLocalDateTimeInputValue());
+  const [paymentDate, setPaymentDate] = useState(() => toLocalDateTimeInputValue());
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("transfer");
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [note, setNote] = useState("");
@@ -204,6 +209,8 @@ export default function ShipmentsPage() {
       setPaymentAmount(0);
       setNote("");
       setCancelReason("");
+      setShippedAt(toLocalDateTimeInputValue());
+      setPaymentDate(toLocalDateTimeInputValue());
 
       if (existingShipmentData?.shipped_at || resolved.label.label_status === "shipped") {
         toast.error(`ອໍເດີ ${resolved.order.order_code} ຖືກຈັດສົ່ງແລ້ວ`);

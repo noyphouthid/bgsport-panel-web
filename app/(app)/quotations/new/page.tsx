@@ -102,6 +102,7 @@ export default function NewQuotationPage() {
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [loadingFabrics, setLoadingFabrics] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [creatingDeposit, setCreatingDeposit] = useState(false);
 
   const [quoteNo, setQuoteNo] = useState(buildQuoteNo());
   const [quoteDate, setQuoteDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -315,6 +316,28 @@ export default function NewQuotationPage() {
     }
   };
 
+  const handleCreateDepositOrder = async () => {
+    if (!quoteNo.trim()) {
+      toast.error("ກະລຸນາປ້ອນເລກທີ່ໃບປະເມີນ");
+      return;
+    }
+    if (!selectedFabric) {
+      toast.error("ກະລຸນາເລືອກຜ້າ");
+      return;
+    }
+
+    setCreatingDeposit(true);
+    try {
+      const savedDraft = await saveQuotationDraft(buildDraft());
+      toast.success("ບັນທຶກໃບປະເມີນ ແລະ ກຳລັງເປີດໃບມັດຈຳ");
+      router.push(`/factory-deposit-orders/new?draftId=${savedDraft.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ສ້າງໃບມັດຈຳບໍ່ສຳເລັດ");
+    } finally {
+      setCreatingDeposit(false);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -382,11 +405,19 @@ export default function NewQuotationPage() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleSaveDraft}
-            disabled={saving}
+            disabled={saving || creatingDeposit}
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Save size={16} />
             {saving ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກຮ່າງ"}
+          </button>
+          <button
+            onClick={handleCreateDepositOrder}
+            disabled={saving || creatingDeposit}
+            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <ReceiptText size={16} />
+            {creatingDeposit ? "ກຳລັງເປີດ..." : "ສ້າງໃບມັດຈຳ"}
           </button>
           <button
             onClick={handlePrint}
@@ -543,9 +574,13 @@ export default function NewQuotationPage() {
                 />
               </div>
               <div className="flex gap-2">
-                <button onClick={handleSaveDraft} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700">
+                <button onClick={handleSaveDraft} disabled={saving || creatingDeposit} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:opacity-60">
                   <Save size={16} />
                   ບັນທຶກຮ່າງ
+                </button>
+                <button onClick={handleCreateDepositOrder} disabled={saving || creatingDeposit} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-sky-700 disabled:opacity-60">
+                  <ReceiptText size={16} />
+                  ສ້າງໃບມັດຈຳ
                 </button>
                 <button onClick={resetForm} className="rounded-xl border border-slate-200 bg-slate-100 px-5 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-200">
                   ລ້າງຟອມ
