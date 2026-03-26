@@ -13,6 +13,13 @@ type OrderRow = {
   factory_bill_code: string | null;
 };
 
+type UserRow = {
+  id: string;
+  full_name: string;
+  email: string | null;
+  auth_user_id: string | null;
+};
+
 type SourceFilter = "all" | "standalone" | "shipment_request";
 type PrintFilter = "all" | "printed" | "unprinted";
 
@@ -58,10 +65,12 @@ export default function ShipmentNotesPage() {
   const today = useMemo(() => toLocalDateInputValue(), []);
   const [rows, setRows] = useState<TransportNoteRow[]>([]);
   const [ordersById, setOrdersById] = useState<Record<string, OrderRow>>({});
+  const [usersById, setUsersById] = useState<Record<string, UserRow>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [printFilter, setPrintFilter] = useState<PrintFilter>("all");
+  const [adminFilter, setAdminFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState(today);
   const [loading, setLoading] = useState(true);
@@ -73,7 +82,7 @@ export default function ShipmentNotesPage() {
     const [{ data: noteData, error: noteError }, { data: sessionData }, { data: userData }] = await Promise.all([
       supabase.from("transport_notes").select("*").order("created_at", { ascending: false }),
       supabase.auth.getSession(),
-      supabase.from("users").select("full_name,email,auth_user_id"),
+      supabase.from("users").select("id,full_name,email,auth_user_id"),
     ]);
 
     if (noteError) {
@@ -84,6 +93,7 @@ export default function ShipmentNotesPage() {
 
     const noteRows = (noteData ?? []) as TransportNoteRow[];
     setRows(noteRows);
+    setUsersById(Object.fromEntries(((userData ?? []) as UserRow[]).map((user) => [user.id, user])));
 
     const orderIds = [...new Set(noteRows.map((row) => row.order_id).filter((value): value is string => Boolean(value)))];
     if (orderIds.length > 0) {
@@ -121,6 +131,7 @@ export default function ShipmentNotesPage() {
       if (sourceFilter !== "all" && row.source_type !== sourceFilter) return false;
       if (printFilter === "printed" && !(Number(row.print_count) > 0 || row.printed_at || row.last_printed_at)) return false;
       if (printFilter === "unprinted" && (Number(row.print_count) > 0 || row.printed_at || row.last_printed_at)) return false;
+      if (adminFilter !== "all" && row.created_by_user_id !== adminFilter) return false;
 
       const printedDate = toDateOnly(row.last_printed_at || row.created_at);
       if (fromDate && (!printedDate || printedDate < fromDate)) return false;
@@ -128,6 +139,7 @@ export default function ShipmentNotesPage() {
 
       if (!keyword) return true;
       const order = row.order_id ? ordersById[row.order_id] : null;
+      const creator = row.created_by_user_id ? usersById[row.created_by_user_id] : null;
       return [
         row.note_no,
         row.receiver_name,
@@ -138,12 +150,21 @@ export default function ShipmentNotesPage() {
         row.transporters.join(" "),
         order?.order_code || "",
         order?.factory_bill_code || "",
+        creator?.full_name || "",
       ]
         .join(" ")
         .toLowerCase()
         .includes(keyword);
     });
-  }, [fromDate, ordersById, printFilter, query, rows, sourceFilter, toDate]);
+  }, [adminFilter, fromDate, ordersById, printFilter, query, rows, sourceFilter, toDate, usersById]);
+
+  const adminOptions = useMemo(() => {
+    const usedIds = new Set(rows.map((row) => row.created_by_user_id).filter((value): value is string => Boolean(value)));
+    return Array.from(usedIds)
+      .map((id) => usersById[id])
+      .filter((user): user is UserRow => Boolean(user))
+      .sort((a, b) => a.full_name.localeCompare(b.full_name));
+  }, [rows, usersById]);
 
   const allVisibleSelected = filteredRows.length > 0 && filteredRows.every((row) => selectedIds.includes(row.id));
   const selectedRows = useMemo(() => filteredRows.filter((row) => selectedIds.includes(row.id)), [filteredRows, selectedIds]);
@@ -264,7 +285,7 @@ export default function ShipmentNotesPage() {
       </section>
 
       <section className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-[1.4fr_180px_180px_160px_160px]">
+        <div className="grid gap-4 md:grid-cols-[1.4fr_180px_180px_180px_160px_160px]">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -283,6 +304,14 @@ export default function ShipmentNotesPage() {
             <option value="all">ທຸກສະຖານະພິມ</option>
             <option value="printed">ພິມແລ້ວ</option>
             <option value="unprinted">ຍັງບໍ່ພິມ</option>
+          </select>
+          <select value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">ທຸກແອັດມິນ</option>
+            {adminOptions.map((admin) => (
+              <option key={admin.id} value={admin.id}>
+                {admin.full_name}
+              </option>
+            ))}
           </select>
           <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500" />
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500" />
