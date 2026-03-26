@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Banknote, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react";
+import { Banknote, FileUp, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import {
@@ -17,9 +17,16 @@ import {
   type OrderSummary,
   type QrLabelRow,
 } from "@/lib/inventory-qr";
+import {
+  SHIPMENT_DELIVERY_METHOD_LABELS,
+  SHIPMENT_DELIVERY_STATUS_LABELS,
+  type ShipmentDeliveryMethod,
+  type ShipmentDeliveryRequestRow,
+} from "@/lib/shipment-delivery-requests";
 import { MobileQrScanner } from "../_components/mobile-qr-scanner";
 
 type PaymentMethod = "cash" | "transfer";
+type TransportChargeMode = "destination" | "origin";
 
 type ShipmentInfo = {
   label: QrLabelRow;
@@ -36,6 +43,16 @@ type ShipmentRow = {
   collected_amount: number;
   payment_method: PaymentMethod | null;
 };
+
+function buildShipmentRequestNo() {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  return `SDR${yy}-${mm}${dd}${hh}${min}`;
+}
 
 function toLocalDateTimeInputValue(date = new Date()) {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000;
@@ -71,6 +88,24 @@ export default function ShipmentsPage() {
   const [recentShipments, setRecentShipments] = useState<ShipmentRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
+  const [viewerUserId, setViewerUserId] = useState<string | null>(null);
+  const [deliveryMethod, setDeliveryMethod] = useState<ShipmentDeliveryMethod>("pickup");
+  const [activeRequest, setActiveRequest] = useState<ShipmentDeliveryRequestRow | null>(null);
+  const [transferSlipFile, setTransferSlipFile] = useState<File | null>(null);
+  const [transferSlipPreviewUrl, setTransferSlipPreviewUrl] = useState<string | null>(null);
+  const [transportReceiverName, setTransportReceiverName] = useState("");
+  const [transportReceiverPhone, setTransportReceiverPhone] = useState("");
+  const [transportBranch, setTransportBranch] = useState("");
+  const [transportCity, setTransportCity] = useState("");
+  const [transportProvince, setTransportProvince] = useState("");
+  const [transportProviders, setTransportProviders] = useState<string[]>([]);
+  const [transportChargeMode, setTransportChargeMode] = useState<TransportChargeMode>("destination");
+
+  useEffect(() => {
+    return () => {
+      if (transferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(transferSlipPreviewUrl);
+    };
+  }, [transferSlipPreviewUrl]);
 
   const safeInsertAction = async (orderId: string, action: string, detail: string) => {
     const { error } = await supabase.from("order_status_history").insert({
@@ -89,9 +124,10 @@ export default function ShipmentsPage() {
     const authUserId = sessionData.session?.user.id;
     if (!authUserId) return;
 
-    const { data } = await supabase.from("users").select("full_name,role").eq("auth_user_id", authUserId).maybeSingle();
+    const { data } = await supabase.from("users").select("id,full_name,role").eq("auth_user_id", authUserId).maybeSingle();
     if (data?.full_name) setShippedBy(data.full_name);
     if (data?.role) setViewerRole(data.role as AppRole);
+    if (data?.id) setViewerUserId(String(data.id));
   };
 
   const loadRecentShipments = async () => {
@@ -107,6 +143,66 @@ export default function ShipmentsPage() {
     }
 
     setRecentShipments((data ?? []) as ShipmentRow[]);
+  };
+
+  const resetDeliveryDraftState = () => {
+    setActiveRequest(null);
+    setDeliveryMethod("pickup");
+    setTransferSlipFile(null);
+    if (transferSlipPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(transferSlipPreviewUrl);
+    }
+    setTransferSlipPreviewUrl(null);
+    setTransportReceiverName("");
+    setTransportReceiverPhone("");
+    setTransportBranch("");
+    setTransportCity("");
+    setTransportProvince("");
+    setTransportProviders([]);
+    setTransportChargeMode("destination");
+  };
+
+  const applyExistingRequest = (request: ShipmentDeliveryRequestRow | null) => {
+    setActiveRequest(request);
+    if (!request) {
+      resetDeliveryDraftState();
+      return;
+    }
+
+    setDeliveryMethod(request.delivery_method);
+    setTransportReceiverName(request.transport_receiver_name || "");
+    setTransportReceiverPhone(request.transport_receiver_phone || "");
+    setTransportBranch(request.transport_branch || "");
+    setTransportCity(request.transport_city || "");
+    setTransportProvince(request.transport_province || "");
+    setTransportProviders(Array.isArray(request.transport_providers) ? request.transport_providers : []);
+    setTransportChargeMode(request.transport_charge_mode === "origin" ? "origin" : "destination");
+    setTransferSlipFile(null);
+    if (transferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(transferSlipPreviewUrl);
+    setTransferSlipPreviewUrl(request.transfer_slip_url || null);
+  };
+
+  const uploadTransferSlipIfNeeded = async (orderId: string, qrLabelId: string) => {
+    if (!transferSlipFile) {
+      return {
+        path: activeRequest?.transfer_slip_path || null,
+        url: activeRequest?.transfer_slip_url || null,
+      };
+    }
+
+    const safeName = transferSlipFile.name.replace(/\s+/g, "-");
+    const path = `${orderId}/${qrLabelId}/${Date.now()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage
+      .from("shipment-delivery-slips")
+      .upload(path, transferSlipFile, { upsert: true });
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage.from("shipment-delivery-slips").getPublicUrl(path);
+    return {
+      path,
+      url: data.publicUrl,
+    };
   };
 
   useEffect(() => {
@@ -211,10 +307,38 @@ export default function ShipmentsPage() {
       setCancelReason("");
       setShippedAt(toLocalDateTimeInputValue());
       setPaymentDate(toLocalDateTimeInputValue());
+      resetDeliveryDraftState();
 
       if (existingShipmentData?.shipped_at || resolved.label.label_status === "shipped") {
         toast.error(`ອໍເດີ ${resolved.order.order_code} ຖືກຈັດສົ່ງແລ້ວ`);
         return;
+      }
+
+      const { data: requestData, error: requestError } = await supabase
+        .from("shipment_delivery_requests")
+        .select("*")
+        .eq("order_id", resolved.order.id)
+        .in("status", ["draft", "submitted", "rejected"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (requestError) {
+        toast.error(`ໂຫຼດຂໍ້ມູນຮ່າງການຈັດສົ່ງບໍ່ສຳເລັດ: ${requestError.message}`);
+        return;
+      }
+
+      const latestRequest = (requestData as ShipmentDeliveryRequestRow | null) ?? null;
+      if (latestRequest) {
+        setDeliveryMethod(latestRequest.delivery_method);
+        setShippedAt(toLocalDateTimeInputValue(new Date(latestRequest.delivery_scheduled_at)));
+        setPaymentAmount(Number(latestRequest.payment_amount) || 0);
+        setPaymentMethod(latestRequest.payment_method === "cash" ? "cash" : "transfer");
+        setPaymentDate(
+          latestRequest.payment_paid_at ? toLocalDateTimeInputValue(new Date(latestRequest.payment_paid_at)) : toLocalDateTimeInputValue()
+        );
+        setNote(latestRequest.note || "");
+        applyExistingRequest(latestRequest);
       }
 
       toast.success(`ໂຫຼດ ${resolved.order.order_code} ສຳເລັດ`);
@@ -227,8 +351,9 @@ export default function ShipmentsPage() {
   const hasOutstandingBalance = customerOutstanding > 0;
   const shipmentLocked = Boolean(active?.existingShipmentAt || active?.label.label_status === "shipped");
   const canCancelShipment = viewerRole === "superadmin" || viewerRole === "accountant";
+  const requestSubmitted = activeRequest?.status === "submitted";
 
-  const submitShipment = async () => {
+  const saveDeliveryRequest = async (nextStatus: "draft" | "submitted") => {
     if (!active) {
       toast.error("ກະລຸນາສະແກນ QR ກ່ອນ");
       return;
@@ -242,164 +367,155 @@ export default function ShipmentsPage() {
       toast.error("ອໍເດີນີ້ຖືກຈັດສົ່ງແລ້ວ");
       return;
     }
+    if (activeRequest?.status === "submitted") {
+      toast.error("ຄຳຂໍນີ້ຖືກສົ່ງຂໍອະນຸມັດແລ້ວ");
+      return;
+    }
     if (!shippedBy.trim()) {
       toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ຈັດສົ່ງ");
       return;
     }
-    if (paymentAmount < 0) {
+    if (deliveryMethod === "pickup" && paymentAmount < 0) {
       toast.error("ຈຳນວນເງິນຕ້ອງບໍ່ຕິດລົບ");
       return;
     }
-    if (paymentAmount > customerOutstanding) {
+    if (deliveryMethod === "pickup" && paymentAmount > customerOutstanding) {
       toast.error("ຈຳນວນເງິນເກີນຍອດຄ້າງຊຳລະ");
       return;
     }
+    if (deliveryMethod === "pickup" && paymentAmount > 0 && paymentMethod === "transfer" && !transferSlipFile && !activeRequest?.transfer_slip_url) {
+      toast.error("ກະລຸນາແນບສະລິບການໂອນເງິນ");
+      return;
+    }
+    if (deliveryMethod === "transport") {
+      if (!transportReceiverName.trim()) {
+        toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ຮັບ");
+        return;
+      }
+      if (!transportReceiverPhone.trim()) {
+        toast.error("ກະລຸນາປ້ອນເບີຜູ້ຮັບ");
+        return;
+      }
+      if (transportProviders.length === 0) {
+        toast.error("ກະລຸນາເລືອກຂົນສົ່ງ");
+        return;
+      }
+    }
 
     setSaving(true);
-    const shippedAtIso = new Date(shippedAt).toISOString();
-    const paymentAtIso = hasOutstandingBalance ? new Date(paymentDate).toISOString() : null;
-    const nextBalance = Math.max(0, customerOutstanding - paymentAmount);
+    try {
+      const scheduledAtIso = new Date(shippedAt).toISOString();
+      const paymentAtIso = deliveryMethod === "pickup" && paymentAmount > 0 ? new Date(paymentDate).toISOString() : null;
+      const uploadedSlip = await uploadTransferSlipIfNeeded(active.order.id, active.label.id);
 
-    const { data: duplicateShipment, error: duplicateShipmentError } = await supabase
-      .from("shipment_records")
-      .select("id,shipped_at")
-      .eq("order_id", active.order.id)
-      .order("shipped_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (duplicateShipmentError) {
-      setSaving(false);
-      toast.error(`ກວດສອບການຈັດສົ່ງຊ້ຳບໍ່ສຳເລັດ: ${duplicateShipmentError.message}`);
-      return;
-    }
-
-    if (duplicateShipment) {
-      setSaving(false);
-      setActive((prev) =>
-        prev
-          ? {
-              ...prev,
-              existingShipmentId: duplicateShipment.id,
-              existingShipmentAt: duplicateShipment.shipped_at,
-            }
-          : prev
-      );
-      toast.error(`ອໍເດີ ${active.order.order_code} ຖືກຈັດສົ່ງແລ້ວ`);
-      return;
-    }
-
-    const { error: orderUpdateError } = await supabase
-      .from("orders")
-      .update({
-        balance: nextBalance,
-        customer_paid_full_at: nextBalance === 0 ? paymentAtIso || active.order.customer_paid_full_at : active.order.customer_paid_full_at,
-        production_completed_at: active.order.production_completed_at || shippedAtIso,
-        shipment_status: "shipped",
-        shipment_completed_at: shippedAtIso,
-      })
-      .eq("id", active.order.id);
-
-    if (orderUpdateError) {
-      setSaving(false);
-      toast.error(`ອັບເດດຂໍ້ມູນອໍເດີບໍ່ສຳເລັດ: ${orderUpdateError.message}`);
-      return;
-    }
-
-    const { data: shipment, error: shipmentError } = await supabase
-      .from("shipment_records")
-      .insert({
+      const payload = {
+        request_no: activeRequest?.request_no || buildShipmentRequestNo(),
+        order_id: active.order.id,
         qr_label_id: active.label.id,
-        order_id: active.order.id,
-        shipped_at: shippedAtIso,
-        shipped_by: shippedBy.trim(),
+        delivery_method: deliveryMethod,
+        status: nextStatus,
+        requested_by_user_id: viewerUserId,
+        delivery_scheduled_at: scheduledAtIso,
+        delivery_person_name: shippedBy.trim(),
         note: note.trim() || null,
-        collected_amount: paymentAmount,
-        payment_method: paymentAmount > 0 ? paymentMethod : null,
-      })
-      .select("id")
-      .single();
-
-    if (shipmentError || !shipment) {
-      setSaving(false);
-      toast.error(`ບັນທຶກການຈັດສົ່ງບໍ່ສຳເລັດ: ${shipmentError?.message || "ບໍ່ຮູ້ສາເຫດ"}`);
-      return;
-    }
-
-    if (paymentAmount > 0 && paymentAtIso) {
-      const { error: paymentTxnError } = await supabase.from("payment_transactions").insert({
-        order_id: active.order.id,
-        shipment_id: shipment.id,
-        amount: paymentAmount,
-        paid_at: paymentAtIso,
-        note: `ຮັບເງິນຕອນຈັດສົ່ງ #SHIPMENT:${shipment.id} ຜ່ານ ${paymentMethod} ໂດຍ ${shippedBy.trim()}${note.trim() ? ` - ${note.trim()}` : ""}`,
-      });
-
-      if (paymentTxnError) {
-        setSaving(false);
-        toast.error(`ບັນທຶກຈັດສົ່ງແລ້ວ ແຕ່ບັນທຶກການຊຳລະບໍ່ສຳເລັດ: ${paymentTxnError.message}`);
-        return;
-      }
-
-      const { error: shipmentPaymentError } = await supabase.from("shipment_payments").insert({
-        shipment_id: shipment.id,
-        order_id: active.order.id,
-        amount: paymentAmount,
-        payment_method: paymentMethod,
-        paid_at: paymentAtIso,
-        note: note.trim() || null,
-      });
-
-      if (shipmentPaymentError) {
-        setSaving(false);
-        toast.error(`ບັນທຶກຈັດສົ່ງແລ້ວ ແຕ່ບັນທຶກ payment log ບໍ່ສຳເລັດ: ${shipmentPaymentError.message}`);
-        return;
-      }
-    }
-
-    const { error: labelUpdateError } = await supabase
-      .from("order_qr_labels")
-      .update({
-        label_status: "shipped",
-        shipped_at: shippedAtIso,
-        shipped_by: shippedBy.trim(),
-        last_scanned_at: new Date().toISOString(),
+        payment_outstanding_amount: customerOutstanding,
+        payment_amount: deliveryMethod === "pickup" ? paymentAmount : 0,
+        payment_method: deliveryMethod === "pickup" && paymentAmount > 0 ? paymentMethod : null,
+        payment_paid_at: deliveryMethod === "pickup" ? paymentAtIso : null,
+        transfer_slip_path: deliveryMethod === "pickup" ? uploadedSlip.path : null,
+        transfer_slip_url: deliveryMethod === "pickup" ? uploadedSlip.url : null,
+        transfer_slip_uploaded_at: deliveryMethod === "pickup" && uploadedSlip.path ? new Date().toISOString() : null,
+        transfer_slip_uploaded_by_user_id: deliveryMethod === "pickup" && uploadedSlip.path ? viewerUserId : null,
+        transport_receiver_name: deliveryMethod === "transport" ? transportReceiverName.trim() : null,
+        transport_receiver_phone: deliveryMethod === "transport" ? transportReceiverPhone.trim() : null,
+        transport_branch: deliveryMethod === "transport" ? transportBranch.trim() : null,
+        transport_city: deliveryMethod === "transport" ? transportCity.trim() : null,
+        transport_province: deliveryMethod === "transport" ? transportProvince.trim() : null,
+        transport_providers: deliveryMethod === "transport" ? transportProviders : [],
+        transport_charge_mode: deliveryMethod === "transport" ? transportChargeMode : null,
         updated_at: new Date().toISOString(),
-      })
-      .eq("id", active.label.id);
+      };
 
-    setSaving(false);
+      let savedRequest: ShipmentDeliveryRequestRow | null = null;
+      if (activeRequest?.id) {
+        const { data, error } = await supabase
+          .from("shipment_delivery_requests")
+          .update(payload)
+          .eq("id", activeRequest.id)
+          .select("*")
+          .single();
+        if (error) throw error;
+        savedRequest = data as ShipmentDeliveryRequestRow;
+      } else {
+        const { data, error } = await supabase
+          .from("shipment_delivery_requests")
+          .insert(payload)
+          .select("*")
+          .single();
+        if (error) throw error;
+        savedRequest = data as ShipmentDeliveryRequestRow;
+      }
 
-    if (labelUpdateError) {
-      toast.error(`ບັນທຶກຈັດສົ່ງແລ້ວ ແຕ່ອັບເດດສະຖານະ QR ບໍ່ສຳເລັດ: ${labelUpdateError.message}`);
-      return;
-    }
+      if (savedRequest) {
+        applyExistingRequest(savedRequest);
 
-    setActive((prev) =>
-      prev
-        ? {
-            label: {
-              ...prev.label,
-              label_status: "shipped",
-              shipped_at: shippedAtIso,
-              shipped_by: shippedBy.trim(),
-            },
-            order: {
-              ...prev.order,
-              balance: nextBalance,
-              production_completed_at: prev.order.production_completed_at || shippedAtIso,
-              shipment_status: "shipped",
-              shipment_completed_at: shippedAtIso,
-              customer_paid_full_at: nextBalance === 0 && paymentAtIso ? paymentAtIso : prev.order.customer_paid_full_at,
-            },
-            existingShipmentId: shipment.id,
-            existingShipmentAt: shippedAtIso,
-            existingShipmentBy: shippedBy.trim(),
+        if (deliveryMethod === "transport") {
+          const transportNotePayload = {
+            note_no: active.order.order_code,
+            source_type: "shipment_request",
+            order_id: active.order.id,
+            delivery_request_id: savedRequest.id,
+            receiver_name: transportReceiverName.trim(),
+            receiver_phone: transportReceiverPhone.trim(),
+            branch: transportBranch.trim() || null,
+            city: transportCity.trim() || null,
+            province: transportProvince.trim() || null,
+            transporters: transportProviders,
+            shipping_charge_mode: transportChargeMode,
+            status: "saved",
+            created_by_user_id: viewerUserId,
+            updated_at: new Date().toISOString(),
+          };
+
+          const { data: linkedTransportNote } = await supabase
+            .from("transport_notes")
+            .select("id,note_no")
+            .eq("delivery_request_id", savedRequest.id)
+            .maybeSingle();
+
+          if (linkedTransportNote?.id) {
+            const { error: updateTransportNoteError } = await supabase
+              .from("transport_notes")
+              .update({
+                ...transportNotePayload,
+                note_no: linkedTransportNote.note_no || transportNotePayload.note_no,
+              })
+              .eq("id", linkedTransportNote.id);
+            if (updateTransportNoteError) throw updateTransportNoteError;
+          } else {
+            const { error: insertTransportNoteError } = await supabase.from("transport_notes").insert(transportNotePayload);
+            if (insertTransportNoteError) throw insertTransportNoteError;
           }
-        : prev
-    );
-    await loadRecentShipments();
-    toast.success(`ຈັດສົ່ງ ${active.order.order_code} ສຳເລັດ`);
+        } else if (savedRequest.id) {
+          const { error: deleteTransportNoteError } = await supabase
+            .from("transport_notes")
+            .delete()
+            .eq("delivery_request_id", savedRequest.id);
+          if (deleteTransportNoteError) throw deleteTransportNoteError;
+        }
+      }
+      toast.success(
+        nextStatus === "submitted"
+          ? `ສົ່ງຄຳຂໍອະນຸມັດສຳລັບ ${active.order.order_code} ແລ້ວ`
+          : deliveryMethod === "transport"
+            ? `ບັນທຶກບິນ ແລະ ຮ່າງການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
+            : `ບັນທຶກຮ່າງການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ບັນທຶກຮ່າງການຈັດສົ່ງບໍ່ສຳເລັດ");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const cancelShipment = async () => {
@@ -596,6 +712,24 @@ export default function ShipmentsPage() {
           >
             ເບິ່ງລາຍການອໍເດີຈັດສົ່ງ
           </Link>
+          <Link
+            href="/shipments/transport-note"
+            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
+          >
+            ອອກໃບຝາກເຄື່ອງ
+          </Link>
+          <Link
+            href="/shipments/notes"
+            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
+          >
+            ລາຍການໃບຝາກເຄື່ອງ
+          </Link>
+          <Link
+            href="/shipments/approvals"
+            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
+          >
+            ອະນຸມັດສົ່ງມອບ
+          </Link>
         </div>
       </section>
 
@@ -684,8 +818,26 @@ export default function ShipmentsPage() {
               <div className="mt-5 rounded-[2rem] border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center gap-2 text-lg font-black text-slate-900">
                   <Banknote size={18} />
-                  {hasOutstandingBalance ? "ຮັບຊຳລະຍອດຄົງເຫຼືອ ແລະ ຈັດສົ່ງ" : "ພ້ອມຈັດສົ່ງ"}
+                  ບັນທຶກຄຳຂໍຈັດສົ່ງ
                 </div>
+                {activeRequest ? (
+                  <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-800">
+                    ລາຍການລ່າສຸດ: {activeRequest.request_no} • {SHIPMENT_DELIVERY_METHOD_LABELS[activeRequest.delivery_method]} •{" "}
+                    {SHIPMENT_DELIVERY_STATUS_LABELS[activeRequest.status]}
+                  </div>
+                ) : null}
+
+                {requestSubmitted ? (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                    ຄຳຂໍນີ້ຖືກສົ່ງລໍຖ້າ super admin ອະນຸມັດແລ້ວ ຈະຍັງແກ້ໄຂບໍ່ໄດ້ຈົນກວ່າຖືກປະຕິເສດ.
+                  </div>
+                ) : null}
+
+                {activeRequest?.status === "rejected" && activeRequest.rejection_note ? (
+                  <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                    ຖືກປະຕິເສດ: {activeRequest.rejection_note}
+                  </div>
+                ) : null}
 
                 {shipmentLocked ? (
                   <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
@@ -702,6 +854,37 @@ export default function ShipmentsPage() {
                   </div>
                 ) : null}
 
+                {!shipmentLocked ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!requestSubmitted) setDeliveryMethod("pickup");
+                      }}
+                      className={`rounded-2xl border px-4 py-3 text-left text-sm font-black transition ${
+                        deliveryMethod === "pickup"
+                          ? "border-orange-300 bg-orange-50 text-orange-800"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      } ${requestSubmitted ? "opacity-60" : ""}`}
+                    >
+                      ລູກຄ້າເຂົ້າມາຮັບເອງ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!requestSubmitted) setDeliveryMethod("transport");
+                      }}
+                      className={`rounded-2xl border px-4 py-3 text-left text-sm font-black transition ${
+                        deliveryMethod === "transport"
+                          ? "border-orange-300 bg-orange-50 text-orange-800"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      } ${requestSubmitted ? "opacity-60" : ""}`}
+                    >
+                      ຝາກຂົນສົ່ງ
+                    </button>
+                  </div>
+                ) : null}
+
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <label className="text-sm font-bold text-slate-700">
                     ວັນທີ/ເວລາຈັດສົ່ງ
@@ -709,6 +892,7 @@ export default function ShipmentsPage() {
                       type="datetime-local"
                       value={shippedAt}
                       onChange={(e) => setShippedAt(e.target.value)}
+                      disabled={requestSubmitted}
                       className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
                     />
                   </label>
@@ -717,51 +901,180 @@ export default function ShipmentsPage() {
                     <input
                       value={shippedBy}
                       onChange={(e) => setShippedBy(e.target.value)}
+                      disabled={requestSubmitted}
                       className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
                     />
                   </label>
                 </div>
 
-                {hasOutstandingBalance ? (
+                {deliveryMethod === "pickup" ? (
                   <>
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                      <label className="text-sm font-bold text-slate-700">
-                        ຈຳນວນເງິນທີ່ຮັບຕອນນີ້
-                        <input
-                          type="number"
-                          min={0}
-                          max={customerOutstanding}
-                          value={paymentAmount}
-                          onChange={(e) => setPaymentAmount(Number(e.target.value))}
-                          className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                        />
-                      </label>
-                      <label className="text-sm font-bold text-slate-700">
-                        ຮູບແບບການຊຳລະ
-                        <select
-                          value={paymentMethod}
-                          onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                          className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                        >
-                          <option value="transfer">ໂອນເງິນ</option>
-                          <option value="cash">ເງິນສົດ</option>
-                        </select>
-                      </label>
-                    </div>
+                    {hasOutstandingBalance ? (
+                      <>
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                          <label className="text-sm font-bold text-slate-700">
+                            ຈຳນວນເງິນທີ່ຮັບຕອນນີ້
+                            <input
+                              type="number"
+                              min={0}
+                              max={customerOutstanding}
+                              value={paymentAmount}
+                              onChange={(e) => setPaymentAmount(Number(e.target.value))}
+                              disabled={requestSubmitted}
+                              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                            />
+                          </label>
+                          <label className="text-sm font-bold text-slate-700">
+                            ຮູບແບບການຊຳລະ
+                            <select
+                              value={paymentMethod}
+                              onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                              disabled={requestSubmitted}
+                              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                            >
+                              <option value="transfer">ໂອນເງິນ</option>
+                              <option value="cash">ເງິນສົດ</option>
+                            </select>
+                          </label>
+                        </div>
 
-                    <label className="mt-4 block text-sm font-bold text-slate-700">
-                      ວັນທີ/ເວລາຊຳລະ
+                        <label className="mt-4 block text-sm font-bold text-slate-700">
+                          ວັນທີ/ເວລາຊຳລະ
+                          <input
+                            type="datetime-local"
+                            value={paymentDate}
+                            onChange={(e) => setPaymentDate(e.target.value)}
+                            disabled={requestSubmitted}
+                            className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                          />
+                        </label>
+
+                        <label className="mt-4 block text-sm font-bold text-slate-700">
+                          ແນບສະລິບການໂອນເງິນ
+                          <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4">
+                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white">
+                              <FileUp size={16} />
+                              ເລືອກໄຟລ໌
+                              <input
+                                type="file"
+                                accept="image/*,.pdf"
+                                className="hidden"
+                                disabled={requestSubmitted}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] || null;
+                                  setTransferSlipFile(file);
+                                  if (transferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(transferSlipPreviewUrl);
+                                  setTransferSlipPreviewUrl(
+                                    file && file.type.startsWith("image/") ? URL.createObjectURL(file) : activeRequest?.transfer_slip_url || null
+                                  );
+                                }}
+                              />
+                            </label>
+                            <div className="mt-3 text-xs font-semibold text-slate-500">
+                              {transferSlipFile?.name || activeRequest?.transfer_slip_path || "ຍັງບໍ່ໄດ້ແນບໄຟລ໌"}
+                            </div>
+                            {transferSlipPreviewUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={transferSlipPreviewUrl} alt="transfer slip" className="mt-3 h-48 w-full rounded-2xl border border-slate-200 object-cover" />
+                            ) : null}
+                          </div>
+                        </label>
+                      </>
+                    ) : (
+                      <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                        ອໍເດີນີ້ບໍ່ມີຍອດຄ້າງຊຳລະແລ້ວ ສາມາດບັນທຶກຄຳຂໍຈັດສົ່ງໄດ້ເລີຍ.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <label className="text-sm font-bold text-slate-700">
+                      ຊື່ຜູ້ຮັບ
                       <input
-                        type="datetime-local"
-                        value={paymentDate}
-                        onChange={(e) => setPaymentDate(e.target.value)}
+                        value={transportReceiverName}
+                        onChange={(e) => setTransportReceiverName(e.target.value)}
+                        disabled={requestSubmitted}
                         className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </label>
-                  </>
-                ) : (
-                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-                    ອໍເດີນີ້ບໍ່ມີຍອດຄ້າງຊຳລະແລ້ວ ສາມາດກົດຈັດສົ່ງໄດ້ເລີຍ.
+                    <label className="text-sm font-bold text-slate-700">
+                      ເບີຜູ້ຮັບ
+                      <input
+                        value={transportReceiverPhone}
+                        onChange={(e) => setTransportReceiverPhone(e.target.value)}
+                        disabled={requestSubmitted}
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-slate-700">
+                      ຝາກສາຂາ
+                      <input
+                        value={transportBranch}
+                        onChange={(e) => setTransportBranch(e.target.value)}
+                        disabled={requestSubmitted}
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-slate-700">
+                      ເມືອງ
+                      <input
+                        value={transportCity}
+                        onChange={(e) => setTransportCity(e.target.value)}
+                        disabled={requestSubmitted}
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-slate-700 sm:col-span-2">
+                      ແຂວງ
+                      <input
+                        value={transportProvince}
+                        onChange={(e) => setTransportProvince(e.target.value)}
+                        disabled={requestSubmitted}
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                    </label>
+                    <div className="sm:col-span-2">
+                      <label className="mb-2 block text-sm font-bold text-slate-700">ຝາກຂົນສົ່ງ</label>
+                      <div className="flex flex-wrap gap-2">
+                        {["Anousith Express", "HAL Logistic", "Mixay Express"].map((provider) => {
+                          const checked = transportProviders.includes(provider);
+                          return (
+                            <label
+                              key={provider}
+                              className={`flex cursor-pointer items-center rounded-xl border px-3 py-2 text-sm font-bold ${
+                                checked ? "border-orange-300 bg-orange-50 text-orange-800" : "border-slate-200 bg-white text-slate-600"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={requestSubmitted}
+                                onChange={() =>
+                                  setTransportProviders((prev) =>
+                                    prev.includes(provider) ? prev.filter((item) => item !== provider) : [...prev, provider]
+                                  )
+                                }
+                                className="mr-2"
+                              />
+                              {provider}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="mb-2 block text-sm font-bold text-slate-700">ຄ່າຂົນສົ່ງ</label>
+                      <div className="flex flex-wrap gap-2">
+                        <label className={`flex cursor-pointer items-center rounded-xl border px-3 py-2 text-sm font-bold ${transportChargeMode === "destination" ? "border-orange-300 bg-orange-50 text-orange-800" : "border-slate-200 bg-white text-slate-600"}`}>
+                          <input type="radio" checked={transportChargeMode === "destination"} disabled={requestSubmitted} onChange={() => setTransportChargeMode("destination")} className="mr-2" />
+                          ຈ່າຍປາຍທາງ
+                        </label>
+                        <label className={`flex cursor-pointer items-center rounded-xl border px-3 py-2 text-sm font-bold ${transportChargeMode === "origin" ? "border-orange-300 bg-orange-50 text-orange-800" : "border-slate-200 bg-white text-slate-600"}`}>
+                          <input type="radio" checked={transportChargeMode === "origin"} disabled={requestSubmitted} onChange={() => setTransportChargeMode("origin")} className="mr-2" />
+                          ຈ່າຍຕົ້ນທາງ
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -771,6 +1084,7 @@ export default function ShipmentsPage() {
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     rows={3}
+                    disabled={requestSubmitted}
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </label>
@@ -791,13 +1105,33 @@ export default function ShipmentsPage() {
                 <div className="mt-5 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    onClick={() => void submitShipment()}
-                    disabled={saving || shipmentLocked}
+                    onClick={() => void saveDeliveryRequest("draft")}
+                    disabled={saving || shipmentLocked || requestSubmitted}
                     className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
                   >
                     <PackageCheck size={18} />
-                    {saving ? "ກຳລັງບັນທຶກ..." : shipmentLocked ? "ອໍເດີນີ້ສົ່ງແລ້ວ" : "ຢືນຢັນການຈັດສົ່ງ"}
+                    {saving
+                      ? "ກຳລັງບັນທຶກ..."
+                      : shipmentLocked
+                        ? "ອໍເດີນີ້ສົ່ງແລ້ວ"
+                        : requestSubmitted
+                          ? "ສົ່ງຂໍອະນຸມັດແລ້ວ"
+                          : deliveryMethod === "transport"
+                          ? "ບັນທຶກບິນ ແລະ ການຈັດສົ່ງ"
+                          : "ບັນທຶກຮ່າງການຈັດສົ່ງ"}
                   </button>
+
+                  {!shipmentLocked ? (
+                    <button
+                      type="button"
+                      onClick={() => void saveDeliveryRequest("submitted")}
+                      disabled={saving || requestSubmitted}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm font-black text-amber-800 shadow-sm transition hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      <PackageCheck size={18} />
+                      {requestSubmitted ? "ລໍຖ້າອະນຸມັດ" : "ສົ່ງຂໍອະນຸມັດ"}
+                    </button>
+                  ) : null}
 
                   {shipmentLocked ? (
                     <button

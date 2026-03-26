@@ -15,6 +15,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
   const frameRef = useRef<number | null>(null);
 
   const [active, setActive] = useState(false);
+  const [opened, setOpened] = useState(false);
   const [supported, setSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,7 +33,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
     };
   }, []);
 
-  const stopScanner = () => {
+  const stopScanner = (collapse = false) => {
     if (frameRef.current) {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
@@ -42,6 +43,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
       streamRef.current = null;
     }
     setActive(false);
+    if (collapse) setOpened(false);
   };
 
   const scanFrame = () => {
@@ -65,7 +67,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
 
           if (result?.data?.trim()) {
             onDetected(result.data);
-            stopScanner();
+            stopScanner(true);
             return;
           }
         }
@@ -78,6 +80,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
   const startScanner = async () => {
     if (active) return;
     setError(null);
+    setOpened(true);
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("ອຸປະກອນນີ້ບໍ່ຮອງຮັບການເປີດກ້ອງ");
@@ -115,7 +118,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
         </div>
         <button
           type="button"
-          onClick={active ? stopScanner : () => void startScanner()}
+          onClick={active ? () => stopScanner(true) : () => void startScanner()}
           className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-black shadow-sm transition ${
             active ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-emerald-600 text-white hover:bg-emerald-700"
           }`}
@@ -125,17 +128,23 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
         </button>
       </div>
 
-      <div className="relative mt-4 overflow-hidden rounded-3xl bg-slate-950">
-        <video ref={videoRef} className="aspect-[3/4] w-full object-cover" playsInline muted />
-        <canvas ref={canvasRef} className="hidden" />
-        {!active && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/80 text-center text-white">
-            <ScanLine size={28} />
-            <div className="text-sm font-bold">{supported ? "ເປີດກ້ອງ ແລະ ຈັດ QR ໃຫ້ຢູ່ໃນກອບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງ"}</div>
-          </div>
-        )}
-        {active && <div className="pointer-events-none absolute inset-6 rounded-[2rem] border-2 border-emerald-400/90" />}
-      </div>
+      {opened ? (
+        <div className="relative mt-4 overflow-hidden rounded-3xl bg-slate-950">
+          <video ref={videoRef} className="aspect-[3/4] w-full object-cover" playsInline muted />
+          <canvas ref={canvasRef} className="hidden" />
+          {!active && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/80 text-center text-white">
+              <ScanLine size={28} />
+              <div className="text-sm font-bold">{supported ? "ເປີດກ້ອງ ແລະ ຈັດ QR ໃຫ້ຢູ່ໃນກອບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງ"}</div>
+            </div>
+          )}
+          {active && <div className="pointer-events-none absolute inset-6 rounded-[2rem] border-2 border-emerald-400/90" />}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm font-medium text-slate-500">
+          ໜ້າ monitor ຖືກຊ່ອນໄວ້ ກົດ `ສະແກນ` ເມື່ອຕ້ອງການເປີດກ້ອງ.
+        </div>
+      )}
 
       {!supported && (
         <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">

@@ -85,6 +85,8 @@ const nav: NavItem[] = [
   { type: "link", href: "/factory-receipts", label: "ຮັບສິນຄ້າເຂົ້າ", icon: PackagePlus },
   { type: "link", href: "/factory-receipts/orders", label: "ລາຍການອໍເດີນຳເຂົ້າ", icon: ClipboardList },
   { type: "link", href: "/shipments", label: "ຈັດສົ່ງສິນຄ້າ", icon: Truck },
+  { type: "link", href: "/shipments/notes", label: "ລາຍການໃບຝາກເຄື່ອງ", icon: ClipboardList },
+  { type: "link", href: "/shipments/approvals", label: "ອະນຸມັດສົ່ງມອບ", icon: ClipboardList },
   { type: "link", href: "/shipments/orders", label: "ລາຍການອໍເດີຈັດສົ່ງ", icon: ClipboardList },
   { type: "link", href: "/change-requests", label: "ຄຳຂໍລໍຖ້າອະນຸມັດ", icon: ClipboardList },
 ];

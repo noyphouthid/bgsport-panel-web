@@ -9,6 +9,7 @@ const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphi
 
 const ROUTE_RULES: RouteRule[] = [
   { prefix: "/users", roles: ["superadmin"] },
+  { prefix: "/shipments/approvals", roles: ["superadmin"] },
   { prefix: "/imports", roles: ["superadmin", "manager"] },
   { prefix: "/fabric", roles: ["superadmin", "manager"] },
   { prefix: "/settings", roles: ["superadmin", "manager"] },

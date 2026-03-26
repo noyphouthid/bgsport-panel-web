@@ -57,6 +57,16 @@ type UserRow = {
   role: AppRole;
 };
 
+function getPrimaryDocumentCode(row: Pick<DepositRow, "quotation_quote_no" | "order_code" | "deposit_no">) {
+  return row.quotation_quote_no?.trim() || row.order_code?.trim() || row.deposit_no.trim();
+}
+
+function getSecondaryDocumentCode(row: Pick<DepositRow, "quotation_quote_no" | "order_code" | "deposit_no">) {
+  const primary = getPrimaryDocumentCode(row);
+  const candidates = [row.order_code?.trim(), row.deposit_no.trim()].filter((value): value is string => Boolean(value && value !== primary));
+  return candidates.join(" / ");
+}
+
 function toLocalDateInputValue(date = new Date()) {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000;
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
@@ -396,10 +406,8 @@ export default function FactoryDepositOrdersPage() {
                 filteredRows.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/70">
                     <td className="p-3">
-                      <div className="font-black text-slate-900">{row.deposit_no}</div>
-                      <div className="text-xs font-medium text-slate-500">
-                        {row.order_code || "-"} / {row.quotation_quote_no || "-"}
-                      </div>
+                      <div className="font-black text-slate-900">{getPrimaryDocumentCode(row)}</div>
+                      <div className="text-xs font-medium text-slate-500">{getSecondaryDocumentCode(row) || "-"}</div>
                     </td>
                     <td className="p-3">
                       <div className="font-bold text-slate-900">{row.customer_name || "-"}</div>
