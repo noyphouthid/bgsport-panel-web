@@ -215,6 +215,12 @@ export default function FactoryDepositOrderFormPage() {
           if (!data) throw new Error("ບໍ່ພົບໃບມັດຈຳສັ່ງຜະລິດ");
 
           const row = data as DepositOrderRow;
+          if (currentUser?.role !== "superadmin" && row.created_by_user_id !== currentUser?.id) {
+            toast.error("ທ່ານສາມາດເບິ່ງໄດ້ສະເພາະໃບມັດຈຳທີ່ຕົນເອງສ້າງ");
+            router.replace("/factory-deposit-orders");
+            return;
+          }
+
           setRecordId(row.id);
           setStatus(row.status);
           setDepositNo(row.deposit_no);
@@ -297,7 +303,7 @@ export default function FactoryDepositOrderFormPage() {
     };
 
     void load();
-  }, [draftId, editId]);
+  }, [draftId, editId, router]);
 
   const selectedFabric = useMemo(() => fabrics.find((item) => item.id === fabricId) ?? null, [fabrics, fabricId]);
   const adminOptions = useMemo(

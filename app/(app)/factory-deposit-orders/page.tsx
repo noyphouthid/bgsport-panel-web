@@ -49,6 +49,7 @@ type DepositRow = {
   net_total: number;
   balance: number;
   order_id: string | null;
+  created_by_user_id: string | null;
 };
 
 type UserRow = {
@@ -111,6 +112,7 @@ export default function FactoryDepositOrdersPage() {
   const filteredRows = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return rows.filter((row) => {
+      if (viewerRole !== "superadmin" && row.created_by_user_id !== viewerUserId) return false;
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
       if (!keyword) return true;
       return [row.deposit_no, row.order_code || "", row.quotation_quote_no || "", row.customer_name || "", row.factory_bill_code || ""]
@@ -118,7 +120,7 @@ export default function FactoryDepositOrdersPage() {
         .toLowerCase()
         .includes(keyword);
     });
-  }, [query, rows, statusFilter]);
+  }, [query, rows, statusFilter, viewerRole, viewerUserId]);
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
