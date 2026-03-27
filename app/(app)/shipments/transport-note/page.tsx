@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { ArrowLeft, Save } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import type { AppRole } from "@/lib/access-control";
 import {
   buildTransportNoteNo,
   DEFAULT_TRANSPORT_NOTE_FORM,
@@ -38,6 +39,8 @@ export default function TransportNotePage() {
   const [loading, setLoading] = useState(Boolean(noteId));
   const [currentNote, setCurrentNote] = useState<TransportNoteRow | null>(null);
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
+  const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -45,8 +48,9 @@ export default function TransportNotePage() {
       const authUserId = sessionData.session?.user.id;
       if (!authUserId) return;
 
-      const { data } = await supabase.from("users").select("id").eq("auth_user_id", authUserId).maybeSingle();
+      const { data } = await supabase.from("users").select("id,role").eq("auth_user_id", authUserId).maybeSingle();
       if (data?.id) setViewerUserId(String(data.id));
+      if (data?.role) setViewerRole(data.role as AppRole);
     };
 
     const loadNote = async () => {
@@ -78,6 +82,19 @@ export default function TransportNotePage() {
     void loadNote();
   }, [noteId]);
 
+  useEffect(() => {
+    if (!currentNote || !viewerUserId) return;
+    if (viewerRole === "superadmin") {
+      setAccessDenied(false);
+      return;
+    }
+    const denied = currentNote.created_by_user_id !== viewerUserId;
+    setAccessDenied(denied);
+    if (denied) {
+      toast.error("ທ່ານສາມາດເບິ່ງ ຫຼື ແກ້ໄຂໄດ້ສະເພາະໃບບິນທີ່ຕົນເອງສ້າງ");
+    }
+  }, [currentNote, viewerRole, viewerUserId]);
+
   const transporterText = useMemo(() => form.transporters.join(", "), [form.transporters]);
   const shippingModeText = form.shippingChargeMode === "origin" ? "ຈ່າຍຕົ້ນທາງ" : "ຈ່າຍປາຍທາງ";
 
@@ -97,6 +114,10 @@ export default function TransportNotePage() {
   const handleSave = async () => {
     if (!form.receiverName.trim()) {
       toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ຮັບ");
+      return;
+    }
+    if (accessDenied) {
+      toast.error("ທ່ານບໍ່ມີສິດແກ້ໄຂໃບບິນນີ້");
       return;
     }
     if (!form.receiverPhone.trim()) {
@@ -180,6 +201,10 @@ export default function TransportNotePage() {
           {loading ? (
             <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm font-medium text-slate-500">
               ກຳລັງໂຫຼດຂໍ້ມູນ...
+            </div>
+          ) : accessDenied ? (
+            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-10 text-center text-sm font-medium text-rose-700">
+              ທ່ານບໍ່ມີສິດເບິ່ງ ຫຼື ແກ້ໄຂໃບບິນນີ້
             </div>
           ) : (
             <div className="mt-5 space-y-4">

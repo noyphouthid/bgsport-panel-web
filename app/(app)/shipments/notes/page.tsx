@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { Pencil, Printer, Search, Trash2, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import type { AppRole } from "@/lib/access-control";
 import { getTransportNoteDisplayNo, getTransportNotePrintHtml, type TransportNoteRow } from "@/lib/transport-notes";
 
 type OrderRow = {
@@ -18,6 +19,7 @@ type UserRow = {
   full_name: string;
   email: string | null;
   auth_user_id: string | null;
+  role?: AppRole;
 };
 
 type SourceFilter = "all" | "standalone" | "shipment_request";
@@ -76,13 +78,15 @@ export default function ShipmentNotesPage() {
   const [loading, setLoading] = useState(true);
   const [printing, setPrinting] = useState(false);
   const [currentPrinter, setCurrentPrinter] = useState("");
+  const [viewerUserId, setViewerUserId] = useState<string | null>(null);
+  const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
 
   const load = async () => {
     setLoading(true);
     const [{ data: noteData, error: noteError }, { data: sessionData }, { data: userData }] = await Promise.all([
       supabase.from("transport_notes").select("*").order("created_at", { ascending: false }),
       supabase.auth.getSession(),
-      supabase.from("users").select("id,full_name,email,auth_user_id"),
+      supabase.from("users").select("id,full_name,email,auth_user_id,role"),
     ]);
 
     if (noteError) {
@@ -111,9 +115,11 @@ export default function ShipmentNotesPage() {
     const authUserId = sessionData.session?.user.id ?? null;
     const sessionEmail = String(sessionData.session?.user.email || "").trim().toLowerCase();
     const matchedUser =
-      (((userData ?? []) as Array<{ full_name?: string | null; email?: string | null; auth_user_id?: string | null }>).find(
+      (((userData ?? []) as Array<{ id?: string | null; full_name?: string | null; email?: string | null; auth_user_id?: string | null; role?: AppRole | null }>).find(
         (item) => item.auth_user_id === authUserId || (!!sessionEmail && String(item.email || "").trim().toLowerCase() === sessionEmail)
-      ) as { full_name?: string | null } | undefined) || null;
+      ) as { id?: string | null; full_name?: string | null; role?: AppRole | null } | undefined) || null;
+    setViewerUserId(String(matchedUser?.id || ""));
+    setViewerRole((matchedUser?.role as AppRole | null) || null);
     setCurrentPrinter(String(matchedUser?.full_name || sessionData.session?.user.email || "").trim());
     setLoading(false);
   };
@@ -128,6 +134,7 @@ export default function ShipmentNotesPage() {
   const filteredRows = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return rows.filter((row) => {
+      if (viewerRole !== "superadmin" && row.created_by_user_id !== viewerUserId) return false;
       if (sourceFilter !== "all" && row.source_type !== sourceFilter) return false;
       if (printFilter === "printed" && !(Number(row.print_count) > 0 || row.printed_at || row.last_printed_at)) return false;
       if (printFilter === "unprinted" && (Number(row.print_count) > 0 || row.printed_at || row.last_printed_at)) return false;
@@ -156,7 +163,7 @@ export default function ShipmentNotesPage() {
         .toLowerCase()
         .includes(keyword);
     });
-  }, [adminFilter, fromDate, ordersById, printFilter, query, rows, sourceFilter, toDate, usersById]);
+  }, [adminFilter, fromDate, ordersById, printFilter, query, rows, sourceFilter, toDate, usersById, viewerRole, viewerUserId]);
 
   const adminOptions = useMemo(() => {
     const usedIds = new Set(rows.map((row) => row.created_by_user_id).filter((value): value is string => Boolean(value)));
@@ -305,14 +312,20 @@ export default function ShipmentNotesPage() {
             <option value="printed">ພິມແລ້ວ</option>
             <option value="unprinted">ຍັງບໍ່ພິມ</option>
           </select>
-          <select value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="all">ທຸກແອັດມິນ</option>
-            {adminOptions.map((admin) => (
-              <option key={admin.id} value={admin.id}>
-                {admin.full_name}
-              </option>
-            ))}
-          </select>
+          {viewerRole === "superadmin" ? (
+            <select value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="all">ທຸກແອັດມິນ</option>
+              {adminOptions.map((admin) => (
+                <option key={admin.id} value={admin.id}>
+                  {admin.full_name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
+              {viewerUserId ? usersById[viewerUserId]?.full_name || currentPrinter || "-" : currentPrinter || "-"}
+            </div>
+          )}
           <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500" />
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500" />
         </div>

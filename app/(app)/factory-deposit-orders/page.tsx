@@ -67,21 +67,13 @@ function getSecondaryDocumentCode(row: Pick<DepositRow, "quotation_quote_no" | "
   return candidates.join(" / ");
 }
 
-function toLocalDateInputValue(date = new Date()) {
-  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
-}
-
 export default function FactoryDepositOrdersPage() {
-  const today = useMemo(() => toLocalDateInputValue(), []);
   const [rows, setRows] = useState<DepositRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [fromDate, setFromDate] = useState(today);
-  const [toDate, setToDate] = useState(today);
   const [statusFilter, setStatusFilter] = useState<FactoryDepositOrderStatus | "all">("all");
   const [workingId, setWorkingId] = useState<string | null>(null);
 
@@ -119,8 +111,6 @@ export default function FactoryDepositOrdersPage() {
   const filteredRows = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return rows.filter((row) => {
-      if (fromDate && row.deposit_date < fromDate) return false;
-      if (toDate && row.deposit_date > toDate) return false;
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
       if (!keyword) return true;
       return [row.deposit_no, row.order_code || "", row.quotation_quote_no || "", row.customer_name || "", row.factory_bill_code || ""]
@@ -128,7 +118,7 @@ export default function FactoryDepositOrdersPage() {
         .toLowerCase()
         .includes(keyword);
     });
-  }, [fromDate, query, rows, statusFilter, toDate]);
+  }, [query, rows, statusFilter]);
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -351,19 +341,7 @@ export default function FactoryDepositOrdersPage() {
       </div>
 
       <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-4 grid gap-3 md:grid-cols-[180px,180px,220px,1fr,180px]">
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500"
-          />
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500"
-          />
+        <div className="mb-4 grid gap-3 md:grid-cols-[220px,1fr,180px]">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as FactoryDepositOrderStatus | "all")}
