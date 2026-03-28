@@ -375,15 +375,15 @@ export default function ShipmentsPage() {
       toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ຈັດສົ່ງ");
       return;
     }
-    if (deliveryMethod === "pickup" && paymentAmount < 0) {
+    if (paymentAmount < 0) {
       toast.error("ຈຳນວນເງິນຕ້ອງບໍ່ຕິດລົບ");
       return;
     }
-    if (deliveryMethod === "pickup" && paymentAmount > customerOutstanding) {
+    if (paymentAmount > customerOutstanding) {
       toast.error("ຈຳນວນເງິນເກີນຍອດຄ້າງຊຳລະ");
       return;
     }
-    if (deliveryMethod === "pickup" && paymentAmount > 0 && paymentMethod === "transfer" && !transferSlipFile && !activeRequest?.transfer_slip_url) {
+    if (paymentAmount > 0 && paymentMethod === "transfer" && !transferSlipFile && !activeRequest?.transfer_slip_url) {
       toast.error("ກະລຸນາແນບສະລິບການໂອນເງິນ");
       return;
     }
@@ -405,7 +405,7 @@ export default function ShipmentsPage() {
     setSaving(true);
     try {
       const scheduledAtIso = new Date(shippedAt).toISOString();
-      const paymentAtIso = deliveryMethod === "pickup" && paymentAmount > 0 ? new Date(paymentDate).toISOString() : null;
+      const paymentAtIso = paymentAmount > 0 ? new Date(paymentDate).toISOString() : null;
       const uploadedSlip = await uploadTransferSlipIfNeeded(active.order.id, active.label.id);
 
       const payload = {
@@ -419,13 +419,13 @@ export default function ShipmentsPage() {
         delivery_person_name: shippedBy.trim(),
         note: note.trim() || null,
         payment_outstanding_amount: customerOutstanding,
-        payment_amount: deliveryMethod === "pickup" ? paymentAmount : 0,
-        payment_method: deliveryMethod === "pickup" && paymentAmount > 0 ? paymentMethod : null,
-        payment_paid_at: deliveryMethod === "pickup" ? paymentAtIso : null,
-        transfer_slip_path: deliveryMethod === "pickup" ? uploadedSlip.path : null,
-        transfer_slip_url: deliveryMethod === "pickup" ? uploadedSlip.url : null,
-        transfer_slip_uploaded_at: deliveryMethod === "pickup" && uploadedSlip.path ? new Date().toISOString() : null,
-        transfer_slip_uploaded_by_user_id: deliveryMethod === "pickup" && uploadedSlip.path ? viewerUserId : null,
+        payment_amount: paymentAmount,
+        payment_method: paymentAmount > 0 ? paymentMethod : null,
+        payment_paid_at: paymentAmount > 0 ? paymentAtIso : null,
+        transfer_slip_path: paymentAmount > 0 ? uploadedSlip.path : null,
+        transfer_slip_url: paymentAmount > 0 ? uploadedSlip.url : null,
+        transfer_slip_uploaded_at: paymentAmount > 0 && uploadedSlip.path ? new Date().toISOString() : null,
+        transfer_slip_uploaded_by_user_id: paymentAmount > 0 && uploadedSlip.path ? viewerUserId : null,
         transport_receiver_name: deliveryMethod === "transport" ? transportReceiverName.trim() : null,
         transport_receiver_phone: deliveryMethod === "transport" ? transportReceiverPhone.trim() : null,
         transport_branch: deliveryMethod === "transport" ? transportBranch.trim() : null,
@@ -907,86 +907,84 @@ export default function ShipmentsPage() {
                   </label>
                 </div>
 
-                {deliveryMethod === "pickup" ? (
+                {hasOutstandingBalance ? (
                   <>
-                    {hasOutstandingBalance ? (
-                      <>
-                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                          <label className="text-sm font-bold text-slate-700">
-                            ຈຳນວນເງິນທີ່ຮັບຕອນນີ້
-                            <input
-                              type="number"
-                              min={0}
-                              max={customerOutstanding}
-                              value={paymentAmount}
-                              onChange={(e) => setPaymentAmount(Number(e.target.value))}
-                              disabled={requestSubmitted}
-                              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </label>
-                          <label className="text-sm font-bold text-slate-700">
-                            ຮູບແບບການຊຳລະ
-                            <select
-                              value={paymentMethod}
-                              onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                              disabled={requestSubmitted}
-                              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                            >
-                              <option value="transfer">ໂອນເງິນ</option>
-                              <option value="cash">ເງິນສົດ</option>
-                            </select>
-                          </label>
-                        </div>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <label className="text-sm font-bold text-slate-700">
+                        {deliveryMethod === "transport" ? "ຈຳນວນເງິນຄ້າງມັດຈຳທີ່ເກັບຕອນຝາກຂົນສົ່ງ" : "ຈຳນວນເງິນທີ່ຮັບຕອນນີ້"}
+                        <input
+                          type="number"
+                          min={0}
+                          max={customerOutstanding}
+                          value={paymentAmount}
+                          onChange={(e) => setPaymentAmount(Number(e.target.value))}
+                          disabled={requestSubmitted}
+                          className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">
+                        ຮູບແບບການຊຳລະ
+                        <select
+                          value={paymentMethod}
+                          onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                          disabled={requestSubmitted}
+                          className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                        >
+                          <option value="transfer">ໂອນເງິນ</option>
+                          <option value="cash">ເງິນສົດ</option>
+                        </select>
+                      </label>
+                    </div>
 
-                        <label className="mt-4 block text-sm font-bold text-slate-700">
-                          ວັນທີ/ເວລາຊຳລະ
+                    <label className="mt-4 block text-sm font-bold text-slate-700">
+                      ວັນທີ/ເວລາຊຳລະ
+                      <input
+                        type="datetime-local"
+                        value={paymentDate}
+                        onChange={(e) => setPaymentDate(e.target.value)}
+                        disabled={requestSubmitted}
+                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                    </label>
+
+                    <label className="mt-4 block text-sm font-bold text-slate-700">
+                      ແນບສະລິບການໂອນເງິນ
+                      <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4">
+                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white">
+                          <FileUp size={16} />
+                          ເລືອກໄຟລ໌
                           <input
-                            type="datetime-local"
-                            value={paymentDate}
-                            onChange={(e) => setPaymentDate(e.target.value)}
+                            type="file"
+                            accept="image/*,.pdf"
+                            className="hidden"
                             disabled={requestSubmitted}
-                            className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              setTransferSlipFile(file);
+                              if (transferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(transferSlipPreviewUrl);
+                              setTransferSlipPreviewUrl(
+                                file && file.type.startsWith("image/") ? URL.createObjectURL(file) : activeRequest?.transfer_slip_url || null
+                              );
+                            }}
                           />
                         </label>
-
-                        <label className="mt-4 block text-sm font-bold text-slate-700">
-                          ແນບສະລິບການໂອນເງິນ
-                          <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4">
-                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white">
-                              <FileUp size={16} />
-                              ເລືອກໄຟລ໌
-                              <input
-                                type="file"
-                                accept="image/*,.pdf"
-                                className="hidden"
-                                disabled={requestSubmitted}
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0] || null;
-                                  setTransferSlipFile(file);
-                                  if (transferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(transferSlipPreviewUrl);
-                                  setTransferSlipPreviewUrl(
-                                    file && file.type.startsWith("image/") ? URL.createObjectURL(file) : activeRequest?.transfer_slip_url || null
-                                  );
-                                }}
-                              />
-                            </label>
-                            <div className="mt-3 text-xs font-semibold text-slate-500">
-                              {transferSlipFile?.name || activeRequest?.transfer_slip_path || "ຍັງບໍ່ໄດ້ແນບໄຟລ໌"}
-                            </div>
-                            {transferSlipPreviewUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={transferSlipPreviewUrl} alt="transfer slip" className="mt-3 h-48 w-full rounded-2xl border border-slate-200 object-cover" />
-                            ) : null}
-                          </div>
-                        </label>
-                      </>
-                    ) : (
-                      <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-                        ອໍເດີນີ້ບໍ່ມີຍອດຄ້າງຊຳລະແລ້ວ ສາມາດບັນທຶກຄຳຂໍຈັດສົ່ງໄດ້ເລີຍ.
+                        <div className="mt-3 text-xs font-semibold text-slate-500">
+                          {transferSlipFile?.name || activeRequest?.transfer_slip_path || "ຍັງບໍ່ໄດ້ແນບໄຟລ໌"}
+                        </div>
+                        {transferSlipPreviewUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={transferSlipPreviewUrl} alt="transfer slip" className="mt-3 h-48 w-full rounded-2xl border border-slate-200 object-cover" />
+                        ) : null}
                       </div>
-                    )}
+                    </label>
                   </>
                 ) : (
+                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                    ອໍເດີນີ້ບໍ່ມີຍອດຄ້າງຊຳລະແລ້ວ ສາມາດບັນທຶກຄຳຂໍຈັດສົ່ງໄດ້ເລີຍ.
+                  </div>
+                )}
+
+                {deliveryMethod === "transport" ? (
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <label className="text-sm font-bold text-slate-700">
                       ຊື່ຜູ້ຮັບ
@@ -1076,7 +1074,7 @@ export default function ShipmentsPage() {
                       </div>
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 <label className="mt-4 block text-sm font-bold text-slate-700">
                   ໝາຍເຫດ
