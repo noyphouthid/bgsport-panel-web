@@ -139,7 +139,7 @@ function toPositiveInt(value: unknown) {
   return Math.max(0, Number(value) || 0);
 }
 
-function parseProductionPreviewItems(raw: unknown) {
+function parseProductionPreviewItems(raw: unknown): ProductionPreviewItem[] {
   if (!Array.isArray(raw)) return [] as ProductionPreviewItem[];
   return raw.slice(0, 4).map((entry, index) => {
     const row = typeof entry === "object" && entry ? (entry as Record<string, unknown>) : {};
@@ -163,12 +163,15 @@ function parseProductionPreviewItems(raw: unknown) {
         row.player_mode === "none"
           ? (row.player_mode as ProductionPlayerMode)
           : "none",
-      player_rows: nestedPlayers.map((player, playerIndex) => {
+      player_rows: nestedPlayers.map((player, playerIndex): ProductionPlayerRow => {
         const playerRow = typeof player === "object" && player ? (player as Record<string, unknown>) : {};
         const sizeValue = typeof playerRow.size === "string" ? playerRow.size : "";
+        const parsedSize: ProductionPlayerRow["size"] = PRODUCTION_SIZE_FIELDS.some((field) => field.key === sizeValue)
+          ? (sizeValue as ProductionSizeKey)
+          : "";
         return {
           id: typeof playerRow.id === "string" ? playerRow.id : `player-${index}-${playerIndex}`,
-          size: PRODUCTION_SIZE_FIELDS.some((field) => field.key === sizeValue) ? (sizeValue as ProductionSizeKey) : "",
+          size: parsedSize,
           player_name: typeof playerRow.player_name === "string" ? playerRow.player_name : "",
           jersey_number: typeof playerRow.jersey_number === "string" ? playerRow.jersey_number : "",
           note: typeof playerRow.note === "string" ? playerRow.note : "",
