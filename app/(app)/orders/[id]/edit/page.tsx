@@ -84,11 +84,31 @@ type ImportReceiptInfo = {
   note: string | null;
 };
 
+const ORDER_TYPES = ["PK26", "MK26", "PM26", "MM26"] as const;
+type OrderType = (typeof ORDER_TYPES)[number];
+
 const SIZE_UPCHARGES = {
   "3XL": 20000,
   "4XL": 30000,
   "5XL": 35000,
 } as const;
+
+const inputClassName =
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:ring-2 focus:ring-blue-500";
+
+function parseOrderCode(orderCode: string) {
+  const normalized = String(orderCode || "").trim().toUpperCase();
+  const match = normalized.match(/^([A-Z0-9]+)-(\d+)$/);
+  if (!match) return { orderType: "", orderNo: normalized };
+
+  const [, prefix, orderNo] = match;
+  const orderType = ORDER_TYPES.includes(prefix as OrderType) ? (prefix as OrderType) : "";
+  return { orderType, orderNo };
+}
+
+function buildOrderCode(orderType: OrderType, orderNo: number) {
+  return `${orderType}-${String(orderNo).padStart(3, "0")}`;
+}
 
 export default function EditOrderPage() {
   const params = useParams();
@@ -108,7 +128,8 @@ export default function EditOrderPage() {
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
 
   const [orderDate, setOrderDate] = useState("");
-  const [orderCode, setOrderCode] = useState("");
+  const [orderType, setOrderType] = useState<OrderType | "">("");
+  const [orderNo, setOrderNo] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerWhatsapp, setCustomerWhatsapp] = useState("");
   const [factoryBillCode, setFactoryBillCode] = useState("");
@@ -124,6 +145,7 @@ export default function EditOrderPage() {
   const [qty6XL, setQty6XL] = useState(0);
   const [extraCharge, setExtraCharge] = useState(0);
   const [designDeposit, setDesignDeposit] = useState(0);
+  const [initialDeposit, setInitialDeposit] = useState(0);
   const [factoryCost, setFactoryCost] = useState(0);
   const [customerRemainingDueDate, setCustomerRemainingDueDate] = useState("");
   const [factoryPaymentDueDate, setFactoryPaymentDueDate] = useState("");
@@ -157,9 +179,11 @@ export default function EditOrderPage() {
     const { data, error } = await supabase.from("orders").select("*").eq("id", orderId).single();
     if (error) throw error;
     const o = data as OrderDetail;
+    const parsedOrderCode = parseOrderCode(o.order_code);
     setOrder(o);
     setOrderDate(o.order_date);
-    setOrderCode(o.order_code);
+    setOrderType(parsedOrderCode.orderType);
+    setOrderNo(parsedOrderCode.orderNo);
     setCustomerPhone(o.customer_phone || "");
     setCustomerWhatsapp(o.customer_whatsapp || "");
     setFactoryBillCode(o.factory_bill_code || "");
@@ -175,6 +199,7 @@ export default function EditOrderPage() {
     setQty6XL(o.qty_6xl);
     setExtraCharge(o.extra_charge);
     setDesignDeposit(o.design_deposit);
+    setInitialDeposit(o.initial_deposit);
     setFactoryCost(o.factory_cost);
     setCustomerRemainingDueDate(toDateInput(o.customer_remaining_due_at));
     setFactoryPaymentDueDate(toDateInput(o.factory_payment_due_at));
@@ -329,10 +354,10 @@ export default function EditOrderPage() {
 
   const customerReceived = useMemo(() => {
     const paymentHistoryTotal = customerPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const savedDeposit = Number(order?.initial_deposit || 0);
+    const savedDeposit = Number(initialDeposit || 0);
     const receivedFromBalance = order ? Math.max(0, Number(order.net_total || 0) - Number(order.balance || 0)) : 0;
     return Math.max(paymentHistoryTotal, savedDeposit, receivedFromBalance);
-  }, [customerPayments, order]);
+  }, [customerPayments, initialDeposit, order]);
 
   const customerOutstanding = useMemo(() => Math.max(0, netTotal - customerReceived), [netTotal, customerReceived]);
   const factoryPaid = useMemo(() => factoryPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0), [factoryPayments]);
@@ -345,13 +370,15 @@ export default function EditOrderPage() {
 
   const handleUpdate = async () => {
     if (!order || isReadOnlyAdmin) return;
+    if (!orderType) return toast.error("ກະລຸນາເລືອກ TYPE");
+    if (!orderNo) return toast.error("ກະລຸນາປ້ອນ ORDER No.");
     if (!adminUserId) return toast.error("ກະລຸນາເລືອກ Admin");
     if (!graphicUserId) return toast.error("ກະລຸນາເລືອກ Graphic");
     if (!fabricId) return toast.error("ກະລຸນາເລືອກປະເພດຜ້າ");
 
     const fabric = selectedFabric ?? { id: order.fabric_id, name: order.fabric_name, short_price: order.fabric_short_price, long_add: 0, long_price: order.fabric_long_price, is_active: true };
     const payload = {
-      order_code: orderCode.trim(),
+      order_code: buildOrderCode(orderType, Number(orderNo)),
       order_date: orderDate,
       customer_phone: customerPhone.trim() || null,
       customer_whatsapp: customerWhatsapp.trim() || null,
@@ -655,99 +682,150 @@ export default function EditOrderPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-2 shadow-sm">
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ວັນທີສັ່ງຊື້</label>
-              <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-slate-500" />
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+            <div className="mb-3 border-b border-slate-50 pb-2 text-xs font-bold uppercase tracking-wider text-slate-800">1) ກ່ຽວກັບອໍເດີ</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ວັນທີມັດຈຳສັ່ງຜະລິດ</label>
+                <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputClassName} />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-bold text-slate-700">ລະຫັດອໍເດີ</label>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-slate-700">ປະເພດລະຫັດ</label>
+                    <select value={orderType} onChange={(e) => setOrderType(e.target.value as OrderType | "")} className={`${inputClassName} bg-white`}>
+                      <option value="">ເລືອກ TYPE</option>
+                      {ORDER_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-slate-700">ORDER No.</label>
+                    <input
+                      type="text"
+                      value={orderNo}
+                      onChange={(e) => setOrderNo(e.target.value.replace(/\D/g, ""))}
+                      placeholder="ORDER No."
+                      inputMode="numeric"
+                      className={inputClassName}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ເບີໂທລູກຄ້າ ຫຼື FB (ຖ້າມີ)</label>
+                <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="020xxxxxxxx" className={inputClassName} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ເບີ WhatsApp (ຖ້າມີ)</label>
+                <input value={customerWhatsapp} onChange={(e) => setCustomerWhatsapp(e.target.value)} placeholder="020xxxxxxxx" className={inputClassName} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ບິນໂຮງງານ (ບໍ່ບັງຄັບ)</label>
+                <input value={factoryBillCode} onChange={(e) => setFactoryBillCode(e.target.value)} placeholder="ສາມາດເພີ່ມພາຍຫຼັງໄດ້" className={inputClassName} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">Admin</label>
+                <select value={adminUserId} onChange={(e) => setAdminUserId(e.target.value)} className={`${inputClassName} bg-white font-bold`} disabled={loadingUsers}>
+                  <option value="">ເລືອກ admin</option>
+                  {adminOptions.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">Graphic</label>
+                <select value={graphicUserId} onChange={(e) => setGraphicUserId(e.target.value)} className={`${inputClassName} bg-white font-bold`} disabled={loadingUsers}>
+                  <option value="">ເລືອກ graphic</option>
+                  {graphicOptions.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-bold text-slate-700">ປະເພດຜ້າ</label>
+                <select value={fabricId} onChange={(e) => setFabricId(e.target.value)} className={`${inputClassName} bg-white font-bold`} disabled={loadingFabrics}>
+                  <option value="">{loadingFabrics ? "ກຳລັງໂຫຼດ..." : "ເລືອກປະເພດຜ້າ"}</option>
+                  {fabrics.map((fabric) => <option key={fabric.id} value={fabric.id}>{fabric.name} (ແຂນສັ້ນ:{fabric.short_price.toLocaleString()})</option>)}
+                </select>
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ລະຫັດອໍເດີ</label>
-              <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm font-black text-slate-900" />
+          </div>
+
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+            <div className="mb-3 border-b border-slate-50 pb-2 text-xs font-bold uppercase tracking-wider text-slate-800">2) ຈຳນວນ & ບວກເພີ່ມໄຊສ໌</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ແຂນສັ້ນ</label>
+                <input type="number" min={0} value={shortQty} onChange={(e) => setShortQty(Number(e.target.value))} className={`${inputClassName} font-bold`} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ແຂນຍາວ</label>
+                <input type="number" min={0} value={longQty} onChange={(e) => setLongQty(Number(e.target.value))} className={`${inputClassName} font-bold`} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ຈຳນວນແຖມ (ບໍ່ຄິດເງິນ)</label>
+                <input type="number" min={0} value={freeQty} onChange={(e) => setFreeQty(Number(e.target.value))} className={`${inputClassName} font-bold text-orange-600`} />
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ເບີໂທລູກຄ້າ</label>
-              <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="ເບີໂທລູກຄ້າ" />
+
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">3XL (+20,000)</label>
+                <input type="number" min={0} value={qty3XL} onChange={(e) => setQty3XL(Number(e.target.value))} className={inputClassName} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">4XL (+30,000)</label>
+                <input type="number" min={0} value={qty4XL} onChange={(e) => setQty4XL(Number(e.target.value))} className={inputClassName} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">5XL (+35,000)</label>
+                <input type="number" min={0} value={qty5XL} onChange={(e) => setQty5XL(Number(e.target.value))} className={inputClassName} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">6XL (+35,000)</label>
+                <input type="number" min={0} value={qty6XL} onChange={(e) => setQty6XL(Number(e.target.value))} className={inputClassName} />
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ເບີ WhatsApp</label>
-              <input value={customerWhatsapp} onChange={(e) => setCustomerWhatsapp(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="ເບີ WhatsApp" />
+
+            <div className="mt-4 rounded-lg bg-slate-50 p-2 text-[11px] font-bold uppercase tracking-tight text-slate-500">
+              ຈຳນວນຜະລິດ (ລວມແຖມ): <span className="text-slate-900">{shortQty + longQty + freeQty}</span> | ຈຳນວນຄິດເງິນ: <span className="text-blue-600">{shortQty + longQty}</span>
             </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ລະຫັດບິນໂຮງງານ</label>
-              <input value={factoryBillCode} onChange={(e) => setFactoryBillCode(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500" placeholder="ລະຫັດບິນໂຮງງານ" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ປະເພດຜ້າ</label>
-              <select value={fabricId} onChange={(e) => setFabricId(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900" disabled={loadingFabrics}>
-                <option value="">{loadingFabrics ? "ກຳລັງໂຫຼດ..." : "ເລືອກປະເພດຜ້າ"}</option>
-                {fabrics.map((fabric) => <option key={fabric.id} value={fabric.id}>{fabric.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">Admin</label>
-              <select value={adminUserId} onChange={(e) => setAdminUserId(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900" disabled={loadingUsers}>
-                <option value="">Select admin</option>
-                {adminOptions.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">Graphic</label>
-              <select value={graphicUserId} onChange={(e) => setGraphicUserId(e.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900" disabled={loadingUsers}>
-                <option value="">Select graphic</option>
-                {graphicOptions.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ຈຳນວນແຂນສັ້ນ</label>
-              <input type="number" min={0} value={shortQty} onChange={(e) => setShortQty(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ຈຳນວນແຂນຍາວ</label>
-              <input type="number" min={0} value={longQty} onChange={(e) => setLongQty(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ຈຳນວນແຖມ</label>
-              <input type="number" min={0} value={freeQty} onChange={(e) => setFreeQty(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">3XL (+20,000)</label>
-              <input type="number" min={0} value={qty3XL} onChange={(e) => setQty3XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">4XL (+30,000)</label>
-              <input type="number" min={0} value={qty4XL} onChange={(e) => setQty4XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">5XL (+35,000)</label>
-              <input type="number" min={0} value={qty5XL} onChange={(e) => setQty5XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">6XL (+35,000)</label>
-              <input type="number" min={0} value={qty6XL} onChange={(e) => setQty6XL(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ຕົ້ນທຶນໂຮງງານ</label>
-              <input type="number" min={0} value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm font-bold text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ຄ່າໃຊ້ຈ່າຍເພີ່ມ</label>
-              <input type="number" min={0} value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ມັດຈຳຄ່າອອກແບບ</label>
-              <input type="number" min={0} value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ກຳນົດຊຳລະລູກຄ້າ</label>
-              <input type="date" value={customerRemainingDueDate} onChange={(e) => setCustomerRemainingDueDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ວັນທີຊຳລະໂຮງງານ</label>
-              <input type="date" value={factoryPaymentDueDate} onChange={(e) => setFactoryPaymentDueDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs font-black text-slate-800">ວັນທີຜະລິດສຳເລັດ</label>
-              <input type="date" value={productionCompletedDate} onChange={(e) => setProductionCompletedDate(e.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900" />
+          </div>
+
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+            <div className="mb-3 border-b border-slate-50 pb-2 text-xs font-bold uppercase tracking-wider text-slate-800">3) ຮູບແບບມັດຈຳ & ລາຍການບວກເພີ່ມ</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ)</label>
+                <input type="number" min={0} value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className={`${inputClassName} font-bold`} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ຫັກຄ່າແບບ-ສ່ວນຫຼຸດ</label>
+                <input type="number" min={0} value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} className={`${inputClassName} font-bold text-red-600`} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ເງິນມັດຈຳສັ່ງຜະລິດ</label>
+                <input type="number" min={0} value={initialDeposit} onChange={(e) => setInitialDeposit(Number(e.target.value))} className={`${inputClassName} font-bold text-emerald-600`} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ຕົ້ນທຶນໂຮງງານ</label>
+                <input type="number" min={0} value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} className={`${inputClassName} font-bold`} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ກຳນົດຊຳລະລູກຄ້າ</label>
+                <input type="date" value={customerRemainingDueDate} onChange={(e) => setCustomerRemainingDueDate(e.target.value)} className={inputClassName} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ວັນທີຊຳລະໂຮງງານ</label>
+                <input type="date" value={factoryPaymentDueDate} onChange={(e) => setFactoryPaymentDueDate(e.target.value)} className={inputClassName} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ວັນທີຜະລິດສຳເລັດ</label>
+                <input type="date" value={productionCompletedDate} onChange={(e) => setProductionCompletedDate(e.target.value)} className={inputClassName} />
+              </div>
             </div>
           </div>
 
@@ -777,7 +855,12 @@ export default function EditOrderPage() {
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
             <div className="font-black text-slate-900 border-b pb-2 border-slate-100 mb-2">ສະຫຼຸບອໍເດີ</div>
+            <div className="mt-2 flex justify-between text-slate-800 font-bold"><span>ຈຳນວນສັ່ງທັງໝົດ</span><span className="font-black text-slate-900">{(shortQty + longQty).toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ຈຳນວນແຖມ</span><span className="font-black text-orange-600">{freeQty.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ)</span><span className="font-black text-slate-900">{extraCharge.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ຫັກຄ່າແບບ-ສ່ວນຫຼຸດ</span><span className="font-black text-red-600">-{designDeposit.toLocaleString()}</span></div>
             <div className="mt-2 flex justify-between text-slate-800 font-bold"><span>ຍອດສຸດທິ</span><span className="font-black text-slate-900">{netTotal.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ເງິນມັດຈຳສັ່ງຜະລິດ</span><span className="font-black text-emerald-700">{initialDeposit.toLocaleString()}</span></div>
             <div className="flex justify-between text-slate-800 font-bold"><span>ຮັບແແລ້ວ</span><span className="font-black text-emerald-700">{customerReceived.toLocaleString()}</span></div>
             <div className="flex justify-between text-slate-800 font-bold"><span>ຄ້າງຊຳລະ</span><span className="font-black text-rose-700">{customerOutstanding.toLocaleString()}</span></div>
             <div className="flex justify-between text-slate-800 font-bold"><span>ຕົ້ນທຶນ</span><span className="font-black text-slate-900">{factoryCost.toLocaleString()}</span></div>

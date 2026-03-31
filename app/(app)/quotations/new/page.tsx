@@ -41,6 +41,12 @@ const DEFAULT_TERMS = "ມັດຈຳເຂົ້າຄິວກ່ອນຜະ
 
 const formatMoney = (value: number) => `${Math.max(0, value || 0).toLocaleString()} ກີບ`;
 
+function getLocalDateInputValue() {
+  const now = new Date();
+  const timezoneOffset = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - timezoneOffset).toISOString().slice(0, 10);
+}
+
 const formatDate = (value: string) => {
   if (!value) return "-";
   const date = new Date(`${value}T12:00:00`);
@@ -105,7 +111,7 @@ export default function NewQuotationPage() {
   const [creatingDeposit, setCreatingDeposit] = useState(false);
 
   const [quoteNo, setQuoteNo] = useState(buildQuoteNo());
-  const [quoteDate, setQuoteDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [quoteDate, setQuoteDate] = useState(getLocalDateInputValue);
   const [status, setStatus] = useState<QuotationDraftStatus>("draft");
   const [createdByName, setCreatedByName] = useState("");
 
@@ -228,7 +234,7 @@ export default function NewQuotationPage() {
 
   const resetForm = () => {
     setQuoteNo(buildQuoteNo());
-    setQuoteDate(new Date().toISOString().slice(0, 10));
+    setQuoteDate(getLocalDateInputValue());
     setStatus("draft");
     setCustomerName("");
     setCustomerPhone("");

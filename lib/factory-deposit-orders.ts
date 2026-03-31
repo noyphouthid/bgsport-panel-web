@@ -47,6 +47,10 @@ export type FactoryDepositOrder = {
   customer_phone: string;
   customer_whatsapp: string;
   customer_facebook: string;
+  team_name: string;
+  production_sent_date: string | null;
+  production_priority: "normal" | "urgent";
+  urgent_due_date: string | null;
   fabric_id: string | null;
   fabric_name: string;
   fabric_short_price: number;
@@ -79,6 +83,7 @@ export type FactoryDepositOrder = {
   notes: string;
   warning_note: string;
   factory_deposit_note: string;
+  production_items: unknown[];
   transfer_slip_url: string | null;
   transfer_slip_path: string | null;
   created_by_user_id: string | null;

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
-import { ArrowLeft, Eye, FileImage, FileText, FileUp, Save } from "lucide-react";
+import { ArrowLeft, Eye, FileImage, FileText, FileUp, Printer, Save, Shirt, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import {
@@ -64,6 +64,7 @@ type DepositOrderRow = {
   fabric_id: string | null;
   style_name: string;
   color_name: string;
+  sleeve_type: "short" | "long" | "mixed";
   short_qty: number;
   long_qty: number;
   free_qty: number;
@@ -91,6 +92,42 @@ type DepositOrderRow = {
   admin_user_id: string | null;
   graphic_user_id: string | null;
   created_by_user_id: string | null;
+  team_name?: string | null;
+  production_sent_date?: string | null;
+  production_items?: unknown;
+  production_priority?: "normal" | "urgent" | null;
+  urgent_due_date?: string | null;
+};
+
+type ProductionSleeveType = "short" | "long" | "mixed";
+type ProductionCollarType = "crew" | "polo" | "mandarin" | "v_cut_polo" | "v_neck" | "cross_v" | "cut_v" | "pentagon";
+type ProductionSlotCount = 1 | 2 | 3 | 4;
+type ProductionSizeKey = "xs" | "jxs" | "js" | "jm" | "jl" | "jxl" | "j2xl" | "s" | "m" | "l" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl";
+type ProductionPriority = "normal" | "urgent";
+type ProductionPlayerMode = "none" | "name_only" | "number_only" | "name_and_number";
+
+type ProductionSizeMap = Record<ProductionSizeKey, number>;
+
+type ProductionPlayerRow = {
+  id: string;
+  size: ProductionSizeKey | "";
+  player_name: string;
+  jersey_number: string;
+  note: string;
+};
+
+type ProductionItem = {
+  client_id: string;
+  sleeve_type: ProductionSleeveType;
+  collar_type: ProductionCollarType;
+  mockup_url: string | null;
+  mockup_path: string | null;
+  mockup_file_name: string | null;
+  mockup_file: File | null;
+  mockup_preview_url: string | null;
+  sizes: ProductionSizeMap;
+  player_mode: ProductionPlayerMode;
+  player_rows: ProductionPlayerRow[];
 };
 
 const COLLAR_PRICE = 20000;
@@ -100,7 +137,56 @@ const SIZE_UPCHARGES = {
   "5XL": 35000,
   "6XL": 35000,
 } as const;
-const DEFAULT_TERMS = "ມັດຈຳເຂົ້າຄິວກ່ອນຜະລິດ ແລະ ຊຳລະຍອດທີ່ເຫຼືອຕາມວັນນັດ.";
+const PRODUCTION_MOCKUP_BUCKET = "factory-production-mockups";
+
+const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: string }> = [
+  { value: "short", label: "ແຂນສັ້ນ" },
+  { value: "long", label: "ແຂນຍາວ" },
+  { value: "mixed", label: "ແຂນສັ້ນ/ແຂນຍາວ" },
+];
+
+const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: string }> = [
+  { value: "crew", label: "ຄໍມົນ" },
+  { value: "polo", label: "ໂປໂລ" },
+  { value: "mandarin", label: "ຄໍຈີນ" },
+  { value: "v_cut_polo", label: "ຄໍໂປໂລວີຕັດ" },
+  { value: "v_neck", label: "ຄໍວີ" },
+  { value: "cross_v", label: "ຄໍວີໄຂວ່" },
+  { value: "cut_v", label: "ຄໍວີຕັດ" },
+  { value: "pentagon", label: "ຄໍ 5 ຫຼ່ຽມ" },
+];
+
+const PRODUCTION_PLAYER_MODE_OPTIONS: Array<{ value: ProductionPlayerMode; label: string }> = [
+  { value: "none", label: "ບໍ່ມີຊື່/ເບີ" },
+  { value: "name_only", label: "ມີສະເພາະຊື່" },
+  { value: "number_only", label: "ມີສະເພາະເບີເສື້ອ" },
+  { value: "name_and_number", label: "ມີຊື່ + ເບີເສື້ອ" },
+];
+
+const PRODUCTION_SIZE_FIELDS: Array<{ key: ProductionSizeKey; label: string }> = [
+  { key: "xs", label: "XS" },
+  { key: "jxs", label: "JXS" },
+  { key: "js", label: "JS" },
+  { key: "jm", label: "JM" },
+  { key: "jl", label: "JL" },
+  { key: "jxl", label: "JXL" },
+  { key: "j2xl", label: "J2XL" },
+  { key: "s", label: "S" },
+  { key: "m", label: "M" },
+  { key: "l", label: "L" },
+  { key: "xl", label: "XL" },
+  { key: "2xl", label: "2XL" },
+  { key: "3xl", label: "3XL" },
+  { key: "4xl", label: "4XL" },
+  { key: "5xl", label: "5XL" },
+  { key: "6xl", label: "6XL" },
+];
+
+function getLocalDateInputValue() {
+  const now = new Date();
+  const timezoneOffset = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - timezoneOffset).toISOString().slice(0, 10);
+}
 
 function buildDepositNo() {
   const now = new Date();
@@ -120,6 +206,194 @@ function isImageFileName(name: string) {
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(name || ""));
 }
 
+function buildSafeStorageFileName(fileName: string, prefix: string) {
+  const extension = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() || "bin" : "bin";
+  const safeExtension = extension.replace(/[^a-z0-9]/g, "") || "bin";
+  const readableBase = fileName
+    .replace(/\.[^.]+$/, "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+  const fallbackBase = readableBase || "file";
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${fallbackBase}.${safeExtension}`;
+}
+
+function toPositiveInt(value: unknown) {
+  return Math.max(0, Number(value) || 0);
+}
+
+function buildEmptySizeMap(): ProductionSizeMap {
+  return {
+    xs: 0,
+    jxs: 0,
+    js: 0,
+    jm: 0,
+    jl: 0,
+    jxl: 0,
+    j2xl: 0,
+    s: 0,
+    m: 0,
+    l: 0,
+    xl: 0,
+    "2xl": 0,
+    "3xl": 0,
+    "4xl": 0,
+    "5xl": 0,
+    "6xl": 0,
+  };
+}
+
+function buildClientId() {
+  return `production-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildPlayerRowId() {
+  return `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildEmptyPlayerRow(overrides?: Partial<ProductionPlayerRow>): ProductionPlayerRow {
+  return {
+    id: buildPlayerRowId(),
+    size: overrides?.size ?? "",
+    player_name: overrides?.player_name ?? "",
+    jersey_number: overrides?.jersey_number ?? "",
+    note: overrides?.note ?? "",
+  };
+}
+
+function mapLegacyCollarType(value?: string | null): ProductionCollarType {
+  if (value === "polo") return "polo";
+  if (value === "mandarin") return "mandarin";
+  return "crew";
+}
+
+function buildEmptyProductionItem(
+  overrides?: Partial<Omit<ProductionItem, "client_id" | "sizes">> & { sizes?: Partial<ProductionSizeMap> }
+): ProductionItem {
+  return {
+    client_id: buildClientId(),
+    sleeve_type: overrides?.sleeve_type ?? "short",
+    collar_type: overrides?.collar_type ?? "crew",
+    mockup_url: overrides?.mockup_url ?? null,
+    mockup_path: overrides?.mockup_path ?? null,
+    mockup_file_name: overrides?.mockup_file_name ?? null,
+    mockup_file: overrides?.mockup_file ?? null,
+    mockup_preview_url: overrides?.mockup_preview_url ?? null,
+    player_mode: overrides?.player_mode ?? "none",
+    player_rows: overrides?.player_rows ?? [],
+    sizes: {
+      ...buildEmptySizeMap(),
+      ...(overrides?.sizes ?? {}),
+    },
+  };
+}
+
+function getProductionItemTotal(item: ProductionItem) {
+  return PRODUCTION_SIZE_FIELDS.reduce((sum, field) => sum + (Number(item.sizes[field.key]) || 0), 0);
+}
+
+function getFilledPlayerRows(item: ProductionItem) {
+  return item.player_rows.filter((row) => row.size || row.player_name.trim() || row.jersey_number.trim() || row.note.trim());
+}
+
+function playerModeNeedsName(mode: ProductionPlayerMode) {
+  return mode === "name_only" || mode === "name_and_number";
+}
+
+function playerModeNeedsNumber(mode: ProductionPlayerMode) {
+  return mode === "number_only" || mode === "name_and_number";
+}
+
+function getPlayerModeInstruction(mode: ProductionPlayerMode) {
+  if (mode === "name_only") return "ໄຊສ໌ + ຊື່ Player";
+  if (mode === "number_only") return "ໄຊສ໌ + ເບີເສື້ອ";
+  return "ໄຊສ໌ + ຊື່ + ເບີເສື້ອ";
+}
+
+function getPlayerModePreviewTitle(mode: ProductionPlayerMode) {
+  if (mode === "name_only") return "NAME LIST";
+  if (mode === "number_only") return "NO. LIST";
+  return "PLAYER / NO.";
+}
+
+function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType, fallbackCollar: ProductionCollarType) {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return [buildEmptyProductionItem({ sleeve_type: fallbackSleeve, collar_type: fallbackCollar })];
+  }
+
+  const items = raw
+    .slice(0, 4)
+    .map((entry) => {
+      const row = typeof entry === "object" && entry ? (entry as Record<string, unknown>) : {};
+      const nestedSizes = typeof row.sizes === "object" && row.sizes ? (row.sizes as Record<string, unknown>) : {};
+      const nestedPlayers = Array.isArray(row.player_rows) ? row.player_rows : [];
+      return buildEmptyProductionItem({
+        sleeve_type:
+          row.sleeve_type === "long" || row.sleeve_type === "mixed" || row.sleeve_type === "short"
+            ? (row.sleeve_type as ProductionSleeveType)
+            : fallbackSleeve,
+        collar_type:
+          typeof row.collar_type === "string" &&
+          PRODUCTION_COLLAR_OPTIONS.some((option) => option.value === row.collar_type)
+            ? (row.collar_type as ProductionCollarType)
+            : fallbackCollar,
+        mockup_url: typeof row.mockup_url === "string" ? row.mockup_url : null,
+        mockup_path: typeof row.mockup_path === "string" ? row.mockup_path : null,
+        mockup_file_name: typeof row.mockup_file_name === "string" ? row.mockup_file_name : null,
+        player_mode:
+          row.player_mode === "name_only" ||
+          row.player_mode === "number_only" ||
+          row.player_mode === "name_and_number" ||
+          row.player_mode === "none"
+            ? (row.player_mode as ProductionPlayerMode)
+            : "none",
+        player_rows: nestedPlayers
+          .map((player) => {
+            const playerRow = typeof player === "object" && player ? (player as Record<string, unknown>) : {};
+            const sizeValue = typeof playerRow.size === "string" ? playerRow.size : "";
+            const isValidSize = PRODUCTION_SIZE_FIELDS.some((field) => field.key === sizeValue);
+            return buildEmptyPlayerRow({
+              size: isValidSize ? (sizeValue as ProductionSizeKey) : "",
+              player_name: typeof playerRow.player_name === "string" ? playerRow.player_name : "",
+              jersey_number: typeof playerRow.jersey_number === "string" ? playerRow.jersey_number : "",
+              note: typeof playerRow.note === "string" ? playerRow.note : "",
+            });
+          })
+          .filter((player) => player.size || player.player_name.trim() || player.jersey_number.trim() || player.note.trim()),
+        sizes: {
+          xs: toPositiveInt(nestedSizes.xs),
+          jxs: toPositiveInt(nestedSizes.jxs),
+          js: toPositiveInt(nestedSizes.js),
+          jm: toPositiveInt(nestedSizes.jm),
+          jl: toPositiveInt(nestedSizes.jl),
+          jxl: toPositiveInt(nestedSizes.jxl),
+          j2xl: toPositiveInt(nestedSizes.j2xl),
+          s: toPositiveInt(nestedSizes.s),
+          m: toPositiveInt(nestedSizes.m),
+          l: toPositiveInt(nestedSizes.l),
+          xl: toPositiveInt(nestedSizes.xl),
+          "2xl": toPositiveInt(nestedSizes["2xl"]),
+          "3xl": toPositiveInt(nestedSizes["3xl"]),
+          "4xl": toPositiveInt(nestedSizes["4xl"]),
+          "5xl": toPositiveInt(nestedSizes["5xl"]),
+          "6xl": toPositiveInt(nestedSizes["6xl"]),
+        },
+      });
+    })
+    .filter(Boolean);
+
+  return items.length > 0 ? items : [buildEmptyProductionItem({ sleeve_type: fallbackSleeve, collar_type: fallbackCollar })];
+}
+
+function ensureProductionItemCount(items: ProductionItem[], count: ProductionSlotCount) {
+  const next = items.slice(0, count);
+  while (next.length < count) next.push(buildEmptyProductionItem());
+  return next;
+}
+
 export default function FactoryDepositOrderFormPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -134,20 +408,29 @@ export default function FactoryDepositOrderFormPage() {
   const [saving, setSaving] = useState(false);
   const [workingAction, setWorkingAction] = useState<"approve" | "convert" | null>(null);
   const [uploadingSlip, setUploadingSlip] = useState(false);
+  const [deletingSlipId, setDeletingSlipId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const [recordId, setRecordId] = useState<string | null>(null);
   const [status, setStatus] = useState<FactoryDepositOrderStatus>("draft");
   const [depositNo, setDepositNo] = useState(buildDepositNo());
-  const [depositDate, setDepositDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [depositDate, setDepositDate] = useState(getLocalDateInputValue);
   const [orderCode, setOrderCode] = useState("");
-  const [orderDate, setOrderDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [orderDate, setOrderDate] = useState(getLocalDateInputValue);
   const [quotationQuoteNo, setQuotationQuoteNo] = useState("");
 
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerWhatsapp, setCustomerWhatsapp] = useState("");
   const [customerFacebook, setCustomerFacebook] = useState("");
+
+  const [teamName, setTeamName] = useState("");
+  const [productionSentDate, setProductionSentDate] = useState("");
+  const [customerDeliveryDate, setCustomerDeliveryDate] = useState("");
+  const [productionPriority, setProductionPriority] = useState<ProductionPriority>("normal");
+  const [urgentDueDate, setUrgentDueDate] = useState("");
+  const [productionStyleCount, setProductionStyleCount] = useState<ProductionSlotCount>(1);
+  const [productionItems, setProductionItems] = useState<ProductionItem[]>([buildEmptyProductionItem()]);
 
   const [fabricId, setFabricId] = useState("");
   const [shortQty, setShortQty] = useState(0);
@@ -165,10 +448,6 @@ export default function FactoryDepositOrderFormPage() {
   const [initialDeposit, setInitialDeposit] = useState(0);
   const [factoryCost, setFactoryCost] = useState(0);
   const [factoryBillCode, setFactoryBillCode] = useState("");
-  const [paymentTerms, setPaymentTerms] = useState(DEFAULT_TERMS);
-  const [notes, setNotes] = useState("");
-  const [warningNote, setWarningNote] = useState("");
-  const [factoryDepositNote, setFactoryDepositNote] = useState("");
 
   const [adminUserId, setAdminUserId] = useState("");
   const [graphicUserId, setGraphicUserId] = useState("");
@@ -226,12 +505,17 @@ export default function FactoryDepositOrderFormPage() {
           setDepositNo(row.deposit_no);
           setDepositDate(row.deposit_date);
           setOrderCode(row.order_code || "");
-          setOrderDate(row.order_date || new Date().toISOString().slice(0, 10));
+          setOrderDate(row.order_date || row.deposit_date || getLocalDateInputValue());
           setQuotationQuoteNo(row.quotation_quote_no || "");
           setCustomerName(row.customer_name || "");
           setCustomerPhone(row.customer_phone || "");
           setCustomerWhatsapp(row.customer_whatsapp || "");
           setCustomerFacebook(row.customer_facebook || "");
+          setTeamName(row.team_name || "");
+          setProductionSentDate(row.production_sent_date || "");
+          setCustomerDeliveryDate(row.delivery_date || "");
+          setProductionPriority(row.production_priority === "urgent" ? "urgent" : "normal");
+          setUrgentDueDate(row.urgent_due_date || "");
           setFabricId(row.fabric_id || "");
           setShortQty(Number(row.short_qty) || 0);
           setLongQty(Number(row.long_qty) || 0);
@@ -247,14 +531,20 @@ export default function FactoryDepositOrderFormPage() {
           setInitialDeposit(Number(row.initial_deposit) || 0);
           setFactoryCost(Number(row.factory_cost) || 0);
           setFactoryBillCode(row.factory_bill_code || "");
-          setPaymentTerms(row.payment_terms || DEFAULT_TERMS);
-          setNotes(row.notes || "");
-          setWarningNote(row.warning_note || "");
-          setFactoryDepositNote(row.factory_deposit_note || "");
           setAdminUserId(row.admin_user_id || "");
           setGraphicUserId(row.graphic_user_id || "");
           setTransferSlipUrl(row.transfer_slip_url || null);
           setTransferSlipPath(row.transfer_slip_path || null);
+
+          const fallbackProductionItems = parseProductionItems(
+            row.production_items,
+            row.sleeve_type || "short",
+            mapLegacyCollarType(row.collar_type)
+          );
+          const styleCount = Math.min(4, Math.max(1, fallbackProductionItems.length)) as ProductionSlotCount;
+          setProductionStyleCount(styleCount);
+          setProductionItems(ensureProductionItemCount(fallbackProductionItems, styleCount));
+
           const { data: slipData, error: slipError } = await supabase
             .from("factory_deposit_order_slips")
             .select("id,deposit_order_id,file_name,file_path,file_url,note,uploaded_at")
@@ -269,8 +559,7 @@ export default function FactoryDepositOrderFormPage() {
           const draft = await getQuotationDraftById(draftId);
           if (draft) {
             setQuotationQuoteNo(draft.quoteNo);
-            setDepositDate(draft.quoteDate || new Date().toISOString().slice(0, 10));
-            setOrderDate(draft.quoteDate || new Date().toISOString().slice(0, 10));
+            setOrderDate(draft.quoteDate || getLocalDateInputValue());
             setOrderCode((prev) => prev || draft.quoteNo || "");
             setCustomerName(draft.customerName);
             setCustomerPhone(draft.customerPhone);
@@ -289,9 +578,7 @@ export default function FactoryDepositOrderFormPage() {
             setExtraCharge(draft.extraCharge);
             setDesignDeposit(Number(draft.discount) || 0);
             setInitialDeposit(draft.deposit);
-            setPaymentTerms(draft.paymentTerms || DEFAULT_TERMS);
-            setNotes(draft.notes || "");
-            setWarningNote(draft.warningNote || "");
+            setCustomerDeliveryDate(draft.deliveryDate || "");
           }
         }
       } catch (error) {
@@ -305,12 +592,22 @@ export default function FactoryDepositOrderFormPage() {
     void load();
   }, [draftId, editId, router]);
 
+  useEffect(() => {
+    return () => {
+      productionItems.forEach((item) => {
+        if (item.mockup_preview_url?.startsWith("blob:")) {
+          URL.revokeObjectURL(item.mockup_preview_url);
+        }
+      });
+    };
+  }, [productionItems]);
+
   const selectedFabric = useMemo(() => fabrics.find((item) => item.id === fabricId) ?? null, [fabrics, fabricId]);
   const adminOptions = useMemo(
     () => users.filter((item) => ["superadmin", "admin", "manager", "staff"].includes(item.role)),
     [users]
   );
-  const graphicOptions = useMemo(() => users.filter((item) => item.role === "graphic"), [users]);
+  const plannerOptions = useMemo(() => users.filter((item) => item.role === "graphic"), [users]);
   const canEdit = viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false;
   const isSuperAdmin = viewerRole === "superadmin";
   const canApproveHere = !!recordId && !!viewerRole && isSuperAdmin && canApproveFactoryDepositOrder(viewerRole) && status === "submitted";
@@ -341,6 +638,22 @@ export default function FactoryDepositOrderFormPage() {
   );
   const netTotal = useMemo(() => Math.max(0, grossTotal - (Number(designDeposit) || 0)), [grossTotal, designDeposit]);
   const balance = useMemo(() => Math.max(0, netTotal - (Number(initialDeposit) || 0)), [netTotal, initialDeposit]);
+  const totalProductionQty = useMemo(() => Math.max(0, shortQty) + Math.max(0, longQty) + Math.max(0, freeQty), [shortQty, longQty, freeQty]);
+  const activeProductionItems = useMemo(
+    () => ensureProductionItemCount(productionItems, productionStyleCount).slice(0, productionStyleCount),
+    [productionItems, productionStyleCount]
+  );
+  const priorityBannerText =
+    productionPriority === "urgent"
+      ? `ຕ້ອງການເຄື່ອງດ່ວນ! ກຳນົດສົ່ງບໍ່ເກີນວັນທີ ${urgentDueDate || "../../...."}`
+      : "ງານປົກກະຕິ";
+  const assignedProductionQty = useMemo(
+    () => activeProductionItems.reduce((sum, item) => sum + getProductionItemTotal(item), 0),
+    [activeProductionItems]
+  );
+  const quantityDifference = totalProductionQty - assignedProductionQty;
+  const quantityMatches = quantityDifference === 0;
+
   const pendingSlipPreviews = useMemo(
     () =>
       pendingSlipFiles.map((file) => ({
@@ -363,7 +676,7 @@ export default function FactoryDepositOrderFormPage() {
   const buildQuotationDraft = (): QuotationDraft => ({
     id: draftId || undefined,
     quoteNo: quotationQuoteNo || orderCode || depositNo,
-    quoteDate: depositDate,
+    quoteDate: orderDate || depositDate,
     status: "draft" as QuotationDraftStatus,
     createdByName: "",
     customerName,
@@ -390,10 +703,10 @@ export default function FactoryDepositOrderFormPage() {
     discount: designDeposit,
     deposit: initialDeposit,
     paymentDueDate: "",
-    deliveryDate: "",
-    paymentTerms,
-    notes,
-    warningNote,
+    deliveryDate: customerDeliveryDate,
+    paymentTerms: "",
+    notes: "",
+    warningNote: "",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
@@ -458,8 +771,8 @@ export default function FactoryDepositOrderFormPage() {
       const uploaded: Array<{ file_name: string; file_path: string; file_url: string | null }> = [];
 
       for (const file of pendingSlipFiles) {
-        const safeName = file.name.replace(/\s+/g, "-");
-        const path = `${depositOrderId}/${Date.now()}-${safeName}`;
+        const safeName = buildSafeStorageFileName(file.name, "slip");
+        const path = `${depositOrderId}/${safeName}`;
         const { error: uploadError } = await supabase.storage
           .from("factory-deposit-slips")
           .upload(path, file, { upsert: true });
@@ -509,6 +822,62 @@ export default function FactoryDepositOrderFormPage() {
     }
   };
 
+  const serializeProductionItems = (items: ProductionItem[]) =>
+    items.map((item, index) => ({
+      order: index + 1,
+      sleeve_type: item.sleeve_type,
+      collar_type: item.collar_type,
+      mockup_url: item.mockup_url,
+      mockup_path: item.mockup_path,
+      mockup_file_name: item.mockup_file_name,
+      player_mode: item.player_mode,
+      player_rows: getFilledPlayerRows(item).map((row) => ({
+        size: row.size,
+        player_name: row.player_name.trim(),
+        jersey_number: row.jersey_number.trim(),
+        note: row.note.trim(),
+      })),
+      sizes: item.sizes,
+      total_qty: getProductionItemTotal(item),
+    }));
+
+  const uploadProductionMockupsIfNeeded = async (depositOrderId: string) => {
+    const nextItems: ProductionItem[] = [];
+
+    for (let index = 0; index < activeProductionItems.length; index += 1) {
+      const item = activeProductionItems[index];
+      if (!item.mockup_file) {
+        nextItems.push(item);
+        continue;
+      }
+
+      const safeName = buildSafeStorageFileName(item.mockup_file.name, `production-${index + 1}`);
+      const path = `${depositOrderId}/${safeName}`;
+      const { error: uploadError } = await supabase.storage
+        .from(PRODUCTION_MOCKUP_BUCKET)
+        .upload(path, item.mockup_file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from(PRODUCTION_MOCKUP_BUCKET).getPublicUrl(path);
+      if (item.mockup_preview_url?.startsWith("blob:")) {
+        URL.revokeObjectURL(item.mockup_preview_url);
+      }
+
+      nextItems.push({
+        ...item,
+        mockup_path: path,
+        mockup_url: data.publicUrl,
+        mockup_file_name: item.mockup_file.name,
+        mockup_file: null,
+        mockup_preview_url: null,
+      });
+    }
+
+    setProductionItems(nextItems);
+    return nextItems;
+  };
+
   const handleSlipChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     if (files.length === 0) return;
@@ -518,6 +887,124 @@ export default function FactoryDepositOrderFormPage() {
 
   const removePendingSlip = (name: string) => {
     setPendingSlipFiles((prev) => prev.filter((file) => file.name !== name));
+  };
+
+  const removeUploadedSlip = async (slip: DepositSlipRow) => {
+    const confirmed = await confirmAction({
+      icon: "warning",
+      title: "ຢືນຢັນລົບສະລິບ?",
+      text: slip.file_name || slip.file_path || "transfer slip",
+      confirmButtonText: "ລົບ",
+      cancelToast: "ຍົກເລີກການລົບສະລິບແລ້ວ",
+    });
+    if (!confirmed) return;
+
+    setDeletingSlipId(slip.id);
+    try {
+      if (slip.file_path) {
+        const { error: storageError } = await supabase.storage.from("factory-deposit-slips").remove([slip.file_path]);
+        if (storageError) throw storageError;
+      }
+
+      const { error: deleteError } = await supabase.from("factory_deposit_order_slips").delete().eq("id", slip.id);
+      if (deleteError) throw deleteError;
+
+      const remainingRows = slipRows.filter((row) => row.id !== slip.id);
+      setSlipRows(remainingRows);
+
+      const nextPrimarySlip = remainingRows[0] || null;
+      setTransferSlipPath(nextPrimarySlip?.file_path || null);
+      setTransferSlipUrl(nextPrimarySlip?.file_url || null);
+
+      if (recordId) {
+        const { error: syncError } = await supabase
+          .from("factory_deposit_orders")
+          .update({
+            transfer_slip_path: nextPrimarySlip?.file_path || null,
+            transfer_slip_url: nextPrimarySlip?.file_url || null,
+            transfer_slip_uploaded_at: nextPrimarySlip ? nextPrimarySlip.uploaded_at : null,
+            transfer_slip_uploaded_by_user_id: nextPrimarySlip ? viewerUserId : null,
+          })
+          .eq("id", recordId);
+        if (syncError) throw syncError;
+      }
+
+      toast.success("ລົບສະລິບແລ້ວ");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ລົບສະລິບບໍ່ສຳເລັດ");
+    } finally {
+      setDeletingSlipId(null);
+    }
+  };
+
+  const handleStyleCountChange = (nextCount: ProductionSlotCount) => {
+    setProductionStyleCount(nextCount);
+    setProductionItems((prev) => ensureProductionItemCount(prev, nextCount));
+  };
+
+  const updateProductionItem = (index: number, updater: (current: ProductionItem) => ProductionItem) => {
+    setProductionItems((prev) =>
+      prev.map((item, itemIndex) => (itemIndex === index ? updater(item) : item))
+    );
+  };
+
+  const addPlayerRow = (index: number) => {
+    updateProductionItem(index, (current) => ({
+      ...current,
+      player_rows: [...current.player_rows, buildEmptyPlayerRow()],
+    }));
+  };
+
+  const removePlayerRow = (index: number, rowId: string) => {
+    updateProductionItem(index, (current) => ({
+      ...current,
+      player_rows: current.player_rows.filter((row) => row.id !== rowId),
+    }));
+  };
+
+  const updatePlayerRow = (index: number, rowId: string, updater: (row: ProductionPlayerRow) => ProductionPlayerRow) => {
+    updateProductionItem(index, (current) => ({
+      ...current,
+      player_rows: current.player_rows.map((row) => (row.id === rowId ? updater(row) : row)),
+    }));
+  };
+
+  const handleMockupChange = (index: number, event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    updateProductionItem(index, (item) => {
+      if (item.mockup_preview_url?.startsWith("blob:")) {
+        URL.revokeObjectURL(item.mockup_preview_url);
+      }
+      return {
+        ...item,
+        mockup_file: file,
+        mockup_file_name: file.name,
+        mockup_preview_url: URL.createObjectURL(file),
+      };
+    });
+    event.target.value = "";
+  };
+
+  const clearMockup = (index: number) => {
+    updateProductionItem(index, (item) => {
+      if (item.mockup_preview_url?.startsWith("blob:")) {
+        URL.revokeObjectURL(item.mockup_preview_url);
+      }
+      return {
+        ...item,
+        mockup_url: null,
+        mockup_path: null,
+        mockup_file_name: null,
+        mockup_file: null,
+        mockup_preview_url: null,
+      };
+    });
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const persistDepositOrder = async ({
@@ -547,6 +1034,10 @@ export default function FactoryDepositOrderFormPage() {
       toast.error("ກະລຸນາປ້ອນລະຫັດອໍເດີ");
       return null;
     }
+    if (!teamName.trim()) {
+      toast.error("ກະລຸນາປ້ອນຊື່ທີມ");
+      return null;
+    }
     if (!selectedFabric) {
       toast.error("ກະລຸນາເລືອກຜ້າ");
       return null;
@@ -556,8 +1047,59 @@ export default function FactoryDepositOrderFormPage() {
       return null;
     }
     if (!graphicUserId) {
-      toast.error("ກະລຸນາເລືອກກຣາຟິກ");
+      toast.error("ກະລຸນາເລືອກຜູ້ອອກແບບ");
       return null;
+    }
+
+    const shouldEnforceProductionValidation = nextStatus === "submitted";
+    if (shouldEnforceProductionValidation) {
+      if (!productionSentDate) {
+        toast.error("ກະລຸນາເລືອກວັນທີ່ສົ່ງຜະລິດ");
+        return null;
+      }
+      if (!customerDeliveryDate) {
+        toast.error("ກະລຸນາເລືອກກຳນົດສົ່ງລູກຄ້າ");
+        return null;
+      }
+      if (productionPriority === "urgent" && !urgentDueDate) {
+        toast.error("ກະລຸນາເລືອກວັນທີກຳນົດສົ່ງສຳລັບງານດ່ວນ");
+        return null;
+      }
+      if (!quantityMatches) {
+        toast.error("ຈຳນວນໄຊສ໌ລວມທຸກແບບຕ້ອງເທົ່າກັບຈຳນວນຜະລິດລວມ");
+        return null;
+      }
+      for (const item of activeProductionItems) {
+        if (getProductionItemTotal(item) <= 0) {
+          toast.error("ແຕ່ລະແບບຜະລິດຕ້ອງມີຈຳນວນຢ່າງໜ້ອຍ 1");
+          return null;
+        }
+        if (!item.mockup_url && !item.mockup_file) {
+          toast.error("ກະລຸນາແນບຮູບ mockup ໃຫ້ຄົບທຸກແບບ");
+          return null;
+        }
+        if (item.player_mode !== "none") {
+          const filledRows = getFilledPlayerRows(item);
+          if (filledRows.length !== getProductionItemTotal(item)) {
+            toast.error("ຈຳນວນລາຍຊື່ Player/ເບີ ຕ້ອງເທົ່າກັບຈຳນວນເສື້ອຂອງແບບນັ້ນ");
+            return null;
+          }
+          for (const row of filledRows) {
+            if (!row.size) {
+              toast.error("ກະລຸນາເລືອກໄຊສ໌ໃຫ້ຄົບທຸກລາຍຊື່ Player");
+              return null;
+            }
+            if (playerModeNeedsNumber(item.player_mode) && !row.jersey_number.trim()) {
+              toast.error("ກະລຸນາປ້ອນເບີເສື້ອໃຫ້ຄົບ");
+              return null;
+            }
+            if (playerModeNeedsName(item.player_mode) && !row.player_name.trim()) {
+              toast.error("ກະລຸນາປ້ອນຊື່ Player ໃຫ້ຄົບ");
+              return null;
+            }
+          }
+        }
+      }
     }
 
     setSaving(true);
@@ -576,12 +1118,16 @@ export default function FactoryDepositOrderFormPage() {
         deposit_no: depositNo.trim(),
         deposit_date: depositDate,
         order_code: orderCode.trim(),
-        order_date: orderDate || depositDate,
+        order_date: depositDate,
         status: nextStatus,
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
         customer_whatsapp: customerWhatsapp.trim(),
         customer_facebook: customerFacebook.trim(),
+        team_name: teamName.trim(),
+        production_sent_date: productionSentDate || null,
+        production_priority: productionPriority,
+        urgent_due_date: productionPriority === "urgent" ? urgentDueDate || null : null,
         fabric_id: selectedFabric.id,
         fabric_name: selectedFabric.name,
         fabric_short_price: Number(selectedFabric.short_price || 0),
@@ -608,12 +1154,13 @@ export default function FactoryDepositOrderFormPage() {
         net_total: netTotal,
         balance,
         payment_due_date: null,
-        delivery_date: null,
+        delivery_date: customerDeliveryDate || null,
         factory_bill_code: factoryBillCode.trim() || null,
-        payment_terms: paymentTerms.trim(),
-        notes: notes.trim(),
-        warning_note: warningNote.trim(),
-        factory_deposit_note: factoryDepositNote.trim(),
+        payment_terms: "",
+        notes: "",
+        warning_note: "",
+        factory_deposit_note: "",
+        production_items: serializeProductionItems(activeProductionItems),
         created_by_user_id: viewerUserId,
         admin_user_id: adminUserId,
         graphic_user_id: graphicUserId,
@@ -635,20 +1182,24 @@ export default function FactoryDepositOrderFormPage() {
 
       if (!depositOrderId) throw new Error("ບໍ່ພົບລະຫັດໃບມັດຈຳ");
 
+      const uploadedItems = await uploadProductionMockupsIfNeeded(depositOrderId);
       const uploadedSlip = await uploadSlipIfNeeded(depositOrderId);
-      if (uploadedSlip.firstPath || uploadedSlip.firstUrl) {
-        const { error: slipUpdateError } = await supabase
-          .from("factory_deposit_orders")
-          .update({
-            transfer_slip_path: uploadedSlip.firstPath,
-            transfer_slip_url: uploadedSlip.firstUrl,
-            transfer_slip_uploaded_at: new Date().toISOString(),
-            transfer_slip_uploaded_by_user_id: viewerUserId,
-          })
-          .eq("id", depositOrderId);
 
-        if (slipUpdateError) throw slipUpdateError;
+      const updateAfterUpload: Record<string, string | null | object[]> = {
+        production_items: serializeProductionItems(uploadedItems),
+      };
+      if (uploadedSlip.firstPath || uploadedSlip.firstUrl) {
+        updateAfterUpload.transfer_slip_path = uploadedSlip.firstPath;
+        updateAfterUpload.transfer_slip_url = uploadedSlip.firstUrl;
+        updateAfterUpload.transfer_slip_uploaded_at = new Date().toISOString();
+        updateAfterUpload.transfer_slip_uploaded_by_user_id = viewerUserId;
       }
+
+      const { error: syncError } = await supabase
+        .from("factory_deposit_orders")
+        .update(updateAfterUpload)
+        .eq("id", depositOrderId);
+      if (syncError) throw syncError;
 
       await insertHistory(
         depositOrderId,
@@ -744,7 +1295,7 @@ export default function FactoryDepositOrderFormPage() {
 
       const orderPayload = {
         order_code: orderCode.trim(),
-        order_date: orderDate || depositDate,
+        order_date: depositDate,
         customer_phone: customerPhone.trim() || null,
         customer_whatsapp: customerWhatsapp.trim() || null,
         factory_bill_code: factoryBillCode.trim() || null,
@@ -803,18 +1354,18 @@ export default function FactoryDepositOrderFormPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+    <div className="space-y-6 pb-8 text-slate-900">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between print:hidden">
         <div>
           <Link href="/factory-deposit-orders" className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 transition hover:text-slate-700">
             <ArrowLeft size={16} />
             ກັບໄປລາຍການໃບມັດຈຳ
           </Link>
           <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">
-            {editId ? "ແກ້ໄຂໃບມັດຈຳສັ່ງຜະລິດ" : "ສ້າງໃບມັດຈຳສັ່ງຜະລິດ"}
+            {editId ? "ແກ້ໄຂໃບສັ່ງຜະລິດ" : "ສ້າງໃບສັ່ງຜະລິດ"}
           </h1>
           <p className="mt-2 text-sm font-medium text-slate-500">
-            ດຶງຂໍ້ມູນຈາກໃບປະເມີນລາຄາ ແລະ ບັນທຶກເປັນໃບມັດຈຳກ່ອນກົດບັນທຶກເປັນອໍເດີຈິງ
+            ບັນທຶກຂໍ້ມູນສົ່ງໂຮງງານ, ກຳນົດຈຳນວນໄຊສ໌ແຍກແຕ່ລະແບບ ແລະ ກວດ preview A4 ກ່ອນພິມ
           </p>
         </div>
 
@@ -822,6 +1373,14 @@ export default function FactoryDepositOrderFormPage() {
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700">
             ສະຖານະ: {FACTORY_DEPOSIT_ORDER_STATUS_LABELS[status]}
           </div>
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+          >
+            <Printer size={16} />
+            ພິມ A4
+          </button>
           <button
             type="button"
             onClick={() => handleSave("draft")}
@@ -865,19 +1424,114 @@ export default function FactoryDepositOrderFormPage() {
         </div>
       </div>
 
-      {err && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">ຂໍ້ຜິດພາດ: {err}</div>}
-      {!canEdit && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-700">ໃບນີ້ຢູ່ໃນສະຖານະທີ່ບໍ່ສາມາດແກ້ໄຂໄດ້</div>}
+      {err && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700 print:hidden">ຂໍ້ຜິດພາດ: {err}</div>}
+      {!canEdit && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-700 print:hidden">ໃບນີ້ຢູ່ໃນສະຖານະທີ່ບໍ່ສາມາດແກ້ໄຂໄດ້</div>}
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
-        <div className="space-y-5">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(420px,0.85fr)]">
+        <div className="space-y-5 print:hidden">
           <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
             <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ຂໍ້ມູນເອກະສານ</div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <input type="date" value={depositDate} onChange={(e) => {
-                setDepositDate(e.target.value);
-                setOrderDate(e.target.value);
-              }} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              <input value={quotationQuoteNo} onChange={(e) => setQuotationQuoteNo(e.target.value)} disabled={!canEdit} placeholder="ເລກທີ່ໃບປະເມີນລາຄາ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ວັນທີອອກໃບ</label>
+                <input
+                  type="date"
+                  value={depositDate}
+                  readOnly
+                  disabled
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ເລກທີ່ໃບປະເມີນ</label>
+                <input
+                  value={quotationQuoteNo}
+                  onChange={(e) => setQuotationQuoteNo(e.target.value)}
+                  disabled={!canEdit}
+                  placeholder="ເລກທີ່ໃບປະເມີນລາຄາ"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ລະຫັດໃບມັດຈຳ</label>
+                <input value={depositNo} onChange={(e) => setDepositNo(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຊື່ທີມ</label>
+                <input
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  disabled={!canEdit}
+                  placeholder="ຊື່ທີມ"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ລະຫັດອໍເດີ</label>
+                <input
+                  value={orderCode}
+                  onChange={(e) => setOrderCode(e.target.value)}
+                  disabled={!canEdit}
+                  placeholder="ລະຫັດອໍເດີ"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຜ້າ</label>
+                <select value={fabricId} onChange={(e) => setFabricId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
+                  <option value="">ເລືອກຜ້າ</option>
+                  {fabrics.map((fabric) => <option key={fabric.id} value={fabric.id}>{fabric.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນແບບຜະລິດ</label>
+                <select
+                  value={productionStyleCount}
+                  onChange={(e) => handleStyleCountChange(Number(e.target.value) as ProductionSlotCount)}
+                  disabled={!canEdit}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
+                >
+                  <option value={1}>1 ແບບ</option>
+                  <option value={2}>2 ແບບ</option>
+                  <option value={3}>3 ແບບ</option>
+                  <option value={4}>4 ແບບ</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ວັນທີ່ສົ່ງຜະລິດ</label>
+                <input type="date" value={productionSentDate} onChange={(e) => setProductionSentDate(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ກຳນົດສົ່ງລູກຄ້າວັນທີ</label>
+                <input type="date" value={customerDeliveryDate} onChange={(e) => setCustomerDeliveryDate(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ປະເພດງານ</label>
+                <select
+                  value={productionPriority}
+                  onChange={(e) => setProductionPriority(e.target.value as ProductionPriority)}
+                  disabled={!canEdit}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
+                >
+                  <option value="normal">ງານປົກກະຕິ</option>
+                  <option value="urgent">ຕ້ອງການເຄື່ອງດ່ວນ!</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ກຳນົດສົ່ງບໍ່ເກີນວັນທີ</label>
+                <input
+                  type="date"
+                  value={urgentDueDate}
+                  onChange={(e) => setUrgentDueDate(e.target.value)}
+                  disabled={!canEdit || productionPriority !== "urgent"}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
+                />
+              </div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                <div className="text-xs font-black uppercase tracking-wide text-emerald-700">ຈຳນວນທັງໝົດ</div>
+                <div className="mt-2 text-2xl font-black text-emerald-900">{totalProductionQty.toLocaleString()}</div>
+                <div className="mt-1 text-xs font-medium text-emerald-700">ລວມແຖມແລ້ວ</div>
+              </div>
             </div>
           </section>
 
@@ -893,53 +1547,8 @@ export default function FactoryDepositOrderFormPage() {
                 {adminOptions.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}
               </select>
               <select value={graphicUserId} onChange={(e) => setGraphicUserId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
-                <option value="">ເລືອກກຣາຟິກ</option>
-                {graphicOptions.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}
-              </select>
-            </div>
-          </section>
-
-          <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ລາຍການຜະລິດ</div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ປະເພດຜ້າ</label>
-                <select value={fabricId} onChange={(e) => setFabricId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
-                  <option value="">ເລືອກຜ້າ</option>
-                  {fabrics.map((fabric) => <option key={fabric.id} value={fabric.id}>{fabric.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ລະຫັດອໍເດີ</label>
-                <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} disabled={!canEdit} placeholder="ລະຫັດອໍເດີ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ລະຫັດໂຮງງານ</label>
-                <input value={factoryBillCode} onChange={(e) => setFactoryBillCode(e.target.value)} disabled={!canEdit} placeholder="ສາມາດໃສ່ພາຍຫຼັງໄດ້" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              </div>
-            </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
-              {[
-                ["ແຂນສັ້ນ", shortQty, setShortQty],
-                ["ແຂນຍາວ", longQty, setLongQty],
-                ["ແຖມ", freeQty, setFreeQty],
-                ["3XL", qty3XL, setQty3XL],
-                ["4XL", qty4XL, setQty4XL],
-                ["5XL", qty5XL, setQty5XL],
-                ["6XL", qty6XL, setQty6XL],
-                ["ຄໍເພີ່ມ", collarQty, setCollarQty],
-              ].map(([label, value, setter]) => (
-                <div key={label as string}>
-                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">{label as string}</label>
-                  <input type="number" min={0} value={value as number} onChange={(e) => (setter as (v: number) => void)(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-                </div>
-              ))}
-            </div>
-            <div className="mt-4">
-              <select value={collarType} onChange={(e) => setCollarType(e.target.value as "none" | "polo" | "mandarin")} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
-                <option value="none">ບໍ່ບວກຄໍ</option>
-                <option value="polo">ໂປໂລ</option>
-                <option value="mandarin">ຈີນ</option>
+                <option value="">ເລືອກຜູ້ອອກແບບ</option>
+                {plannerOptions.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}
               </select>
             </div>
           </section>
@@ -956,12 +1565,8 @@ export default function FactoryDepositOrderFormPage() {
                 <input type="number" min={0} value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ມັດຈຳສັ່ງຜະລິດຈາກລູກ</label>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ມັດຈຳສັ່ງຜະລິດຈາກລູກຄ້າ</label>
                 <input type="number" min={0} value={initialDeposit} onChange={(e) => setInitialDeposit(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ວັນທີມັດຈຳສັ່ງຜະລິດ</label>
-                <input type="date" value={depositDate} onChange={(e) => setDepositDate(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຕົ້ນທຶນໂຮງງານ</label>
@@ -1016,11 +1621,24 @@ export default function FactoryDepositOrderFormPage() {
                             <Eye size={14} />
                             ອັບໂຫຼດແລ້ວ
                           </span>
-                          {slip.file_url ? (
-                            <Link href={slip.file_url} target="_blank" className="text-xs font-black text-sky-700">
-                              ເປີດໄຟລ໌
-                            </Link>
-                          ) : null}
+                          <div className="flex items-center gap-3">
+                            {slip.file_url ? (
+                              <Link href={slip.file_url} target="_blank" className="text-xs font-black text-sky-700">
+                                ເປີດໄຟລ໌
+                              </Link>
+                            ) : null}
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                onClick={() => void removeUploadedSlip(slip)}
+                                disabled={deletingSlipId === slip.id}
+                                className="inline-flex items-center gap-1 text-xs font-black text-rose-700 disabled:opacity-50"
+                              >
+                                <Trash2 size={13} />
+                                {deletingSlipId === slip.id ? "ກຳລັງລົບ..." : "ລົບ"}
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                         <div className="p-3">
                           <div className="mb-1 text-sm font-bold text-slate-800">{fileName}</div>
@@ -1033,14 +1651,6 @@ export default function FactoryDepositOrderFormPage() {
                               <div className="text-center">
                                 {isImage ? <FileImage size={28} className="mx-auto mb-2" /> : <FileText size={28} className="mx-auto mb-2" />}
                                 <div className="text-sm font-bold">{isImage ? "ໄຟລ໌ຮູບພາບ" : "ໄຟລ໌ເອກະສານ"}</div>
-                                <div className="mt-2">
-                                  {slip.file_url ? (
-                                    <Link href={slip.file_url} target="_blank" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-sky-700">
-                                      <Eye size={14} />
-                                      ເບິ່ງໄຟລ໌
-                                    </Link>
-                                  ) : null}
-                                </div>
                               </div>
                             </div>
                           )}
@@ -1055,61 +1665,453 @@ export default function FactoryDepositOrderFormPage() {
                   )}
                 </div>
               </div>
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ເງື່ອນໄຂການຊຳລະ</label>
-                <textarea value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} disabled={!canEdit} rows={2} placeholder="ເຊັ່ນ ຈ່າຍຍອດທີ່ເຫຼືອໃນວັນຮັບງານ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ສະຫຼຸບອໍເດີ</div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຍອດລວມສຸດທິ</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{formatMoney(netTotal)}</div>
               </div>
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ໝາຍເຫດມັດຈຳສົ່ງຜະລິດ</label>
-                <textarea value={factoryDepositNote} onChange={(e) => setFactoryDepositNote(e.target.value)} disabled={!canEdit} rows={2} placeholder="ເຊັ່ນ ໂອນເງິນມັດຈຳຮອບທຳອິດແລ້ວ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ມັດຈຳສັ່ງຜະລິດຈາກລູກຄ້າ</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{formatMoney(initialDeposit)}</div>
               </div>
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ໝາຍເຫດເພີ່ມເຕີມ</label>
-                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!canEdit} rows={2} placeholder="ຂໍ້ມູນເພີ່ມເຕີມອື່ນໆ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              </div>
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ໝາຍເຫດເຕືອນ</label>
-                <textarea value={warningNote} onChange={(e) => setWarningNote(e.target.value)} disabled={!canEdit} rows={2} placeholder="ຂໍ້ຄວນລະວັງ ຫຼື ຈຸດທີ່ຕ້ອງເນັ້ນ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຍອດຄ້າງ</div>
+                <div className="mt-2 text-2xl font-black text-amber-700">{formatMoney(balance)}</div>
               </div>
             </div>
           </section>
+
+          <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-black uppercase tracking-wider text-slate-700">ແບບຜະລິດ</div>
+                <div className="mt-1 text-sm font-medium text-slate-500">ກຳນົດ mockup, ແຂນເສື້ອ, ຄໍເສື້ອ ແລະ ຈຳນວນໄຊສ໌ຂອງແຕ່ລະແບບ</div>
+              </div>
+              <div className={`rounded-full px-4 py-2 text-xs font-black ${quantityMatches ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>
+                ຈັດໄຊສ໌ແລ້ວ {assignedProductionQty}/{totalProductionQty}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {activeProductionItems.map((item, index) => {
+                const itemTotal = getProductionItemTotal(item);
+                const filledPlayerRows = getFilledPlayerRows(item);
+                const imageUrl = item.mockup_preview_url || item.mockup_url;
+                const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
+                const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
+                return (
+                  <div key={item.client_id} className="rounded-[28px] border border-slate-200 bg-slate-50/70 p-5">
+                    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs font-black text-sky-700">
+                          <Shirt size={14} />
+                          ແບບທີ {index + 1}
+                        </div>
+                        <div className="mt-2 text-sm font-medium text-slate-500">
+                          ແຂນເສື້ອ: <span className="font-bold text-slate-700">{sleeveLabel}</span> / ຄໍເສື້ອ: <span className="font-bold text-slate-700">{collarLabel}</span>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right">
+                        <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນແບບນີ້</div>
+                        <div className="mt-1 text-2xl font-black text-slate-900">{itemTotal.toLocaleString()}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+                      <div className="space-y-3">
+                        <div className="overflow-hidden rounded-3xl border border-dashed border-slate-300 bg-white">
+                          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                            <span className="text-xs font-black uppercase tracking-wide text-slate-500">Mockup</span>
+                            {(imageUrl || item.mockup_file_name) && canEdit ? (
+                              <button type="button" onClick={() => clearMockup(index)} className="text-xs font-black text-rose-700">
+                                ລົບຮູບ
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="p-4">
+                            {imageUrl ? (
+                              <div className="aspect-square overflow-hidden rounded-2xl border border-slate-100 bg-white">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={imageUrl} alt={`mockup-${index + 1}`} className="h-full w-full object-contain" />
+                              </div>
+                            ) : (
+                              <div className="aspect-square">
+                                <label className="flex h-full cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-slate-500">
+                                  <FileImage size={34} />
+                                  <span className="mt-3 text-sm font-bold">ແນບຮູບ Mockup</span>
+                                  <span className="mt-1 text-xs font-medium">PNG / JPG / WEBP</span>
+                                  <input type="file" accept="image/*" onChange={(event) => handleMockupChange(index, event)} disabled={!canEdit} className="hidden" />
+                                </label>
+                              </div>
+                            )}
+                            {imageUrl && canEdit ? (
+                              <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm">
+                                <FileUp size={16} />
+                                ປ່ຽນຮູບ
+                                <input type="file" accept="image/*" onChange={(event) => handleMockupChange(index, event)} disabled={!canEdit} className="hidden" />
+                              </label>
+                            ) : null}
+                            <div className="mt-3 text-xs font-medium text-slate-500">{item.mockup_file_name || "ຍັງບໍ່ມີຮູບ"}</div>
+                          </div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+                          <div>
+                            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ແຂນເສື້ອ</label>
+                            <select value={item.sleeve_type} onChange={(e) => updateProductionItem(index, (current) => ({ ...current, sleeve_type: e.target.value as ProductionSleeveType }))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100">
+                              {PRODUCTION_SLEEVE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຄໍເສື້ອ</label>
+                            <select value={item.collar_type} onChange={(e) => updateProductionItem(index, (current) => ({ ...current, collar_type: e.target.value as ProductionCollarType }))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100">
+                              {PRODUCTION_COLLAR_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຊື່ Player / ເບີເສື້ອ</label>
+                            <select
+                              value={item.player_mode}
+                              onChange={(e) =>
+                                updateProductionItem(index, (current) => ({
+                                  ...current,
+                                  player_mode: e.target.value as ProductionPlayerMode,
+                                  player_rows:
+                                    e.target.value === "none"
+                                      ? []
+                                      : current.player_rows.length > 0
+                                        ? current.player_rows
+                                        : [buildEmptyPlayerRow()],
+                                }))
+                              }
+                              disabled={!canEdit}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                            >
+                              {PRODUCTION_PLAYER_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-4">
+                        <div className="mb-4 flex items-center justify-between">
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-wide text-slate-500">ຈຳນວນໄຊສ໌ທີ່ລູກຄ້າສັ່ງ</div>
+                            <div className="mt-1 text-sm font-medium text-slate-500">ລວມຈຳນວນແບບນີ້ {itemTotal.toLocaleString()} ຕົວ</div>
+                          </div>
+                          <div className="rounded-2xl bg-slate-100 px-4 py-3 text-center">
+                            <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Total</div>
+                            <div className="mt-1 text-2xl font-black text-slate-900">{itemTotal.toLocaleString()}</div>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                          {PRODUCTION_SIZE_FIELDS.map((field) => (
+                            <div key={field.key} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                              <label className="mb-2 block text-center text-sm font-black uppercase tracking-wide text-slate-700">{field.label}</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={item.sizes[field.key]}
+                                onChange={(e) =>
+                                  updateProductionItem(index, (current) => ({
+                                    ...current,
+                                    sizes: {
+                                      ...current.sizes,
+                                      [field.key]: Math.max(0, Number(e.target.value) || 0),
+                                    },
+                                  }))
+                                }
+                                disabled={!canEdit}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                              />
+                            </div>
+                          ))}
+                        </div>
+
+                        {item.player_mode !== "none" ? (
+                          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-xs font-black uppercase tracking-wide text-slate-500">Player / ເບີເສື້ອ</div>
+                                <div className="mt-1 text-sm font-medium text-slate-500">
+                                  ປ້ອນ {getPlayerModeInstruction(item.player_mode)} ໃຫ້ຄົບ {itemTotal.toLocaleString()} ລາຍການ
+                                </div>
+                              </div>
+                              <div className={`rounded-full px-3 py-1 text-xs font-black ${filledPlayerRows.length === itemTotal ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>
+                                {filledPlayerRows.length}/{itemTotal}
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              {item.player_rows.map((row, rowIndex) => (
+                                <div key={row.id} className="rounded-xl bg-white/80 p-2">
+                                  <div className="mb-2 flex items-center justify-between">
+                                    <div className="text-xs font-black uppercase tracking-wide text-slate-500">Player {rowIndex + 1}</div>
+                                    {canEdit ? (
+                                      <button type="button" onClick={() => removePlayerRow(index, row.id)} className="text-xs font-black text-rose-700">
+                                        ລົບ
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                  <div className={`grid gap-2 ${item.player_mode === "name_and_number" ? "md:grid-cols-4" : item.player_mode === "name_only" || item.player_mode === "number_only" ? "md:grid-cols-3" : "md:grid-cols-4"}`}>
+                                    <div>
+                                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ໄຊສ໌</label>
+                                      <select
+                                        value={row.size}
+                                        onChange={(e) => updatePlayerRow(index, row.id, (current) => ({ ...current, size: e.target.value as ProductionSizeKey | "" }))}
+                                        disabled={!canEdit}
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                      >
+                                        <option value="">ເລືອກໄຊສ໌</option>
+                                        {PRODUCTION_SIZE_FIELDS.map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}
+                                      </select>
+                                    </div>
+                                    {playerModeNeedsName(item.player_mode) ? (
+                                      <div>
+                                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຊື່ Player</label>
+                                        <input
+                                          value={row.player_name}
+                                          onChange={(e) => updatePlayerRow(index, row.id, (current) => ({ ...current, player_name: e.target.value }))}
+                                          disabled={!canEdit}
+                                          placeholder="ຊື່ເທິງເສື້ອ"
+                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                        />
+                                      </div>
+                                    ) : null}
+                                    {playerModeNeedsNumber(item.player_mode) ? (
+                                      <div>
+                                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ເບີເສື້ອ</label>
+                                        <input
+                                          value={row.jersey_number}
+                                          onChange={(e) => updatePlayerRow(index, row.id, (current) => ({ ...current, jersey_number: e.target.value }))}
+                                          disabled={!canEdit}
+                                          placeholder="07"
+                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                        />
+                                      </div>
+                                    ) : null}
+                                    <div>
+                                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ໝາຍເຫດ</label>
+                                      <input
+                                        value={row.note}
+                                        onChange={(e) => updatePlayerRow(index, row.id, (current) => ({ ...current, note: e.target.value }))}
+                                        disabled={!canEdit}
+                                        placeholder="ເຊັ່ນ Captain"
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+
+                              {canEdit ? (
+                                <button type="button" onClick={() => addPlayerRow(index)} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+                                  <Save size={14} />
+                                  ເພີ່ມລາຍຊື່ Player
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
         </div>
 
         <div className="space-y-5">
-          <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ສະຫຼຸບອໍເດີ</div>
-            <div className="grid gap-3">
+          <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm print:hidden">
+            <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ກວດຄວາມພ້ອມກ່ອນພິມ</div>
+            <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ລູກຄ້າ</div>
-                <div className="mt-2 text-lg font-black text-slate-900">{customerName || "-"}</div>
-                <div className="mt-1 text-sm font-medium text-slate-500">{customerPhone || "-"}</div>
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນຈາກອໍເດີ</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{totalProductionQty.toLocaleString()}</div>
               </div>
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ລາຍການຜະລິດ</div>
-                <div className="mt-2 text-sm font-bold text-slate-700">{selectedFabric?.name || "-"}</div>
-                <div className="mt-2 text-xs font-medium text-slate-500">
-                  ແຂນສັ້ນ {shortQty} / ແຂນຍາວ {longQty} / ແຖມ {freeQty}
-                </div>
-                <div className="mt-1 text-xs font-medium text-slate-500">
-                  3XL {qty3XL} / 4XL {qty4XL} / 5XL {qty5XL} / 6XL {qty6XL}
+              <div className={`rounded-2xl border p-4 ${quantityMatches ? "border-emerald-100 bg-emerald-50" : "border-amber-100 bg-amber-50"}`}>
+                <div className={`text-xs font-bold uppercase tracking-wide ${quantityMatches ? "text-emerald-700" : "text-amber-800"}`}>ຈຳນວນທີ່ແບ່ງໃສ່ແບບ</div>
+                <div className={`mt-2 text-2xl font-black ${quantityMatches ? "text-emerald-900" : "text-amber-900"}`}>{assignedProductionQty.toLocaleString()}</div>
+                <div className={`mt-1 text-xs font-medium ${quantityMatches ? "text-emerald-700" : "text-amber-800"}`}>
+                  {quantityMatches ? "ຈຳນວນຄົບແລ້ວ" : `ຍັງຕ່າງ ${Math.abs(quantityDifference).toLocaleString()} ຕົວ`}
                 </div>
               </div>
-              <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-sky-700">ຍອດລວມສຸດທິ</div>
-                <div className="mt-2 text-2xl font-black text-sky-900">{formatMoney(netTotal)}</div>
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນແບບ</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{productionStyleCount}</div>
               </div>
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-emerald-700">ມັດຈຳສັ່ງຜະລິດຈາກລູກຄ້າ</div>
-                <div className="mt-2 text-2xl font-black text-emerald-900">{formatMoney(initialDeposit)}</div>
-              </div>
-              <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-rose-700">ຍອດຄ້າງ</div>
-                <div className="mt-2 text-2xl font-black text-rose-900">{formatMoney(balance)}</div>
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຍອດສຸດທິ</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{formatMoney(netTotal)}</div>
               </div>
             </div>
           </section>
+
+          <aside className="production-sheet-preview-shell sticky top-4 rounded-[32px] border border-slate-200 bg-white p-4 shadow-sm print:static print:top-auto print:rounded-none print:border-0 print:p-0 print:shadow-none">
+            <div className="mb-3 flex items-center justify-between print:hidden">
+              <div>
+                <div className="text-[14px] font-black uppercase tracking-[0.18em] text-slate-500">Production Order Preview</div>
+                <div className="mt-1 text-sm font-medium text-slate-500">A4 portrait, ພ້ອມພິມໃນໜ້ານີ້</div>
+              </div>
+              <button type="button" onClick={handlePrint} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+                <Printer size={16} />
+                ພິມ
+              </button>
+            </div>
+
+            <div className="production-sheet-a4 mx-auto aspect-[210/297] w-full max-w-[760px] overflow-hidden border border-slate-300 bg-white [font-family:'Noto_Sans_Lao_Looped','Noto_Sans_Lao',Tahoma,Arial,sans-serif] print:max-w-none print:border-0">
+              <div className="flex h-full flex-col bg-white p-5">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-md border border-slate-700 p-4">
+                    <div className="text-[12px] font-black text-slate-700">ຊື່ທີມ:</div>
+                    <div className="mt-1 text-[18px] font-black leading-tight text-slate-900">{teamName || "-"}</div>
+                    <div className="mt-3 text-[15px] font-black text-slate-700">ລະຫັດອໍເດີ້: <span className="font-black text-sky-700">{orderCode || "-"}</span></div>
+                    <div className="mt-1 text-[15px] font-black text-slate-700">ຜ້າ: <span className="font-bold text-slate-900">{selectedFabric?.name || "-"}</span></div>
+                  </div>
+                  <div className="rounded-md border border-slate-700 p-4">
+                    <div className="text-[15px] font-black text-slate-700">ວັນທີ່ສົ່ງຜະລິດ: <span className="font-black text-slate-900">{productionSentDate || "-"}</span></div>
+                    <div className="mt-1 text-[15px] font-black text-slate-700">ກຳນົດສົ່ງລູກຄ້າ: <span className="font-black text-slate-900">{customerDeliveryDate || "-"}</span></div>
+                    <div className="mt-4 text-[12px] font-black text-slate-700">ຈຳນວນທັງໝົດ</div>
+                    <div className="mt-1 text-[26px] font-black leading-none text-sky-700">{totalProductionQty.toLocaleString()} ຕົວ</div>
+                  </div>
+                </div>
+
+                <div
+                  className={`mt-3 rounded-md border px-4 py-2.5 text-center text-[13px] font-black shadow-sm ${
+                    productionPriority === "urgent"
+                      ? "border-rose-200 bg-rose-50 text-rose-700"
+                      : "border-sky-200 bg-sky-50 text-slate-700"
+                  }`}
+                >
+                  <span className="opacity-80">ປະເພດງານ:</span>{" "}
+                  <span className={productionPriority === "urgent" ? "text-red-600" : "text-sky-700"}>{priorityBannerText}</span>
+                </div>
+
+                <div className="mt-4 grid flex-1 grid-cols-4 gap-3">
+                  {activeProductionItems.map((item, index) => {
+                    const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
+                    const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
+                    const imageUrl = item.mockup_preview_url || item.mockup_url;
+                    const filledPlayerRows = getFilledPlayerRows(item);
+                    return (
+                      <div key={item.client_id} className="flex min-h-0 flex-col">
+                        <div className="mb-2 rounded-md border border-slate-700 px-2 py-1.5 text-center text-[11px] font-black text-slate-700">
+                          ແບບ {index + 1} • {sleeveLabel} • {collarLabel}
+                        </div>
+                        <div className="aspect-square overflow-hidden rounded-md border border-slate-700 bg-white">
+                          {imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={imageUrl} alt={`preview-${index + 1}`} className="h-full w-full object-contain bg-white" />
+                          ) : (
+                            <div className="flex h-full items-center justify-center text-center text-[11px] font-bold text-slate-400">
+                              ບໍ່ມີຮູບ Mockup
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-3 flex-1 rounded-md border border-slate-700 p-3">
+                          <div className="mb-2 text-center text-[17px] font-black text-sky-700">ຈຳນວນໄຊສ໌</div>
+                          <div className="space-y-2 text-[17px]">
+                            {PRODUCTION_SIZE_FIELDS.filter((field) => Number(item.sizes[field.key]) > 0).map((field) => (
+                              <div key={field.key} className="flex items-center justify-between gap-3">
+                                <span className="font-black text-slate-900">{field.label}:</span>
+                                <span className={`font-black ${item.sizes[field.key] > 0 ? "text-rose-600" : "text-slate-500"}`}>
+                                  {item.sizes[field.key] > 0 ? item.sizes[field.key].toLocaleString() : ""}
+                                </span>
+                              </div>
+                            ))}
+                            {item.player_mode === "none" && PRODUCTION_SIZE_FIELDS.every((field) => Number(item.sizes[field.key]) <= 0) ? (
+                              <div className="text-center text-[13px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
+                            ) : null}
+                          </div>
+
+                          {item.player_mode !== "none" && filledPlayerRows.length > 0 ? (
+                            <div className="mt-4 border-t border-slate-200 pt-3">
+                              <div className="mb-2 text-center text-[12px] font-black text-slate-700">
+                                {getPlayerModePreviewTitle(item.player_mode)}
+                              </div>
+                              <div className="space-y-0.5 text-[10px] leading-tight text-slate-900">
+                                {filledPlayerRows.map((row) => {
+                                  const sizeLabel = PRODUCTION_SIZE_FIELDS.find((field) => field.key === row.size)?.label || "-";
+                                  const lineParts = [
+                                    sizeLabel,
+                                    playerModeNeedsName(item.player_mode) ? row.player_name || "-" : null,
+                                    playerModeNeedsNumber(item.player_mode) ? row.jersey_number || "-" : null,
+                                    row.note ? row.note : null,
+                                  ].filter(Boolean);
+                                  return (
+                                    <div key={row.id} className="truncate font-semibold">
+                                      {lineParts.join(" | ")}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-10 px-8 text-center text-[12px] text-slate-900">
+                  <div>
+                    <div className="h-12 border-b border-slate-900" />
+                    <div className="mt-2 font-black">ຜູ້ອອກໃບສັ່ງຜະລິດ</div>
+                  </div>
+                  <div>
+                    <div className="h-12 border-b border-slate-900" />
+                    <div className="mt-2 font-black">ຜູ້ວ່າງຜະລິດ</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
+
+      <style jsx global>{`
+        @page {
+          size: A4 portrait;
+          margin: 8mm;
+        }
+
+        @media print {
+          html,
+          body {
+            background: #ffffff !important;
+          }
+
+          body * {
+            visibility: hidden;
+          }
+
+          .production-sheet-preview-shell,
+          .production-sheet-preview-shell * {
+            visibility: visible;
+          }
+
+          .production-sheet-preview-shell {
+            position: static !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            box-shadow: none !important;
+          }
+
+          .production-sheet-a4 {
+            width: 100% !important;
+            max-width: none !important;
+            aspect-ratio: auto !important;
+            min-height: calc(297mm - 16mm) !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

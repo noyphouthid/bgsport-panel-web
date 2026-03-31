@@ -41,6 +41,16 @@ function yearRange(y: string) {
   return { start, endExclusive };
 }
 
+function getLocalDateInputValue() {
+  const now = new Date();
+  const timezoneOffset = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - timezoneOffset).toISOString().slice(0, 10);
+}
+
+function getLocalMonthInputValue() {
+  return getLocalDateInputValue().slice(0, 7);
+}
+
 function renderStatus(row: OrderRow) {
   if (row.status === "completed") {
     return <span className="px-2.5 py-1 rounded-full bg-green-100 text-green-800 text-[10px] font-black uppercase">ສຳເລັດ</span>;
@@ -55,8 +65,8 @@ export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [activePrefix, setActivePrefix] = useState<Prefix | "ALL">("ALL");
   const [dateMode, setDateMode] = useState<DateMode>("day");
-  const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [day, setDay] = useState(getLocalDateInputValue);
+  const [month, setMonth] = useState(getLocalMonthInputValue);
   const [year, setYear] = useState(() => new Date().getFullYear().toString());
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -103,8 +113,8 @@ export default function SearchPage() {
     setQuery("");
     setActivePrefix("ALL");
     setDateMode("day");
-    setDay(new Date().toISOString().slice(0, 10));
-    setMonth(new Date().toISOString().slice(0, 7));
+    setDay(getLocalDateInputValue());
+    setMonth(getLocalMonthInputValue());
     setYear(new Date().getFullYear().toString());
     setRows([]);
     setErr(null);

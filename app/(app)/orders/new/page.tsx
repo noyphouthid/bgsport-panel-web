@@ -22,11 +22,24 @@ type UserOption = {
   is_active: boolean;
 };
 
+const ORDER_TYPES = ["PK26", "MK26", "PM26", "MM26"] as const;
+type OrderType = (typeof ORDER_TYPES)[number];
+
 const SIZE_UPCHARGES = {
   "3XL": 20000,
   "4XL": 30000,
   "5XL": 35000,
 } as const;
+
+function getLocalDateInputValue() {
+  const now = new Date();
+  const timezoneOffset = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - timezoneOffset).toISOString().slice(0, 10);
+}
+
+function buildOrderCode(orderType: OrderType, orderNo: number) {
+  return `${orderType}-${String(orderNo).padStart(3, "0")}`;
+}
 
 export default function NewOrderPage() {
   const router = useRouter();
@@ -38,8 +51,9 @@ export default function NewOrderPage() {
   const [err, setErr] = useState<string | null>(null);
 
   // ===== 1) ข้อมูลพื้นฐาน =====
-  const [orderDate, setOrderDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [orderCode, setOrderCode] = useState("");
+  const [orderDate, setOrderDate] = useState(getLocalDateInputValue);
+  const [orderType, setOrderType] = useState<OrderType | "">("");
+  const [orderNo, setOrderNo] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerWhatsapp, setCustomerWhatsapp] = useState("");
   const [factoryBillCode, setFactoryBillCode] = useState(""); // optional
@@ -138,9 +152,11 @@ export default function NewOrderPage() {
   const profitPreview = useMemo(() => netTotal - factoryCost, [netTotal, factoryCost]);
 
   const resetForm = () => {
-    setOrderDate(new Date().toISOString().slice(0, 10));
-    setOrderCode("");
+    setOrderDate(getLocalDateInputValue());
+    setOrderType("");
+    setOrderNo("");
     setCustomerPhone("");
+    setCustomerWhatsapp("");
     setFactoryBillCode("");
     setAdminUserId("");
     setGraphicUserId("");
@@ -191,6 +207,14 @@ export default function NewOrderPage() {
   const handleSave = async () => {
     setErr(null);
 
+    if (!orderType) {
+      toast.error("ກະລຸນາເລືອກ TYPE");
+      return;
+    }
+    if (!orderNo) {
+      toast.error("ກະລຸນາປ້ອນ ORDER No.");
+      return;
+    }
     if (!adminUserId) {
       toast.error("ກະລຸນາເລືອກ Admin");
       return;
@@ -199,17 +223,13 @@ export default function NewOrderPage() {
       toast.error("ກະລຸນາເລືອກ Graphic");
       return;
     }
-    if (!orderCode.trim()) {
-      toast.error("ກະລຸນາປ້ອນລະຫັດອໍເດີ");
-      return;
-    }
     if (!selectedFabric) {
       toast.error("ກະລຸນາເລືອກຜ້າ");
       return;
     }
 
     const payload = {
-      order_code: orderCode.trim(),
+      order_code: buildOrderCode(orderType, Number(orderNo)),
       order_date: orderDate,
       customer_phone: customerPhone.trim() || null,
       customer_whatsapp: customerWhatsapp.trim() || null,
@@ -308,9 +328,42 @@ export default function NewOrderPage() {
                 <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
               </div>
 
-              <div>
+              <div className="md:col-span-2">
                 <label className="text-xs font-bold text-slate-700 block mb-1">ລະຫັດອໍເດີ</label>
-                <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="PKF26-001" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold placeholder-slate-300" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">ປະເພດລະຫັດ</label>
+                    <select
+                    value={orderType}
+                    onChange={(e) => {
+                      const nextType = e.target.value as OrderType | "";
+                      setOrderType(nextType);
+                    }}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold bg-white"
+                  >
+                      <option value="">ເລືອກ TYPE</option>
+                      {ORDER_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">ORDER No.</label>
+                    <input
+                      value={orderNo}
+                      onChange={(e) => {
+                        const digitsOnly = e.target.value.replace(/\D/g, "");
+                        setOrderNo(digitsOnly);
+                      }}
+                      placeholder="ORDER No."
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold"
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -470,6 +523,16 @@ export default function NewOrderPage() {
             <div className="font-bold text-slate-800 mb-4 uppercase text-xs tracking-widest border-b pb-3 border-slate-50">4) ສະຫຼຸບອໍເດີ</div>
 
             <div className="space-y-3 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ຈຳນວນສັ່ງທັງໝົດ:</span>
+                <span className="font-bold text-slate-900">{billableQty.toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ຈຳນວນແຖມ:</span>
+                <span className="font-bold text-orange-600">{freeQty.toLocaleString()}</span>
+              </div>
+
               <div className="flex justify-between items-center">
                 <span className="text-slate-500 font-medium">ປະເພດຜ້າ:</span>
                 <span className="font-bold text-slate-900">{selectedFabric?.name ?? "—"}</span>
