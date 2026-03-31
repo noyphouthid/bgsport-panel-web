@@ -96,7 +96,7 @@ const SIZE_UPCHARGES = {
 const inputClassName =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:ring-2 focus:ring-blue-500";
 
-function parseOrderCode(orderCode: string) {
+function parseOrderCode(orderCode: string): { orderType: OrderType | ""; orderNo: string } {
   const normalized = String(orderCode || "").trim().toUpperCase();
   const match = normalized.match(/^([A-Z0-9]+)-(\d+)$/);
   if (!match) return { orderType: "", orderNo: normalized };
