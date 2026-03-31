@@ -24,6 +24,7 @@ import {
   X,
   LogOut,
   ChevronDown,
+  HandCoins,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AppRole, canAccessPath } from "@/lib/access-control";
@@ -64,13 +65,16 @@ const nav: NavItem[] = [
     icon: FileSpreadsheet,
     items: [
       { type: "link", href: "/reports/sales-profit", label: "ລາຍງານຍອດຂາຍ-ກຳໄລ", icon: FileSpreadsheet },
+      { type: "link", href: "/reports/monthly-close", label: "ປິດຍອດຂາຍ-ກຳໄລປະຈໍາເດືອນ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/orders", label: "ລາຍງານອໍເດີ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/admin-sales", label: "ລາຍງານຍອດຂາຍແອັດມິນ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/graphic-work", label: "ລາຍງານກຣາຟິກ", icon: FileSpreadsheet },
     ],
   },
   { type: "link", href: "/payments", label: "ບັນຊີການຊຳລະເງິນ", icon: Wallet },
+  { type: "link", href: "/payroll", label: "ລະບົບເງິນເດືອນພະນັກງານ", icon: HandCoins },
   { type: "link", href: "/factory-payments", label: "ຊຳລະຄ່າໂຮງງານແບບກຸ່ມ", icon: Wallet },
+  { type: "link", href: "/payroll/monthly-close", label: "ປິດຍອດເງິນເດືອນພະນັກງານ", icon: Banknote },
   {
     type: "group",
     label: "ຕັ້ງຄ່າ",

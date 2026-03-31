@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { ClipboardList, Palette, TrendingUp, UserRound } from "lucide-react";
+import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2 } from "lucide-react";
 
 const cards = [
   {
@@ -32,6 +32,13 @@ const cards = [
     icon: Palette,
     iconBg: "bg-amber-100 text-amber-700",
   },
+  {
+    href: "/reports/monthly-close",
+    title: "ປິດຍອດຂາຍ-ກຳໄລປະຈໍາເດືອນ",
+    desc: "ສະຫຼຸບຍອດຂາຍ, ກຳໄລ, ຈຳນວນອໍເດີ້ ແລະ ບັນທຶກປິດຍອດຝັ່ງຂາຍ",
+    icon: CalendarCheck2,
+    iconBg: "bg-rose-100 text-rose-700",
+  },
 ];
 
 export default function ReportsHomePage() {
@@ -60,4 +67,3 @@ export default function ReportsHomePage() {
     </div>
   );
 }
-

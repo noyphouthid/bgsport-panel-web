@@ -51,6 +51,7 @@ export default function OrdersPage() {
   const [err, setErr] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [activeWhatsappOrder, setActiveWhatsappOrder] = useState<OrderRow | null>(null);
 
@@ -205,6 +206,29 @@ export default function OrdersPage() {
       setErr(error.message);
       return;
     }
+    await load();
+  };
+
+  const markSelectedCompleted = async () => {
+    if (selectedIds.length === 0) return;
+    setErr(null);
+    const ok = confirm(`ຢືນຢັນປິດງານ ${selectedIds.length} ອໍເດີ?\n* ຕ້ອງໃຫ້ຍອດຄ້າງ = 0 ກ່ອນ`);
+    if (!ok) return;
+
+    setCompleting(true);
+    const { error } = await supabase
+      .from("orders")
+      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .in("id", selectedIds)
+      .neq("status", "completed");
+    setCompleting(false);
+
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+
+    setSelectedIds([]);
     await load();
   };
 
@@ -364,13 +388,24 @@ export default function OrdersPage() {
           <div className="text-sm font-bold text-slate-700 uppercase tracking-widest">ລາຍການອໍເດີທັງໝົດ</div>
           <div className="flex items-center gap-3">
             <div className="text-xs text-slate-500 font-bold">{loading ? "ກຳລັງໂຫຼດ..." : `ສະແດງ ${rows.length} / ${filteredTotal} ລາຍການ`}</div>
-            {!isAdminLimited ? <button
-              onClick={deleteSelected}
-              disabled={deleting || selectedIds.length === 0}
-              className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-700 disabled:opacity-50 transition-colors"
-            >
-              {deleting ? "ກຳລັງລົບ..." : `ລົບທີ່ເລືອກ (${selectedIds.length})`}
-            </button> : null}
+            {!isAdminLimited ? (
+              <>
+                <button
+                  onClick={markSelectedCompleted}
+                  disabled={completing || deleting || selectedIds.length === 0}
+                  className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                >
+                  {completing ? "ກຳລັງປິດງານ..." : `ປິດງານທັງໝົດ (${selectedIds.length})`}
+                </button>
+                <button
+                  onClick={deleteSelected}
+                  disabled={deleting || completing || selectedIds.length === 0}
+                  className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-700 disabled:opacity-50 transition-colors"
+                >
+                  {deleting ? "ກຳລັງລົບ..." : `ລົບທີ່ເລືອກ (${selectedIds.length})`}
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -389,6 +424,7 @@ export default function OrdersPage() {
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຈຳນວນເສື້ອ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຍອດສຸດທິ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຄ້າງ</th>
+                <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຕົ້ນທຶນໂຮງງານ</th>
                 <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">ສະຖານະ</th>
                 <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">ຈັດການ</th>
               </tr>
@@ -396,7 +432,7 @@ export default function OrdersPage() {
             <tbody className="divide-y divide-slate-50">
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={11}>
+                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={12}>
                     ບໍ່ພົບຂໍ້ມູນໃນລະບົບ
                   </td>
                 </tr>
@@ -437,6 +473,7 @@ export default function OrdersPage() {
                     <td className="p-4 text-right font-bold text-slate-700">{getDisplayShirtTotal(r).toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-slate-600">{r.net_total.toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-rose-600 bg-rose-50/30">{r.balance.toLocaleString()}</td>
+                    <td className="p-4 text-right font-bold text-slate-700">{r.factory_cost.toLocaleString()}</td>
                     <td className="p-4 text-center">{displayStatusBadge(r)}</td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-4">
