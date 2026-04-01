@@ -8,9 +8,6 @@ import type { AppRole } from "@/lib/access-control";
 import { WhatsappMessageModal } from "../_components/whatsapp-message-modal";
 import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
 
-const PREFIXES = ["PKF26", "PKLF26", "MKF26", "MKLF26", "PMF26", "PMLF26", "MMF26", "MMLF26"] as const;
-type Prefix = (typeof PREFIXES)[number];
-
 type StatusFilter = "all" | "in_progress" | "completed" | "producing" | "production_completed" | "shipment_completed";
 type FactoryBillFilter = "all" | "has_code" | "no_code";
 
@@ -38,6 +35,14 @@ type OrderRow = {
   qty_3xl: number;
   qty_4xl: number;
   qty_5xl: number;
+  admin_user_id: string | null;
+};
+
+type UserOption = {
+  id: string;
+  full_name: string;
+  role: AppRole;
+  auth_user_id: string | null;
 };
 
 function getDisplayShirtTotal(row: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
@@ -54,12 +59,13 @@ export default function OrdersPage() {
   const [completing, setCompleting] = useState(false);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [activeWhatsappOrder, setActiveWhatsappOrder] = useState<OrderRow | null>(null);
+  const [adminOptions, setAdminOptions] = useState<UserOption[]>([]);
 
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [factoryBillFilter, setFactoryBillFilter] = useState<FactoryBillFilter>("all");
-  const [prefix, setPrefix] = useState<Prefix | "ALL">("ALL");
+  const [adminFilter, setAdminFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 20;
@@ -71,7 +77,7 @@ export default function OrdersPage() {
     let q = supabase
       .from("orders")
       .select(
-        "id,order_code,order_date,customer_phone,customer_whatsapp,factory_bill_code,fabric_name,net_total,initial_deposit,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,updated_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl",
+        "id,order_code,order_date,customer_phone,customer_whatsapp,factory_bill_code,fabric_name,net_total,initial_deposit,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,updated_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,admin_user_id",
         { count: "exact" }
       )
       .order("order_date", { ascending: false })
@@ -79,7 +85,7 @@ export default function OrdersPage() {
 
     if (fromDate) q = q.gte("order_date", fromDate);
     if (toDate) q = q.lte("order_date", toDate);
-    if (prefix !== "ALL") q = q.ilike("order_code", `${prefix}%`);
+    if (adminFilter !== "all") q = q.eq("admin_user_id", adminFilter);
 
     const s = query.trim();
     if (s) {
@@ -131,8 +137,16 @@ export default function OrdersPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const authUserId = sessionData.session?.user.id;
       if (!authUserId) return;
-      const { data } = await supabase.from("users").select("role").eq("auth_user_id", authUserId).maybeSingle();
-      if (data?.role) setViewerRole(data.role as AppRole);
+      const { data } = await supabase
+        .from("users")
+        .select("id,full_name,role,auth_user_id")
+        .eq("is_active", true)
+        .in("role", ["superadmin", "admin", "manager", "staff"]);
+
+      const users = (data ?? []) as UserOption[];
+      setAdminOptions(users);
+      const currentUser = users.find((item) => item.auth_user_id === authUserId) || null;
+      if (currentUser?.role) setViewerRole(currentUser.role);
     };
     void loadViewerRole();
   }, []);
@@ -155,7 +169,7 @@ export default function OrdersPage() {
     setToDate("");
     setStatus("all");
     setFactoryBillFilter("all");
-    setPrefix("ALL");
+    setAdminFilter("all");
     setQuery("");
     setPage(1);
     setTimeout(load, 0);
@@ -335,14 +349,18 @@ export default function OrdersPage() {
             </select>
           </div>
           <div>
-            <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ກຸ່ມລະຫັດ</label>
+            <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ອໍເດີແອັດມິນ</label>
             <select
-              value={prefix}
-              onChange={(e) => setPrefix(e.target.value as Prefix | "ALL")}
+              value={adminFilter}
+              onChange={(e) => setAdminFilter(e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white"
             >
-              <option value="ALL">ທັງໝົດ</option>
-              {PREFIXES.map((p) => <option key={p} value={p}>{p}</option>)}
+              <option value="all">ທັງໝົດ</option>
+              {adminOptions.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.full_name}
+                </option>
+              ))}
             </select>
           </div>
           <div>
