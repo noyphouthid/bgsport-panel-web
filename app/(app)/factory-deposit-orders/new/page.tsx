@@ -2085,6 +2085,8 @@ export default function FactoryDepositOrderFormPage() {
           html,
           body {
             background: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
 
           body * {
@@ -2097,7 +2099,10 @@ export default function FactoryDepositOrderFormPage() {
           }
 
           .production-sheet-preview-shell {
-            position: static !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
             border: 0 !important;
@@ -2109,6 +2114,7 @@ export default function FactoryDepositOrderFormPage() {
             max-width: none !important;
             aspect-ratio: auto !important;
             min-height: calc(297mm - 16mm) !important;
+            margin: 0 !important;
           }
         }
       `}</style>
