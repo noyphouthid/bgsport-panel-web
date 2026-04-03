@@ -521,7 +521,7 @@ export default function FactoryPaymentsPage() {
                   const firstRow = filteredAvailableRows.find((row) => !selectedIds.has(row.id));
                   if (firstRow) addToSelection(firstRow);
                 }}
-                placeholder="ພິມ PKF26-001 ຫຼື FACTORY-001"
+                placeholder="ພິມ PK26-001 / PKF26-001 ຫຼື FACTORY-001"
                 className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-3 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>

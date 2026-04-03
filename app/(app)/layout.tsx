@@ -83,6 +83,7 @@ const nav: NavItem[] = [
       { type: "link", href: "/imports", label: "ນຳເຂົ້າ Excel", icon: FileSpreadsheet },
       { type: "link", href: "/users", label: "ຕັ້ງຄ່າຜູ້ໃຊ້", icon: Users },
       { type: "link", href: "/fabric", label: "ລາຄາຜ້າ", icon: Banknote },
+      { type: "link", href: "/order-code-types", label: "ປະເພດລະຫັດ", icon: Settings2 },
     ],
   },
   { type: "link", href: "/inventory-qr", label: "ສ້າງ QR", icon: QrCode },

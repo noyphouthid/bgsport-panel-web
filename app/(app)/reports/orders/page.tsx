@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Download } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { MonthFilter, PrefixFilter, buildMonthOptions, buildYearOptions, matchPrefix, periodRange, prefixOptions, toDateOnly } from "../_lib";
+import { useOrderTypeOptions } from "@/lib/order-code-options";
+import { MonthFilter, PrefixFilter, buildMonthOptions, buildYearOptions, matchPrefix, periodRange, toDateOnly } from "../_lib";
 
 type OrderRow = {
   id: string;
@@ -47,6 +48,8 @@ export default function OrdersReportPage() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const { options: orderTypeOptions } = useOrderTypeOptions(true);
+  const prefixOptions = useMemo(() => ["ALL", ...orderTypeOptions, "OTHER"], [orderTypeOptions]);
 
   const load = async () => {
     setLoading(true);

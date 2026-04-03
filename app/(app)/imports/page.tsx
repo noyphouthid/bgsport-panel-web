@@ -136,7 +136,7 @@ export default function ImportExcelPage() {
         production_completed_at: "",
         customer_remaining_due_at: "",
         factory_payment_due_at: "",
-        order_code: "PKF26-001",
+        order_code: "PK26-001",
         customer_phone: "020XXXXXXXX",
         factory_bill_code: "FB-001",
         fabric_name: fabricExample,
@@ -523,6 +523,5 @@ export default function ImportExcelPage() {
     </div>
   );
 }
-
 
 

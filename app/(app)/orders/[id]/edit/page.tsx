@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
+import { buildOrderCode, normalizeOrderType, parseOrderCode, type OrderType } from "@/lib/order-code";
+import { useOrderTypeOptions } from "@/lib/order-code-options";
 
 type OrderDetail = {
   id: string;
@@ -84,31 +86,16 @@ type ImportReceiptInfo = {
   note: string | null;
 };
 
-const ORDER_TYPES = ["PK26", "MK26", "PM26", "MM26"] as const;
-type OrderType = (typeof ORDER_TYPES)[number];
-
 const SIZE_UPCHARGES = {
   "3XL": 20000,
   "4XL": 30000,
   "5XL": 35000,
 } as const;
 
+const CUSTOM_ORDER_TYPE_VALUE = "__custom__";
+
 const inputClassName =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:ring-2 focus:ring-blue-500";
-
-function parseOrderCode(orderCode: string): { orderType: OrderType | ""; orderNo: string } {
-  const normalized = String(orderCode || "").trim().toUpperCase();
-  const match = normalized.match(/^([A-Z0-9]+)-(\d+)$/);
-  if (!match) return { orderType: "", orderNo: normalized };
-
-  const [, prefix, orderNo] = match;
-  const orderType = ORDER_TYPES.includes(prefix as OrderType) ? (prefix as OrderType) : "";
-  return { orderType, orderNo };
-}
-
-function buildOrderCode(orderType: OrderType, orderNo: number) {
-  return `${orderType}-${String(orderNo).padStart(3, "0")}`;
-}
 
 export default function EditOrderPage() {
   const params = useParams();
@@ -128,7 +115,7 @@ export default function EditOrderPage() {
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
 
   const [orderDate, setOrderDate] = useState("");
-  const [orderType, setOrderType] = useState<OrderType | "">("");
+  const [orderType, setOrderType] = useState<OrderType>("");
   const [orderNo, setOrderNo] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerWhatsapp, setCustomerWhatsapp] = useState("");
@@ -150,6 +137,7 @@ export default function EditOrderPage() {
   const [customerRemainingDueDate, setCustomerRemainingDueDate] = useState("");
   const [factoryPaymentDueDate, setFactoryPaymentDueDate] = useState("");
   const [productionCompletedDate, setProductionCompletedDate] = useState("");
+  const { options: orderTypeOptions } = useOrderTypeOptions(true);
 
   const [showCustomerPayModal, setShowCustomerPayModal] = useState(false);
   const [customerPayAmount, setCustomerPayAmount] = useState(0);
@@ -164,6 +152,8 @@ export default function EditOrderPage() {
 
   const toDateInput = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 10) : "");
   const dateInputToIso = (value: string) => (value ? new Date(`${value}T12:00:00`).toISOString() : null);
+  const isCustomOrderType = useMemo(() => Boolean(orderType) && !orderTypeOptions.includes(orderType), [orderType, orderTypeOptions]);
+  const orderTypeSelectValue = isCustomOrderType ? CUSTOM_ORDER_TYPE_VALUE : orderType;
 
   const safeInsertAction = async (action: string, detail: string) => {
     const { error } = await supabase.from("order_status_history").insert({
@@ -695,15 +685,35 @@ export default function EditOrderPage() {
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div>
                     <label className="mb-1 block text-xs font-bold text-slate-700">ປະເພດລະຫັດ</label>
-                    <select value={orderType} onChange={(e) => setOrderType(e.target.value as OrderType | "")} className={`${inputClassName} bg-white`}>
+                    <select
+                      value={orderTypeSelectValue}
+                      onChange={(e) => {
+                        const nextType = e.target.value;
+                        setOrderType(nextType === CUSTOM_ORDER_TYPE_VALUE ? "" : nextType);
+                      }}
+                      className={`${inputClassName} bg-white`}
+                    >
                       <option value="">ເລືອກ TYPE</option>
-                      {ORDER_TYPES.map((type) => (
+                      {orderTypeOptions.map((type) => (
                         <option key={type} value={type}>
                           {type}
                         </option>
                       ))}
+                      <option value={CUSTOM_ORDER_TYPE_VALUE}>ສ້າງປະເພດລະຫັດໃໝ່</option>
                     </select>
                   </div>
+                  {orderTypeSelectValue === CUSTOM_ORDER_TYPE_VALUE ? (
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-slate-700">ປະເພດລະຫັດໃໝ່</label>
+                      <input
+                        type="text"
+                        value={orderType}
+                        onChange={(e) => setOrderType(normalizeOrderType(e.target.value))}
+                        placeholder="ຕົວຢ່າງ PK27"
+                        className={`${inputClassName} font-bold uppercase`}
+                      />
+                    </div>
+                  ) : null}
                   <div>
                     <label className="mb-1 block text-xs font-bold text-slate-700">ORDER No.</label>
                     <input

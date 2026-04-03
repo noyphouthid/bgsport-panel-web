@@ -1,15 +1,15 @@
 "use client";
 
-export const PREFIXES = ["PKF26", "PKLF26", "MKF26", "MKLF26", "PMF26", "PMLF26", "MMF26", "MMLF26"] as const;
-export type PrefixFilter = "ALL" | (typeof PREFIXES)[number] | "OTHER";
+import { ORDER_TYPES, matchOrderPrefix, type OrderPrefixFilter } from "@/lib/order-code";
+
+export const PREFIXES = ORDER_TYPES;
+export type PrefixFilter = OrderPrefixFilter;
 export type MonthFilter = number | "ALL";
 
 export const prefixOptions: PrefixFilter[] = ["ALL", ...PREFIXES, "OTHER"];
 
 export function matchPrefix(orderCode: string, prefix: PrefixFilter) {
-  if (prefix === "ALL") return true;
-  if (prefix === "OTHER") return /^\d/.test(String(orderCode || ""));
-  return String(orderCode || "").startsWith(prefix);
+  return matchOrderPrefix(orderCode, prefix);
 }
 
 export function monthRange(year: number, month: number) {

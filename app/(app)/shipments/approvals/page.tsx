@@ -65,6 +65,7 @@ export default function ShipmentApprovalsPage() {
   const [usersById, setUsersById] = useState<Record<string, UserRow>>({});
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [bulkAction, setBulkAction] = useState<"approve" | "reject" | null>(null);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<ShipmentDeliveryStatus | "all">("submitted");
@@ -131,6 +132,156 @@ export default function ShipmentApprovalsPage() {
     }
   };
 
+  const approveRequest = async (request: ShipmentDeliveryRequestRow) => {
+    const [{ data: orderData, error: orderError }, { data: labelData, error: labelError }, { data: existingShipment, error: existingShipmentError }] =
+      await Promise.all([
+        supabase
+          .from("orders")
+          .select("id,order_code,factory_bill_code,status,shipment_status,shipment_completed_at,balance,customer_paid_full_at")
+          .eq("id", request.order_id)
+          .maybeSingle(),
+        supabase
+          .from("order_qr_labels")
+          .select("id,order_id,label_status,received_at,shipped_at")
+          .eq("id", request.qr_label_id)
+          .maybeSingle(),
+        supabase
+          .from("shipment_records")
+          .select("id")
+          .eq("order_id", request.order_id)
+          .order("shipped_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+    if (orderError) throw orderError;
+    if (labelError) throw labelError;
+    if (existingShipmentError) throw existingShipmentError;
+
+    const order = (orderData as OrderRow | null) ?? null;
+    const label = (labelData as LabelRow | null) ?? null;
+
+    if (!order) throw new Error("ບໍ່ພົບຂໍ້ມູນອໍເດີ");
+    if (!label) throw new Error("ບໍ່ພົບຂໍ້ມູນ QR");
+    if (order.status === "completed") throw new Error("ອໍເດີນີ້ຖືກປິດງານແລ້ວ");
+    if (order.shipment_status === "shipped" || order.shipment_completed_at || label.label_status === "shipped" || label.shipped_at || existingShipment?.id) {
+      throw new Error("ອໍເດີນີ້ຖືກຈັດສົ່ງແລ້ວ");
+    }
+
+    const paymentAmount = Number(request.payment_amount) || 0;
+    const currentBalance = Number(order.balance) || 0;
+    if (paymentAmount > currentBalance) {
+      throw new Error("ຍອດຮັບເງິນເກີນຍອດຄ້າງຂອງອໍເດີນີ້ ກະລຸນາກັບໄປແກ້ draft");
+    }
+
+    const approvedAtIso = new Date().toISOString();
+    const shippedAtIso = request.delivery_scheduled_at || approvedAtIso;
+
+    const { data: shipmentData, error: shipmentError } = await supabase
+      .from("shipment_records")
+      .insert({
+        qr_label_id: request.qr_label_id,
+        order_id: request.order_id,
+        shipped_at: shippedAtIso,
+        shipped_by: request.delivery_person_name || usersById[request.requested_by_user_id || ""]?.full_name || "System",
+        note: request.note || null,
+        collected_amount: paymentAmount,
+        payment_method: paymentAmount > 0 ? request.payment_method : null,
+      })
+      .select("id")
+      .single();
+    if (shipmentError) throw shipmentError;
+
+    const shipmentId = String(shipmentData.id);
+    const paymentAtIso = request.payment_paid_at || approvedAtIso;
+
+    if (paymentAmount > 0) {
+      const { error: shipmentPaymentError } = await supabase.from("shipment_payments").insert({
+        shipment_id: shipmentId,
+        order_id: request.order_id,
+        amount: paymentAmount,
+        payment_method: request.payment_method || "transfer",
+        paid_at: paymentAtIso,
+        note: request.note || null,
+      });
+      if (shipmentPaymentError) throw shipmentPaymentError;
+
+      const { error: paymentTransactionError } = await supabase.from("payment_transactions").insert({
+        shipment_id: shipmentId,
+        order_id: request.order_id,
+        amount: paymentAmount,
+        paid_at: paymentAtIso,
+        note: request.note || null,
+      });
+      if (paymentTransactionError) throw paymentTransactionError;
+    }
+
+    const nextBalance = Math.max(0, currentBalance - paymentAmount);
+    const nextCustomerPaidFullAt =
+      nextBalance === 0 ? order.customer_paid_full_at || request.payment_paid_at || approvedAtIso : null;
+
+    const { error: orderUpdateError } = await supabase
+      .from("orders")
+      .update({
+        balance: nextBalance,
+        customer_paid_full_at: nextCustomerPaidFullAt,
+        shipment_status: "shipped",
+        shipment_completed_at: approvedAtIso,
+      })
+      .eq("id", request.order_id);
+    if (orderUpdateError) throw orderUpdateError;
+
+    const { error: labelUpdateError } = await supabase
+      .from("order_qr_labels")
+      .update({
+        label_status: "shipped",
+        shipped_at: approvedAtIso,
+        shipped_by: request.delivery_person_name || usersById[request.requested_by_user_id || ""]?.full_name || "System",
+        last_scanned_at: approvedAtIso,
+        updated_at: approvedAtIso,
+      })
+      .eq("id", request.qr_label_id);
+    if (labelUpdateError) throw labelUpdateError;
+
+    const { error: requestUpdateError } = await supabase
+      .from("shipment_delivery_requests")
+      .update({
+        status: "delivered",
+        approved_at: approvedAtIso,
+        approved_by_user_id: viewerUserId,
+        delivered_at: approvedAtIso,
+        delivered_by_user_id: viewerUserId,
+        updated_at: approvedAtIso,
+      })
+      .eq("id", request.id);
+    if (requestUpdateError) throw requestUpdateError;
+
+    await safeInsertOrderAction(
+      request.order_id,
+      "approve_shipment_delivery_request",
+      `Approved delivery request ${request.id}; method=${request.delivery_method}; payment_amount=${paymentAmount}`
+    );
+
+    return order;
+  };
+
+  const rejectRequest = async (request: ShipmentDeliveryRequestRow, reason: string) => {
+    const rejectedAtIso = new Date().toISOString();
+    const { error } = await supabase
+      .from("shipment_delivery_requests")
+      .update({
+        status: "rejected",
+        rejected_at: rejectedAtIso,
+        rejected_by_user_id: viewerUserId,
+        rejection_note: reason,
+        updated_at: rejectedAtIso,
+      })
+      .eq("id", request.id);
+    if (error) throw error;
+
+    await safeInsertOrderAction(request.order_id, "reject_shipment_delivery_request", `Rejected delivery request ${request.id}; reason=${reason}`);
+  };
+
   const handleApprove = async (request: ShipmentDeliveryRequestRow) => {
     if (viewerRole !== "superadmin" || !viewerUserId) {
       toast.error("ສິດນີ້ສຳລັບ super admin ເທົ່ານັ້ນ");
@@ -146,135 +297,7 @@ export default function ShipmentApprovalsPage() {
 
     setWorkingId(request.id);
     try {
-      const [{ data: orderData, error: orderError }, { data: labelData, error: labelError }, { data: existingShipment, error: existingShipmentError }] =
-        await Promise.all([
-          supabase
-            .from("orders")
-            .select("id,order_code,factory_bill_code,status,shipment_status,shipment_completed_at,balance,customer_paid_full_at")
-            .eq("id", request.order_id)
-            .maybeSingle(),
-          supabase
-            .from("order_qr_labels")
-            .select("id,order_id,label_status,received_at,shipped_at")
-            .eq("id", request.qr_label_id)
-            .maybeSingle(),
-          supabase
-            .from("shipment_records")
-            .select("id")
-            .eq("order_id", request.order_id)
-            .order("shipped_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-        ]);
-
-      if (orderError) throw orderError;
-      if (labelError) throw labelError;
-      if (existingShipmentError) throw existingShipmentError;
-
-      const order = (orderData as OrderRow | null) ?? null;
-      const label = (labelData as LabelRow | null) ?? null;
-
-      if (!order) throw new Error("ບໍ່ພົບຂໍ້ມູນອໍເດີ");
-      if (!label) throw new Error("ບໍ່ພົບຂໍ້ມູນ QR");
-      if (order.status === "completed") throw new Error("ອໍເດີນີ້ຖືກປິດງານແລ້ວ");
-      if (order.shipment_status === "shipped" || order.shipment_completed_at || label.label_status === "shipped" || label.shipped_at || existingShipment?.id) {
-        throw new Error("ອໍເດີນີ້ຖືກຈັດສົ່ງແລ້ວ");
-      }
-
-      const paymentAmount = Number(request.payment_amount) || 0;
-      const currentBalance = Number(order.balance) || 0;
-      if (paymentAmount > currentBalance) {
-        throw new Error("ຍອດຮັບເງິນເກີນຍອດຄ້າງຂອງອໍເດີນີ້ ກະລຸນາກັບໄປແກ້ draft");
-      }
-
-      const approvedAtIso = new Date().toISOString();
-      const shippedAtIso = request.delivery_scheduled_at || approvedAtIso;
-
-      const { data: shipmentData, error: shipmentError } = await supabase
-        .from("shipment_records")
-        .insert({
-          qr_label_id: request.qr_label_id,
-          order_id: request.order_id,
-          shipped_at: shippedAtIso,
-          shipped_by: request.delivery_person_name || usersById[request.requested_by_user_id || ""]?.full_name || "System",
-          note: request.note || null,
-          collected_amount: paymentAmount,
-          payment_method: paymentAmount > 0 ? request.payment_method : null,
-        })
-        .select("id")
-        .single();
-      if (shipmentError) throw shipmentError;
-
-      const shipmentId = String(shipmentData.id);
-      const paymentAtIso = request.payment_paid_at || approvedAtIso;
-
-      if (paymentAmount > 0) {
-        const { error: shipmentPaymentError } = await supabase.from("shipment_payments").insert({
-          shipment_id: shipmentId,
-          order_id: request.order_id,
-          amount: paymentAmount,
-          payment_method: request.payment_method || "transfer",
-          paid_at: paymentAtIso,
-          note: request.note || null,
-        });
-        if (shipmentPaymentError) throw shipmentPaymentError;
-
-        const { error: paymentTransactionError } = await supabase.from("payment_transactions").insert({
-          shipment_id: shipmentId,
-          order_id: request.order_id,
-          amount: paymentAmount,
-          paid_at: paymentAtIso,
-          note: request.note || null,
-        });
-        if (paymentTransactionError) throw paymentTransactionError;
-      }
-
-      const nextBalance = Math.max(0, currentBalance - paymentAmount);
-      const nextCustomerPaidFullAt =
-        nextBalance === 0 ? order.customer_paid_full_at || request.payment_paid_at || approvedAtIso : null;
-
-      const { error: orderUpdateError } = await supabase
-        .from("orders")
-        .update({
-          balance: nextBalance,
-          customer_paid_full_at: nextCustomerPaidFullAt,
-          shipment_status: "shipped",
-          shipment_completed_at: approvedAtIso,
-        })
-        .eq("id", request.order_id);
-      if (orderUpdateError) throw orderUpdateError;
-
-      const { error: labelUpdateError } = await supabase
-        .from("order_qr_labels")
-        .update({
-          label_status: "shipped",
-          shipped_at: approvedAtIso,
-          shipped_by: request.delivery_person_name || usersById[request.requested_by_user_id || ""]?.full_name || "System",
-          last_scanned_at: approvedAtIso,
-          updated_at: approvedAtIso,
-        })
-        .eq("id", request.qr_label_id);
-      if (labelUpdateError) throw labelUpdateError;
-
-      const { error: requestUpdateError } = await supabase
-        .from("shipment_delivery_requests")
-        .update({
-          status: "delivered",
-          approved_at: approvedAtIso,
-          approved_by_user_id: viewerUserId,
-          delivered_at: approvedAtIso,
-          delivered_by_user_id: viewerUserId,
-          updated_at: approvedAtIso,
-        })
-        .eq("id", request.id);
-      if (requestUpdateError) throw requestUpdateError;
-
-      await safeInsertOrderAction(
-        request.order_id,
-        "approve_shipment_delivery_request",
-        `Approved delivery request ${request.id}; method=${request.delivery_method}; payment_amount=${paymentAmount}`
-      );
-
+      const order = await approveRequest(request);
       toast.success(`ຢືນຢັນສົ່ງມອບ ${order.order_code} ສຳເລັດ`);
       await load();
     } catch (error) {
@@ -299,19 +322,7 @@ export default function ShipmentApprovalsPage() {
 
     setWorkingId(request.id);
     try {
-      const { error } = await supabase
-        .from("shipment_delivery_requests")
-        .update({
-          status: "rejected",
-          rejected_at: new Date().toISOString(),
-          rejected_by_user_id: viewerUserId,
-          rejection_note: reason,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", request.id);
-      if (error) throw error;
-
-      await safeInsertOrderAction(request.order_id, "reject_shipment_delivery_request", `Rejected delivery request ${request.id}; reason=${reason}`);
+      await rejectRequest(request, reason);
       toast.success("ປະຕິເສດຄຳຂໍແລ້ວ");
       await load();
     } catch (error) {
@@ -341,6 +352,88 @@ export default function ShipmentApprovalsPage() {
         .includes(keyword);
     });
   }, [ordersById, query, rows, statusFilter, usersById]);
+
+  const submittedRows = useMemo(() => filteredRows.filter((row) => row.status === "submitted"), [filteredRows]);
+
+  const handleApproveAll = async () => {
+    if (viewerRole !== "superadmin" || !viewerUserId) {
+      toast.error("ສິດນີ້ສຳລັບ super admin ເທົ່ານັ້ນ");
+      return;
+    }
+    if (submittedRows.length === 0) {
+      toast.error("ບໍ່ມີລາຍການລໍຖ້າອະນຸມັດ");
+      return;
+    }
+
+    const confirmed = window.confirm(`ຢືນຢັນອະນຸມັດທັງໝົດ ${submittedRows.length} ລາຍການ ຫຼື ບໍ່?`);
+    if (!confirmed) return;
+
+    setBulkAction("approve");
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      for (const row of submittedRows) {
+        try {
+          await approveRequest(row);
+          successCount += 1;
+        } catch (error) {
+          failCount += 1;
+          console.error(error);
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`ຢືນຢັນສຳເລັດ ${successCount} ລາຍການ`);
+      }
+      if (failCount > 0) {
+        toast.error(`ບາງລາຍການບໍ່ສຳເລັດ ${failCount} ລາຍການ`);
+      }
+      await load();
+    } finally {
+      setBulkAction(null);
+    }
+  };
+
+  const handleRejectAll = async () => {
+    if (viewerRole !== "superadmin" || !viewerUserId) {
+      toast.error("ສິດນີ້ສຳລັບ super admin ເທົ່ານັ້ນ");
+      return;
+    }
+    if (submittedRows.length === 0) {
+      toast.error("ບໍ່ມີລາຍການລໍຖ້າອະນຸມັດ");
+      return;
+    }
+
+    const reason = window.prompt("ລະບຸເຫດຜົນການປະຕິເສດທັງໝົດ", "")?.trim();
+    if (!reason) return;
+
+    setBulkAction("reject");
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      for (const row of submittedRows) {
+        try {
+          await rejectRequest(row, reason);
+          successCount += 1;
+        } catch (error) {
+          failCount += 1;
+          console.error(error);
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`ປະຕິເສດສຳເລັດ ${successCount} ລາຍການ`);
+      }
+      if (failCount > 0) {
+        toast.error(`ບາງລາຍການບໍ່ສຳເລັດ ${failCount} ລາຍການ`);
+      }
+      await load();
+    } finally {
+      setBulkAction(null);
+    }
+  };
 
   if (!loading && viewerRole !== "superadmin") {
     return (
@@ -389,7 +482,29 @@ export default function ShipmentApprovalsPage() {
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-50 bg-slate-50/50 p-4">
           <div className="text-sm font-bold uppercase tracking-widest text-slate-700">ລາຍການຄຳຂໍສົ່ງມອບ</div>
-          <div className="text-xs font-bold text-slate-500">{loading ? "ກຳລັງໂຫຼດ..." : `${filteredRows.length} ລາຍການ`}</div>
+          <div className="flex items-center gap-2">
+            {viewerRole === "superadmin" ? (
+              <>
+                <button
+                  onClick={() => void handleApproveAll()}
+                  disabled={loading || submittedRows.length === 0 || bulkAction !== null || workingId !== null}
+                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CheckCircle2 size={14} />
+                  {bulkAction === "approve" ? "ກຳລັງຢືນຢັນ..." : "ຢືນຢັນທັງໝົດ"}
+                </button>
+                <button
+                  onClick={() => void handleRejectAll()}
+                  disabled={loading || submittedRows.length === 0 || bulkAction !== null || workingId !== null}
+                  className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <XCircle size={14} />
+                  {bulkAction === "reject" ? "ກຳລັງປະຕິເສດ..." : "ປະຕິເສດທັງໝົດ"}
+                </button>
+              </>
+            ) : null}
+            <div className="text-xs font-bold text-slate-500">{loading ? "ກຳລັງໂຫຼດ..." : `${filteredRows.length} ລາຍການ`}</div>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -462,11 +577,11 @@ export default function ShipmentApprovalsPage() {
                         <div className="flex flex-wrap items-center justify-center gap-2">
                           {viewerRole === "superadmin" && row.status === "submitted" ? (
                             <>
-                              <button onClick={() => void handleApprove(row)} disabled={workingId === row.id} className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
+                              <button onClick={() => void handleApprove(row)} disabled={workingId === row.id || bulkAction !== null} className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
                                 <CheckCircle2 size={14} />
                                 {workingId === row.id ? "ກຳລັງອະນຸມັດ..." : "ຢືນຢັນສົ່ງມອບ"}
                               </button>
-                              <button onClick={() => void handleReject(row)} disabled={workingId === row.id} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-50">
+                              <button onClick={() => void handleReject(row)} disabled={workingId === row.id || bulkAction !== null} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-50">
                                 <XCircle size={14} />
                                 ປະຕິເສດ
                               </button>

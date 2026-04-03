@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { type OrderType } from "@/lib/order-code";
+import { useOrderTypeOptions } from "@/lib/order-code-options";
 
-const PREFIXES = ["PKF26", "PKLF26", "MKF26", "MKLF26", "PMF26", "PMLF26", "MMF26", "MMLF26"] as const;
-type Prefix = (typeof PREFIXES)[number];
 type DateMode = "day" | "month" | "year";
 
 type OrderRow = {
@@ -63,7 +63,7 @@ function renderStatus(row: OrderRow) {
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
-  const [activePrefix, setActivePrefix] = useState<Prefix | "ALL">("ALL");
+  const [activePrefix, setActivePrefix] = useState<OrderType | "ALL">("ALL");
   const [dateMode, setDateMode] = useState<DateMode>("day");
   const [day, setDay] = useState(getLocalDateInputValue);
   const [month, setMonth] = useState(getLocalMonthInputValue);
@@ -71,6 +71,7 @@ export default function SearchPage() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const { options: orderTypeOptions } = useOrderTypeOptions(true);
 
   const runSearch = async () => {
     setLoading(true);
@@ -171,7 +172,7 @@ export default function SearchPage() {
               ທັງໝົດ
             </button>
 
-            {PREFIXES.map((p) => (
+            {orderTypeOptions.map((p) => (
               <button
                 key={p}
                 onClick={() => setActivePrefix(p)}

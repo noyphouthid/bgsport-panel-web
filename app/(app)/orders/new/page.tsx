@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
+import { buildOrderCode, normalizeOrderType, type OrderType } from "@/lib/order-code";
+import { useOrderTypeOptions } from "@/lib/order-code-options";
 
 type FabricRow = {
   id: string;
@@ -22,23 +24,18 @@ type UserOption = {
   is_active: boolean;
 };
 
-const ORDER_TYPES = ["PK26", "MK26", "PM26", "MM26"] as const;
-type OrderType = (typeof ORDER_TYPES)[number];
-
 const SIZE_UPCHARGES = {
   "3XL": 20000,
   "4XL": 30000,
   "5XL": 35000,
 } as const;
 
+const CUSTOM_ORDER_TYPE_VALUE = "__custom__";
+
 function getLocalDateInputValue() {
   const now = new Date();
   const timezoneOffset = now.getTimezoneOffset() * 60_000;
   return new Date(now.getTime() - timezoneOffset).toISOString().slice(0, 10);
-}
-
-function buildOrderCode(orderType: OrderType, orderNo: number) {
-  return `${orderType}-${String(orderNo).padStart(3, "0")}`;
 }
 
 export default function NewOrderPage() {
@@ -52,7 +49,7 @@ export default function NewOrderPage() {
 
   // ===== 1) ข้อมูลพื้นฐาน =====
   const [orderDate, setOrderDate] = useState(getLocalDateInputValue);
-  const [orderType, setOrderType] = useState<OrderType | "">("");
+  const [orderType, setOrderType] = useState<OrderType>("");
   const [orderNo, setOrderNo] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerWhatsapp, setCustomerWhatsapp] = useState("");
@@ -60,6 +57,7 @@ export default function NewOrderPage() {
   const [fabricId, setFabricId] = useState<string>("");
   const [adminUserId, setAdminUserId] = useState<string>("");
   const [graphicUserId, setGraphicUserId] = useState<string>("");
+  const { options: orderTypeOptions } = useOrderTypeOptions(true);
 
   // ===== 2) จำนวน & ขนาด =====
   const [shortQty, setShortQty] = useState<number>(0);
@@ -150,6 +148,8 @@ export default function NewOrderPage() {
   const netTotal = useMemo(() => Math.max(0, grossTotal - designDeposit), [grossTotal, designDeposit]);
   const balance = useMemo(() => Math.max(0, netTotal - initialDeposit), [netTotal, initialDeposit]);
   const profitPreview = useMemo(() => netTotal - factoryCost, [netTotal, factoryCost]);
+  const isCustomOrderType = useMemo(() => Boolean(orderType) && !orderTypeOptions.includes(orderType), [orderType, orderTypeOptions]);
+  const orderTypeSelectValue = isCustomOrderType ? CUSTOM_ORDER_TYPE_VALUE : orderType;
 
   const resetForm = () => {
     setOrderDate(getLocalDateInputValue());
@@ -334,21 +334,34 @@ export default function NewOrderPage() {
                   <div>
                     <label className="text-xs font-bold text-slate-700 block mb-1">ປະເພດລະຫັດ</label>
                     <select
-                    value={orderType}
+                    value={orderTypeSelectValue}
                     onChange={(e) => {
-                      const nextType = e.target.value as OrderType | "";
-                      setOrderType(nextType);
+                      const nextType = e.target.value;
+                      setOrderType(nextType === CUSTOM_ORDER_TYPE_VALUE ? "" : nextType);
                     }}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold bg-white"
                   >
                       <option value="">ເລືອກ TYPE</option>
-                      {ORDER_TYPES.map((type) => (
+                      {orderTypeOptions.map((type) => (
                         <option key={type} value={type}>
                           {type}
                         </option>
                       ))}
+                      <option value={CUSTOM_ORDER_TYPE_VALUE}>ສ້າງປະເພດລະຫັດໃໝ່</option>
                     </select>
                   </div>
+
+                  {orderTypeSelectValue === CUSTOM_ORDER_TYPE_VALUE ? (
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">ປະເພດລະຫັດໃໝ່</label>
+                      <input
+                        value={orderType}
+                        onChange={(e) => setOrderType(normalizeOrderType(e.target.value))}
+                        placeholder="ຕົວຢ່າງ PK27"
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold uppercase"
+                      />
+                    </div>
+                  ) : null}
 
                   <div>
                     <label className="text-xs font-bold text-slate-700 block mb-1">ORDER No.</label>

@@ -12,6 +12,7 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/shipments/approvals", roles: ["superadmin"] },
   { prefix: "/imports", roles: ["superadmin", "manager"] },
   { prefix: "/fabric", roles: ["superadmin", "manager"] },
+  { prefix: "/order-code-types", roles: ["superadmin", "manager"] },
   { prefix: "/settings", roles: ["superadmin", "manager"] },
   { prefix: "/payroll", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/payments", roles: ["superadmin", "manager", "accountant"] },
