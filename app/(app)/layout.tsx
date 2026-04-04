@@ -25,6 +25,7 @@ import {
   LogOut,
   ChevronDown,
   HandCoins,
+  Palette,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AppRole, canAccessPath } from "@/lib/access-control";
@@ -56,6 +57,7 @@ type NavItem = NavLinkItem | NavGroupItem;
 const nav: NavItem[] = [
   { type: "link", href: "/dashboard", label: "ໜ້າຫຼັກ", icon: LayoutDashboard },
   { type: "link", href: "/orders", label: "ລາຍການອໍເດີ", icon: ClipboardList },
+  { type: "link", href: "/design-queue", label: "ຄິວອອກແບບ", icon: Palette },
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
   { type: "link", href: "/search", label: "ຄົ້ນຫາອໍເດີທັງໝົດ", icon: Search },
