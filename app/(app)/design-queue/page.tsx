@@ -264,11 +264,10 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       const urgentDiff = Number(isUrgentWorkType(b.style_name)) - Number(isUrgentWorkType(a.style_name));
       if (urgentDiff !== 0) return urgentDiff;
 
-      const pendingDiff = Number(a.is_designed) - Number(b.is_designed);
-      if (pendingDiff !== 0) return pendingDiff;
+      const queueDiff = a.queue_sequence - b.queue_sequence;
+      if (queueDiff !== 0) return queueDiff;
 
-      if (a.queue_date !== b.queue_date) return a.queue_date < b.queue_date ? 1 : -1;
-      return a.order_sequence - b.order_sequence;
+      return a.order_no.localeCompare(b.order_no);
     });
   }, [graphicNameMap, isCompletedView, monthFilter, query, rows, workTypeFilter, yearFilter]);
 
