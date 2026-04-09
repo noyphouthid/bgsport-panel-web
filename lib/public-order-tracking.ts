@@ -13,6 +13,7 @@ type RawOrderRow = {
   shipment_status: "pending" | "shipped" | null;
   shipment_completed_at: string | null;
   production_completed_at: string | null;
+  shop_received_at: string | null;
   factory_bill_code: string | null;
   factory_production_status: string | null;
   factory_production_status_index: number | null;
@@ -25,8 +26,23 @@ type RawOrderRow = {
     statuses?: string[] | null;
     updated_at_display?: string | null;
     due_date_display?: string | null;
+    design_image_url?: string | null;
   } | null;
 };
+
+function normalizeFactoryAssetUrl(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  if (/^https?:\/\//i.test(text)) return text;
+  const base = "https://www.tracklifefootball.com";
+  return text.startsWith("/") ? `${base}${text}` : `${base}/${text}`;
+}
+
+function buildTrackingImageProxyUrl(value: string | null | undefined) {
+  const normalized = normalizeFactoryAssetUrl(value);
+  if (!normalized) return null;
+  return `/api/public/order-tracking/design?src=${encodeURIComponent(normalized)}`;
+}
 
 export type PublicTrackingResult = {
   id: string;
@@ -35,6 +51,7 @@ export type PublicTrackingResult = {
   customerPhoneMasked: string | null;
   fabricName: string | null;
   totalQty: number;
+  designImageUrl: string | null;
   currentStatus: string;
   currentStageIndex: number | null;
   currentStageSource: "factory" | "shop";
@@ -77,7 +94,7 @@ function formatDateDisplay(value: string | null | undefined) {
 function getLocalTrackingSteps(row: RawOrderRow) {
   const closed = row.status === "completed" || Boolean(row.closed_at);
   const shipped = !closed && (row.shipment_status === "shipped" || Boolean(row.shipment_completed_at));
-  const receivedAtShop = !closed && !shipped && Boolean(row.production_completed_at);
+  const receivedAtShop = Boolean(row.shop_received_at || row.production_completed_at);
 
   return {
     steps: ["ຮັບອໍເດີ", "ກຳລັງຜະລິດ", "ສິນຄ້າເຂົ້າຮ້ານ", "ຈັດສົ່ງແລ້ວ", "ປິດອໍເດີ"],
@@ -94,6 +111,14 @@ export function mapOrderToPublicTracking(row: RawOrderRow): PublicTrackingResult
   const factoryStatus = String(row.factory_production_status || "").trim();
   const hasFactoryStatus = Boolean(factoryStatus);
   const fallback = getLocalTrackingSteps(row);
+  const receivedAtShop = Boolean(row.shop_received_at);
+  const shopReceiptStepLabel = receivedAtShop ? "ນຳເຂົ້າມາໜ້າຮ້ານແລ້ວ" : "ຍັງບໍ່ທັນນຳເຂົ້າມາໜ້າຮ້ານ";
+  const steps = hasFactoryStatus && factorySteps.length > 0 ? [...factorySteps, shopReceiptStepLabel] : fallback.steps;
+  const activeStepIndex = hasFactoryStatus
+    ? receivedAtShop
+      ? factorySteps.length + 1
+      : Number(row.factory_production_status_index || 0) || null
+    : fallback.activeIndex;
 
   return {
     id: row.id,
@@ -102,6 +127,7 @@ export function mapOrderToPublicTracking(row: RawOrderRow): PublicTrackingResult
     customerPhoneMasked: maskPhone(row.customer_phone || row.customer_whatsapp || null),
     fabricName: row.fabric_name || null,
     totalQty,
+    designImageUrl: buildTrackingImageProxyUrl(row.factory_production_payload?.design_image_url),
     currentStatus: hasFactoryStatus ? factoryStatus : fallback.currentStatus,
     currentStageIndex: hasFactoryStatus ? Number(row.factory_production_status_index || 0) || null : fallback.activeIndex,
     currentStageSource: hasFactoryStatus ? "factory" : "shop",
@@ -114,12 +140,13 @@ export function mapOrderToPublicTracking(row: RawOrderRow): PublicTrackingResult
       row.factory_production_payload?.updated_at_display?.trim() ||
       formatDateDisplay(row.factory_production_source_updated_at) ||
       formatDateDisplay(row.factory_production_synced_at) ||
+      formatDateDisplay(row.shop_received_at) ||
       formatDateDisplay(row.shipment_completed_at) ||
       formatDateDisplay(row.production_completed_at) ||
       null,
     isRush: Boolean(row.factory_production_is_rush),
-    steps: hasFactoryStatus && factorySteps.length > 0 ? factorySteps : fallback.steps,
-    activeStepIndex: hasFactoryStatus ? Number(row.factory_production_status_index || 0) || null : fallback.activeIndex,
+    steps,
+    activeStepIndex,
     factoryBillCode: row.factory_bill_code || null,
   };
 }

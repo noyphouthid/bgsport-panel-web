@@ -11,6 +11,7 @@ type TrackingResult = {
   customerPhoneMasked: string | null;
   fabricName: string | null;
   totalQty: number;
+  designImageUrl: string | null;
   currentStatus: string;
   currentStageIndex: number | null;
   currentStageSource: "factory" | "shop";
@@ -163,6 +164,17 @@ export default function PublicTrackingPage() {
         {topResult ? (
           <section className="mt-5">
             <div className="rounded-[30px] border border-white/80 bg-white/82 p-5 shadow-[0_24px_60px_rgba(65,51,30,.12)] backdrop-blur">
+              {topResult.designImageUrl ? (
+                <div className="mb-4 overflow-hidden rounded-[24px] border border-[#e5dccb] bg-[#f7f3eb]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={topResult.designImageUrl}
+                    alt={`ແບບເສື້ອ ${topResult.orderCode}`}
+                    className="h-auto w-full object-cover"
+                    loading="lazy"
+                  />
+                </div>
+              ) : null}
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-400">ສະຖານະລ່າສຸດ</div>
@@ -243,6 +255,17 @@ export default function PublicTrackingPage() {
             <div className="px-1 text-sm font-black uppercase tracking-[0.2em] text-slate-500">ລາຍການທີ່ພົບ</div>
             {secondaryResults.map((item) => (
               <article key={item.id} className="rounded-[26px] border border-white/80 bg-white/82 p-4 shadow-[0_20px_48px_rgba(68,58,44,.1)] backdrop-blur">
+                {item.designImageUrl ? (
+                  <div className="mb-3 overflow-hidden rounded-[20px] border border-[#e5dccb] bg-[#f7f3eb]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={item.designImageUrl}
+                      alt={`ແບບເສື້ອ ${item.orderCode}`}
+                      className="h-auto w-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                ) : null}
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-lg font-black text-slate-900">{item.orderCode}</div>

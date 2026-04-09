@@ -27,6 +27,7 @@ type RawOrderRow = {
   shipment_status: "pending" | "shipped" | null;
   shipment_completed_at: string | null;
   production_completed_at: string | null;
+  shop_received_at: string | null;
   factory_bill_code: string | null;
   factory_production_status: string | null;
   factory_production_status_index: number | null;
@@ -40,6 +41,7 @@ type RawOrderRow = {
     statuses?: string[] | null;
     updated_at_display?: string | null;
     due_date_display?: string | null;
+    design_image_url?: string | null;
   } | null;
 };
 
@@ -62,8 +64,41 @@ function mergeFactorySnapshot(row: RawOrderRow, snapshot: Awaited<ReturnType<typ
       statuses: snapshot.payload.statuses,
       updated_at_display: snapshot.payload.updated_at_display,
       due_date_display: snapshot.payload.due_date_display,
+      design_image_url: snapshot.payload.design_image_url,
     },
   };
+}
+
+async function attachShopReceiptState(
+  supabaseAdmin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  rows: RawOrderRow[]
+) {
+  const orderIds = rows.map((row) => row.id);
+  if (orderIds.length === 0) return rows;
+
+  const { data, error } = await supabaseAdmin
+    .from("factory_receipt_items")
+    .select("order_id,factory_receipts!inner(received_at)")
+    .in("order_id", orderIds);
+
+  if (error) {
+    return rows;
+  }
+
+  const receivedAtByOrderId = new Map<string, string>();
+  for (const item of (data ?? []) as Array<{ order_id: string; factory_receipts: Array<{ received_at: string }> }>) {
+    const receivedAt = item.factory_receipts?.[0]?.received_at || null;
+    if (!receivedAt) continue;
+    const previous = receivedAtByOrderId.get(item.order_id);
+    if (!previous || receivedAt > previous) {
+      receivedAtByOrderId.set(item.order_id, receivedAt);
+    }
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    shop_received_at: receivedAtByOrderId.get(row.id) || null,
+  }));
 }
 
 async function refreshOrdersFromFactory(
@@ -85,8 +120,8 @@ async function refreshOrdersFromFactory(
 
       try {
         const snapshot = await fetchFactoryProductionSnapshot(factoryBillCode);
-        const mergedRow = mergeFactorySnapshot(row, snapshot, syncedAt);
-        refreshedRows.set(row.id, mergedRow);
+      const mergedRow = mergeFactorySnapshot(row, snapshot, syncedAt);
+      refreshedRows.set(row.id, mergedRow);
         await supabaseAdmin.from("orders").update(buildFactoryProductionUpdate(snapshot, syncedAt)).eq("id", row.id);
       } catch (error) {
         const message = error instanceof Error ? error.message : "factory_sync_failed";
@@ -139,6 +174,7 @@ export async function GET(req: NextRequest) {
   }
 
   const matches = ((data ?? []) as RawOrderRow[])
+    .map((row) => ({ ...row, shop_received_at: null }))
     .filter((row) => matchesTrackingQuery(row, search))
     .sort((a, b) => {
       const byRank = rankTrackingMatch(b, search) - rankTrackingMatch(a, search);
@@ -148,7 +184,8 @@ export async function GET(req: NextRequest) {
     .slice(0, 20);
 
   const rowsWithLiveFactoryStatus = await refreshOrdersFromFactory(supabaseAdmin, matches);
-  const results: PublicTrackingResult[] = rowsWithLiveFactoryStatus.map(mapOrderToPublicTracking);
+  const rowsWithShopReceiptState = await attachShopReceiptState(supabaseAdmin, rowsWithLiveFactoryStatus);
+  const results: PublicTrackingResult[] = rowsWithShopReceiptState.map(mapOrderToPublicTracking);
   return NextResponse.json({
     ok: true,
     query: search,

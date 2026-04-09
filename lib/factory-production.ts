@@ -21,6 +21,7 @@ export type FactoryProductionPayload = {
   is_rush: boolean;
   customer_name: string | null;
   quantity: number | null;
+  design_image_url: string | null;
   events: FactoryProductionEvent[];
 };
 
@@ -47,6 +48,14 @@ type FactoryApiResponse = {
 function getFactoryProductionBaseUrl() {
   const configured = String(process.env.TRACKLIFE_API_BASE_URL || process.env.FACTORY_TRACKING_API_BASE_URL || "").trim();
   return configured || "https://www.tracklifefootball.com";
+}
+
+function toAbsoluteFactoryUrl(value: string | null) {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  const base = getFactoryProductionBaseUrl().replace(/\/+$/, "");
+  const path = value.startsWith("/") ? value : `/${value}`;
+  return `${base}${path}`;
 }
 
 function toNullableString(value: unknown) {
@@ -109,6 +118,7 @@ function normalizePayload(order: Record<string, unknown>): FactoryProductionPayl
     is_rush: toBoolean(order.is_rush),
     customer_name: toNullableString(order.customer_name),
     quantity: toNullableNumber(order.quantity),
+    design_image_url: toAbsoluteFactoryUrl(toNullableString(order.design_image_url)),
     events,
   };
 }
