@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Toaster } from "react-hot-toast";
@@ -152,6 +153,13 @@ export default function LoginPage() {
             {loading ? "ກຳລັງເຂົ້າສູ່ລະບົບ..." : "ເຂົ້າສູ່ລະບົບ"}
           </button>
         </form>
+
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-center">
+          <div className="text-xs font-bold uppercase tracking-wider text-emerald-700">Customer Tracking</div>
+          <Link href="/track" className="mt-1 inline-block text-sm font-black text-emerald-900 hover:text-emerald-700">
+            ເປີດໜ້າຕິດຕາມສະຖານະສຳລັບລູກຄ້າ
+          </Link>
+        </div>
       </div>
       <Toaster
         position="top-right"
@@ -163,4 +171,3 @@ export default function LoginPage() {
     </div>
   );
 }
-
