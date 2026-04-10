@@ -48,6 +48,7 @@ function getPrintStatusStyles(label: Pick<QrLabelRow, "print_count" | "printed_a
 
 export default function InventoryQrPage() {
   const today = useMemo(() => toLocalDateInputValue(), []);
+  const pageSize = 20;
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -62,13 +63,13 @@ export default function InventoryQrPage() {
   const [currentPrinter, setCurrentPrinter] = useState("");
   const [importedFromDate, setImportedFromDate] = useState("");
   const [importedToDate, setImportedToDate] = useState(today);
+  const [recentPage, setRecentPage] = useState(1);
 
   const loadRecentLabels = async () => {
     const { data, error } = await supabase
       .from("order_qr_labels")
       .select(ORDER_QR_LABEL_SELECT)
-      .order("created_at", { ascending: false })
-      .limit(20);
+      .order("created_at", { ascending: false });
 
     if (error) {
       toast.error(`ໂຫຼດລາຍການ QR ບໍ່ສຳເລັດ: ${error.message}`);
@@ -225,7 +226,7 @@ export default function InventoryQrPage() {
     setLabelsByOrderId((prev) => ({ ...prev, [label.order_id]: label }));
     setRecentLabels((prev) => {
       const next = [label, ...prev.filter((item) => item.id !== label.id)];
-      return next.slice(0, 20);
+      return next;
     });
     setSelectedLabelIds((prev) => (prev.includes(label.id) ? prev : [...prev, label.id]));
     await showLabelPreview(label);
@@ -260,11 +261,20 @@ export default function InventoryQrPage() {
     });
   }, [importedFromDate, importedToDate, printFilter, recentLabels]);
 
+  const totalRecentPages = Math.max(1, Math.ceil(filteredRecentLabels.length / pageSize));
+  const currentRecentPage = Math.min(recentPage, totalRecentPages);
+
+  const pagedRecentLabels = useMemo(() => {
+    const from = (currentRecentPage - 1) * pageSize;
+    return filteredRecentLabels.slice(from, from + pageSize);
+  }, [currentRecentPage, filteredRecentLabels, pageSize]);
+
   const allVisibleRecentSelected =
-    filteredRecentLabels.length > 0 && filteredRecentLabels.every((label) => selectedLabelIds.includes(label.id));
+    pagedRecentLabels.length > 0 && pagedRecentLabels.every((label) => selectedLabelIds.includes(label.id));
 
   const printedCount = useMemo(() => recentLabels.filter((label) => isLabelPrinted(label)).length, [recentLabels]);
   const unprintedCount = recentLabels.length - printedCount;
+  const hasNextRecentPage = currentRecentPage < totalRecentPages;
 
   const downloadLabel = () => {
     if (!activePreviewUrl || !activeLabel) return;
@@ -376,16 +386,16 @@ export default function InventoryQrPage() {
   };
 
   const toggleSelectAllRecent = () => {
-    if (filteredRecentLabels.length === 0) return;
+    if (pagedRecentLabels.length === 0) return;
 
     if (allVisibleRecentSelected) {
-      setSelectedLabelIds((prev) => prev.filter((id) => !filteredRecentLabels.some((label) => label.id === id)));
+      setSelectedLabelIds((prev) => prev.filter((id) => !pagedRecentLabels.some((label) => label.id === id)));
       return;
     }
 
     setSelectedLabelIds((prev) => {
       const next = new Set(prev);
-      filteredRecentLabels.forEach((label) => next.add(label.id));
+      pagedRecentLabels.forEach((label) => next.add(label.id));
       return Array.from(next);
     });
   };
@@ -607,25 +617,34 @@ export default function InventoryQrPage() {
           <div>
             <div className="text-lg font-black text-slate-900">ລາຍການພິມແບບກຸ່ມ</div>
             <div className="text-sm font-medium text-slate-500">
-              ເລືອກແລ້ວ {selectedLabels.length} QR • ຍັງບໍ່ພິມ {unprintedCount} • ພິມແລ້ວ {printedCount}
+              ເລືອກແລ້ວ {selectedLabels.length} QR • ຍັງບໍ່ພິມ {unprintedCount} • ພິມແລ້ວ {printedCount} • ສະແດງ {pagedRecentLabels.length} / {filteredRecentLabels.length} ລາຍການ
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <input
               type="date"
               value={importedFromDate}
-              onChange={(e) => setImportedFromDate(e.target.value)}
+              onChange={(e) => {
+                setImportedFromDate(e.target.value);
+                setRecentPage(1);
+              }}
               className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
             />
             <input
               type="date"
               value={importedToDate}
-              onChange={(e) => setImportedToDate(e.target.value)}
+              onChange={(e) => {
+                setImportedToDate(e.target.value);
+                setRecentPage(1);
+              }}
               className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
             />
             <select
               value={printFilter}
-              onChange={(e) => setPrintFilter(e.target.value as PrintFilter)}
+              onChange={(e) => {
+                setPrintFilter(e.target.value as PrintFilter);
+                setRecentPage(1);
+              }}
               className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">ທັງໝົດ</option>
@@ -635,7 +654,7 @@ export default function InventoryQrPage() {
             <button
               type="button"
               onClick={toggleSelectAllRecent}
-              disabled={filteredRecentLabels.length === 0}
+              disabled={pagedRecentLabels.length === 0}
               className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
             >
               {allVisibleRecentSelected ? "ຍົກເລີກເລືອກທັງໝົດ" : "ເລືອກທັງໝົດ"}
@@ -673,7 +692,7 @@ export default function InventoryQrPage() {
                   </td>
                 </tr>
               ) : (
-                filteredRecentLabels.map((label) => (
+                pagedRecentLabels.map((label) => (
                   <tr key={label.id} className="border-b border-slate-100">
                     <td className="px-3 py-3">
                       <input type="checkbox" checked={selectedLabelIds.includes(label.id)} onChange={() => toggleLabelSelection(label.id)} />
@@ -720,6 +739,27 @@ export default function InventoryQrPage() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 md:flex-row md:items-center md:justify-between">
+          <div className="text-xs font-bold uppercase tracking-tighter text-slate-400">ໜ້າ {currentRecentPage} / {totalRecentPages}</div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setRecentPage((page) => Math.max(1, Math.min(page, totalRecentPages) - 1))}
+              disabled={currentRecentPage <= 1}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 disabled:opacity-40"
+            >
+              ← ກ່ອນໜ້າ
+            </button>
+            <button
+              type="button"
+              onClick={() => setRecentPage((page) => Math.min(totalRecentPages, page + 1))}
+              disabled={!hasNextRecentPage}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-bold text-slate-600 shadow-sm transition-all hover:bg-slate-50 disabled:opacity-40"
+            >
+              ຖັດໄປ →
+            </button>
+          </div>
         </div>
       </section>
     </div>
