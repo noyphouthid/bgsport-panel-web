@@ -293,6 +293,12 @@ export default function OrdersPage() {
         {!isAdminLimited ? (
           <div className="flex flex-wrap gap-2">
             <Link
+              href="/factory-production-status"
+              className="bg-violet-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-violet-700 shadow-md transition-all active:scale-95"
+            >
+              ສະຖານະໂຮງງານ
+            </Link>
+            <Link
               href="/quotations/new"
               className="bg-sky-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-sky-700 shadow-md transition-all active:scale-95"
             >

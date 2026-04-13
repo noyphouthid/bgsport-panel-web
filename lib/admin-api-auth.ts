@@ -28,7 +28,10 @@ function getPublicClient(): SupabaseClient | null {
   return cachedPublicClient;
 }
 
-export async function getAdminActorFromAuthHeader(authHeader: string | null): Promise<AdminActor | null> {
+export async function getActorFromAuthHeader(
+  authHeader: string | null,
+  allowedRoles?: AppRole[]
+): Promise<AdminActor | null> {
   if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) return null;
   const supabaseAdmin = getSupabaseAdmin();
   const publicClient = getPublicClient();
@@ -63,14 +66,20 @@ export async function getAdminActorFromAuthHeader(authHeader: string | null): Pr
   }
 
   if (!profile) return null;
-  if (!profile.is_active || profile.role !== "superadmin") return null;
+  const profileRole = profile.role as AppRole;
+  if (!profile.is_active) return null;
+  if (allowedRoles && !allowedRoles.includes(profileRole)) return null;
 
   return {
     authUserId: authUser.id,
     profileId: profile.id,
     fullName: profile.full_name,
     email: String(profile.email || authEmail),
-    role: profile.role as AppRole,
+    role: profileRole,
     isActive: Boolean(profile.is_active),
   };
+}
+
+export async function getAdminActorFromAuthHeader(authHeader: string | null): Promise<AdminActor | null> {
+  return getActorFromAuthHeader(authHeader, ["superadmin"]);
 }

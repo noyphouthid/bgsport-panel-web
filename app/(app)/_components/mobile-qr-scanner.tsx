@@ -80,6 +80,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
   const startScanner = async () => {
     if (active) return;
     setError(null);
+
     setOpened(true);
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -135,7 +136,9 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
           {!active && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/80 text-center text-white">
               <ScanLine size={28} />
-              <div className="text-sm font-bold">{supported ? "ເປີດກ້ອງ ແລະ ຈັດ QR ໃຫ້ຢູ່ໃນກອບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງ"}</div>
+              <div className="text-sm font-bold">
+                {supported ? "ເປີດກ້ອງ ແລະ ຈັດ QR ໃຫ້ຢູ່ໃນກອບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງ"}
+              </div>
             </div>
           )}
           {active && <div className="pointer-events-none absolute inset-6 rounded-[2rem] border-2 border-emerald-400/90" />}

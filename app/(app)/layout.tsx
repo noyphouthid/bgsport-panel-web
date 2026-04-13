@@ -18,6 +18,8 @@ import {
   PackagePlus,
   QrCode,
   Truck,
+  Factory,
+  BellRing,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -57,9 +59,11 @@ type NavItem = NavLinkItem | NavGroupItem;
 const nav: NavItem[] = [
   { type: "link", href: "/dashboard", label: "ໜ້າຫຼັກ", icon: LayoutDashboard },
   { type: "link", href: "/orders", label: "ລາຍການອໍເດີ", icon: ClipboardList },
+  { type: "link", href: "/order-alerts", label: "ແຈ້ງເຕືອນອໍເດີ", icon: BellRing },
   { type: "link", href: "/design-queue", label: "ຄິວອອກແບບ", icon: Palette },
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
+  { type: "link", href: "/factory-production-status", label: "ສະຖານະໂຮງງານ", icon: Factory },
   { type: "link", href: "/search", label: "ຄົ້ນຫາອໍເດີທັງໝົດ", icon: Search },
   {
     type: "group",

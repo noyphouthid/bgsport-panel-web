@@ -19,6 +19,8 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/factory-payments", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/design-queue", roles: ["superadmin", "admin", "manager", "staff", "graphic"] },
   { prefix: "/factory-deposit-orders", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
+  { prefix: "/order-alerts", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
+  { prefix: "/factory-production-status", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/inventory-qr", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/factory-receipts", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/shipments", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
