@@ -13,9 +13,6 @@ type OrderRow = {
   short_qty: number;
   long_qty: number;
   free_qty: number;
-  qty_3xl: number;
-  qty_4xl: number;
-  qty_5xl: number;
   factory_cost: number;
   factory_paid_full_at: string | null;
 };
@@ -69,6 +66,10 @@ function buildPeriodTitle(start: string, end: string) {
   return "ຍັງບໍ່ໄດ້ເລືອກງວດ";
 }
 
+function getOrderTotalShirts(order: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
+  return (Number(order.short_qty) || 0) + (Number(order.long_qty) || 0) + (Number(order.free_qty) || 0);
+}
+
 export default function FactoryPaymentsPage() {
   const [periodStart, setPeriodStart] = useState(today);
   const [periodEnd, setPeriodEnd] = useState(today);
@@ -103,13 +104,7 @@ export default function FactoryPaymentsPage() {
 
     return orders
       .map((order) => {
-        const totalShirts =
-          (Number(order.short_qty) || 0) +
-          (Number(order.long_qty) || 0) +
-          (Number(order.free_qty) || 0) +
-          (Number(order.qty_3xl) || 0) +
-          (Number(order.qty_4xl) || 0) +
-          (Number(order.qty_5xl) || 0);
+        const totalShirts = getOrderTotalShirts(order);
         const paidAmount = paidByOrder.get(order.id) || 0;
         const outstandingAmount = Math.max(0, (Number(order.factory_cost) || 0) - paidAmount);
 
@@ -175,7 +170,7 @@ export default function FactoryPaymentsPage() {
       let query = supabase
         .from("orders")
         .select(
-          "id,order_code,factory_bill_code,production_completed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,factory_cost,factory_paid_full_at"
+          "id,order_code,factory_bill_code,production_completed_at,short_qty,long_qty,free_qty,factory_cost,factory_paid_full_at"
         )
         .not("production_completed_at", "is", null)
         .order("production_completed_at", { ascending: true })
