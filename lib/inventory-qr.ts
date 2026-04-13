@@ -6,6 +6,8 @@ export type OrderSummary = {
   customer_phone?: string | null;
   customer_whatsapp?: string | null;
   factory_bill_code: string | null;
+  order_image_url?: string | null;
+  order_transfer_slip_url?: string | null;
   order_date?: string;
   production_completed_at?: string | null;
   shipment_status?: "pending" | "shipped";
@@ -139,7 +141,7 @@ export const ORDER_QR_LABEL_SELECT =
   "id,order_id,qr_code,order_code,factory_bill_code,label_status,printed_at,printed_by,print_count,last_printed_at,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at";
 
 export const ORDER_QR_ORDER_SELECT =
-  "id,order_code,factory_bill_code,order_date,production_completed_at,shipment_status,shipment_completed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,net_total,initial_deposit,balance,factory_cost,customer_paid_full_at,factory_paid_full_at,status";
+  "id,order_code,factory_bill_code,order_image_url,order_transfer_slip_url,order_date,production_completed_at,shipment_status,shipment_completed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,net_total,initial_deposit,balance,factory_cost,customer_paid_full_at,factory_paid_full_at,status";
 
 export function buildOrderLookupOrFilter(term: string) {
   const escaped = term.replace(/%/g, "\\%").replace(/_/g, "\\_");

@@ -1,13 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import { buildOrderCode, normalizeOrderType, parseOrderCode, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
+import {
+  buildFactoryDesignFallbackUrl,
+  buildSafeStorageFileName,
+  extractProductionMockupUrls,
+  isImageFileName,
+  ORDER_MEDIA_BUCKET,
+  toDisplayMediaUrl,
+} from "@/lib/order-media";
 
 type OrderDetail = {
   id: string;
@@ -16,6 +24,12 @@ type OrderDetail = {
   customer_phone: string | null;
   customer_whatsapp: string | null;
   factory_bill_code: string | null;
+  order_image_path?: string | null;
+  order_image_url?: string | null;
+  order_image_file_name?: string | null;
+  order_transfer_slip_path?: string | null;
+  order_transfer_slip_url?: string | null;
+  order_transfer_slip_file_name?: string | null;
   admin_user_id: string | null;
   graphic_user_id: string | null;
   fabric_id: string;
@@ -47,6 +61,29 @@ type OrderDetail = {
   factory_paid_full_at: string | null;
   closed_at: string | null;
   created_at: string;
+  factory_production_status: string | null;
+  factory_production_status_index: number | null;
+  factory_production_shipping_status: string | null;
+  factory_production_due_date: string | null;
+  factory_production_is_rush: boolean | null;
+  factory_production_source_updated_at: string | null;
+  factory_production_synced_at: string | null;
+  factory_production_sync_error: string | null;
+  factory_production_payload: FactoryProductionPayload | null;
+};
+
+type FactoryProductionPayload = {
+  statuses?: string[] | null;
+  events?: Array<{
+    status_index?: number | null;
+    status?: string | null;
+    note?: string | null;
+    ts?: string | null;
+    ts_display?: string | null;
+  }> | null;
+  updated_at_display?: string | null;
+  due_date_display?: string | null;
+  shipping_status?: string | null;
 };
 
 type UserOption = {
@@ -86,6 +123,18 @@ type ImportReceiptInfo = {
   note: string | null;
 };
 
+type ShipmentMediaInfo = {
+  delivery_scheduled_at: string | null;
+  transfer_slip_url: string | null;
+  handoff_photo_url: string | null;
+  status: string | null;
+};
+
+type LinkedDepositMediaInfo = {
+  mockup_urls: string[];
+  transfer_slip_url: string | null;
+};
+
 const SIZE_UPCHARGES = {
   "3XL": 20000,
   "4XL": 30000,
@@ -96,6 +145,13 @@ const CUSTOM_ORDER_TYPE_VALUE = "__custom__";
 
 const inputClassName =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:ring-2 focus:ring-blue-500";
+
+function formatDateTime(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-US");
+}
 
 export default function EditOrderPage() {
   const params = useParams();
@@ -108,6 +164,8 @@ export default function EditOrderPage() {
   const [customerPayments, setCustomerPayments] = useState<CustomerPayment[]>([]);
   const [factoryPayments, setFactoryPayments] = useState<FactoryPayment[]>([]);
   const [importReceipt, setImportReceipt] = useState<ImportReceiptInfo | null>(null);
+  const [shipmentMedia, setShipmentMedia] = useState<ShipmentMediaInfo | null>(null);
+  const [linkedDepositMedia, setLinkedDepositMedia] = useState<LinkedDepositMediaInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadingFabrics, setLoadingFabrics] = useState(true);
@@ -134,10 +192,13 @@ export default function EditOrderPage() {
   const [designDeposit, setDesignDeposit] = useState(0);
   const [initialDeposit, setInitialDeposit] = useState(0);
   const [factoryCost, setFactoryCost] = useState(0);
-  const [customerRemainingDueDate, setCustomerRemainingDueDate] = useState("");
-  const [factoryPaymentDueDate, setFactoryPaymentDueDate] = useState("");
+  const [factoryPaidFullDate, setFactoryPaidFullDate] = useState("");
   const [productionCompletedDate, setProductionCompletedDate] = useState("");
   const { options: orderTypeOptions } = useOrderTypeOptions(true);
+  const [orderImageFile, setOrderImageFile] = useState<File | null>(null);
+  const [orderImagePreviewUrl, setOrderImagePreviewUrl] = useState<string | null>(null);
+  const [orderTransferSlipFile, setOrderTransferSlipFile] = useState<File | null>(null);
+  const [orderTransferSlipPreviewUrl, setOrderTransferSlipPreviewUrl] = useState<string | null>(null);
 
   const [showCustomerPayModal, setShowCustomerPayModal] = useState(false);
   const [customerPayAmount, setCustomerPayAmount] = useState(0);
@@ -149,6 +210,11 @@ export default function EditOrderPage() {
   const [factoryPayNote, setFactoryPayNote] = useState("");
   const [factoryPayDate, setFactoryPayDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [cancelingImport, setCancelingImport] = useState(false);
+  const [syncingFactory, setSyncingFactory] = useState(false);
+  const orderImageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const orderImageCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const orderTransferSlipFileInputRef = useRef<HTMLInputElement | null>(null);
+  const orderTransferSlipCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const toDateInput = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 10) : "");
   const dateInputToIso = (value: string) => (value ? new Date(`${value}T12:00:00`).toISOString() : null);
@@ -191,9 +257,14 @@ export default function EditOrderPage() {
     setDesignDeposit(o.design_deposit);
     setInitialDeposit(o.initial_deposit);
     setFactoryCost(o.factory_cost);
-    setCustomerRemainingDueDate(toDateInput(o.customer_remaining_due_at));
-    setFactoryPaymentDueDate(toDateInput(o.factory_payment_due_at));
+    setFactoryPaidFullDate(toDateInput(o.factory_paid_full_at));
     setProductionCompletedDate(toDateInput(o.production_completed_at));
+    setOrderImageFile(null);
+    if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
+    setOrderImagePreviewUrl(toDisplayMediaUrl(o.order_image_url) || null);
+    setOrderTransferSlipFile(null);
+    if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
+    setOrderTransferSlipPreviewUrl(toDisplayMediaUrl(o.order_transfer_slip_url) || null);
   };
 
   const loadUsers = async () => {
@@ -290,12 +361,84 @@ export default function EditOrderPage() {
     });
   };
 
+  const loadShipmentMedia = async () => {
+    const { data, error } = await supabase
+      .from("shipment_delivery_requests")
+      .select("delivery_scheduled_at,transfer_slip_url,handoff_photo_url,status")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    setShipmentMedia((data as ShipmentMediaInfo | null) ?? null);
+  };
+
+  const loadLinkedDepositMedia = async () => {
+    const { data, error } = await supabase
+      .from("factory_deposit_orders")
+      .select("production_items,transfer_slip_url")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) {
+      setLinkedDepositMedia(null);
+      return;
+    }
+
+    const row = data as { production_items?: unknown; transfer_slip_url?: string | null };
+    setLinkedDepositMedia({
+      mockup_urls: extractProductionMockupUrls(row.production_items),
+      transfer_slip_url: toDisplayMediaUrl(row.transfer_slip_url) || null,
+    });
+  };
+
+  const handleOrderImageSelected = (file: File | null) => {
+    setOrderImageFile(file);
+    if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
+    setOrderImagePreviewUrl(file && file.type.startsWith("image/") ? URL.createObjectURL(file) : toDisplayMediaUrl(order?.order_image_url) || null);
+  };
+
+  const handleOrderTransferSlipSelected = (file: File | null) => {
+    setOrderTransferSlipFile(file);
+    if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
+    setOrderTransferSlipPreviewUrl(
+      file && file.type.startsWith("image/") ? URL.createObjectURL(file) : toDisplayMediaUrl(order?.order_transfer_slip_url) || null
+    );
+  };
+
+  const uploadOrderAsset = async (kind: "order-image" | "order-transfer-slip", currentOrderCode: string, file: File | null) => {
+    if (!file) {
+      return {
+        path: null,
+        url: null,
+        fileName: null,
+      };
+    }
+
+    const safeName = buildSafeStorageFileName(file.name, kind);
+    const path = `${kind}/${currentOrderCode}/${safeName}`;
+    const { error: uploadError } = await supabase.storage.from(ORDER_MEDIA_BUCKET).upload(path, file, { upsert: true });
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage.from(ORDER_MEDIA_BUCKET).getPublicUrl(path);
+    return {
+      path,
+      url: data.publicUrl,
+      fileName: file.name,
+    };
+  };
+
   const reloadAll = async () => {
     setLoading(true);
     setErr(null);
     try {
       await Promise.all([loadOrder(), loadUsers(), loadFabrics()]);
-      await Promise.all([loadCustomerPayments(), loadFactoryPayments(), loadImportReceipt()]);
+      await Promise.all([loadCustomerPayments(), loadFactoryPayments(), loadImportReceipt(), loadShipmentMedia(), loadLinkedDepositMedia()]);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Load failed");
       setLoadingUsers(false);
@@ -309,6 +452,13 @@ export default function EditOrderPage() {
     if (orderId) void reloadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
+
+  useEffect(() => {
+    return () => {
+      if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
+      if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
+    };
+  }, [orderImagePreviewUrl, orderTransferSlipPreviewUrl]);
 
   useEffect(() => {
     const loadViewerRole = async () => {
@@ -357,6 +507,41 @@ export default function EditOrderPage() {
   const productionStatusLabel = order?.production_completed_at ? "ຜະລິດສຳເລັດ" : "ກຳລັງຜະລິດ";
   const closeStatusLabel = order?.status === "completed" ? "ປິດງານແລ້ວ" : "ຍັງບໍ່ປິດງານ";
   const isReadOnlyAdmin = viewerRole === "admin";
+  const latestShipmentDeliveryDate = shipmentMedia?.delivery_scheduled_at ? toDateInput(shipmentMedia.delivery_scheduled_at) : "";
+  const oldFactoryFallbackImageUrl = useMemo(() => {
+    if (orderImagePreviewUrl || (linkedDepositMedia?.mockup_urls.length || 0) > 0) return null;
+    return buildFactoryDesignFallbackUrl(factoryBillCode);
+  }, [factoryBillCode, linkedDepositMedia?.mockup_urls.length, orderImagePreviewUrl]);
+
+  const renderMediaPreview = (url: string | null, alt: string, fallbackLabel: string) => {
+    if (!url) {
+      return (
+        <div className="flex h-44 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-xs font-bold text-slate-500">
+          {fallbackLabel}
+        </div>
+      );
+    }
+
+    if (isImageFileName(url)) {
+      return (
+        <a href={url} target="_blank" rel="noreferrer" className="block">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt={alt} className="h-44 w-full rounded-xl border border-slate-200 object-cover transition hover:opacity-95" />
+        </a>
+      );
+    }
+
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="flex h-44 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-center text-sm font-black text-blue-700 hover:bg-blue-50"
+      >
+        ເປີດໄຟລ໌
+      </a>
+    );
+  };
 
   const handleUpdate = async () => {
     if (!order || isReadOnlyAdmin) return;
@@ -366,47 +551,61 @@ export default function EditOrderPage() {
     if (!graphicUserId) return toast.error("ກະລຸນາເລືອກ Graphic");
     if (!fabricId) return toast.error("ກະລຸນາເລືອກປະເພດຜ້າ");
 
-    const fabric = selectedFabric ?? { id: order.fabric_id, name: order.fabric_name, short_price: order.fabric_short_price, long_add: 0, long_price: order.fabric_long_price, is_active: true };
-    const payload = {
-      order_code: buildOrderCode(orderType, Number(orderNo)),
-      order_date: orderDate,
-      customer_phone: customerPhone.trim() || null,
-      customer_whatsapp: customerWhatsapp.trim() || null,
-      factory_bill_code: factoryBillCode.trim() || null,
-      fabric_id: fabric.id,
-      fabric_name: fabric.name,
-      fabric_short_price: fabric.short_price,
-      fabric_long_price: fabric.long_price,
-      admin_user_id: adminUserId || null,
-      graphic_user_id: graphicUserId || null,
-      short_qty: Math.max(0, shortQty),
-      long_qty: Math.max(0, longQty),
-      free_qty: Math.max(0, freeQty),
-      qty_3xl: Math.max(0, qty3XL),
-      qty_4xl: Math.max(0, qty4XL),
-      qty_5xl: Math.max(0, qty5XL),
-      qty_6xl: Math.max(0, qty6XL),
-      extra_charge: Math.max(0, extraCharge),
-      design_deposit: Math.max(0, designDeposit),
-      factory_cost: Math.max(0, factoryCost),
-      gross_total: grossTotal,
-      net_total: netTotal,
-      initial_deposit: customerReceived,
-      balance: customerOutstanding,
-      customer_paid_full_at: customerOutstanding === 0 ? order.customer_paid_full_at || new Date().toISOString() : null,
-      customer_remaining_due_at: dateInputToIso(customerRemainingDueDate),
-      factory_payment_due_at: dateInputToIso(factoryPaymentDueDate),
-      production_completed_at: dateInputToIso(productionCompletedDate),
-    };
+    try {
+      const fabric = selectedFabric ?? { id: order.fabric_id, name: order.fabric_name, short_price: order.fabric_short_price, long_add: 0, long_price: order.fabric_long_price, is_active: true };
+      const currentOrderCode = buildOrderCode(orderType, Number(orderNo));
+      const orderImageAsset = await uploadOrderAsset("order-image", currentOrderCode, orderImageFile);
+      const orderTransferSlipAsset = await uploadOrderAsset("order-transfer-slip", currentOrderCode, orderTransferSlipFile);
+      const payload = {
+        order_code: currentOrderCode,
+        order_date: orderDate,
+        customer_phone: customerPhone.trim() || null,
+        customer_whatsapp: customerWhatsapp.trim() || null,
+        factory_bill_code: factoryBillCode.trim() || null,
+        order_image_path: orderImageAsset.path ?? order.order_image_path ?? null,
+        order_image_url: orderImageAsset.url ?? order.order_image_url ?? null,
+        order_image_file_name: orderImageAsset.fileName ?? order.order_image_file_name ?? null,
+        order_transfer_slip_path: orderTransferSlipAsset.path ?? order.order_transfer_slip_path ?? null,
+        order_transfer_slip_url: orderTransferSlipAsset.url ?? order.order_transfer_slip_url ?? null,
+        order_transfer_slip_file_name: orderTransferSlipAsset.fileName ?? order.order_transfer_slip_file_name ?? null,
+        fabric_id: fabric.id,
+        fabric_name: fabric.name,
+        fabric_short_price: fabric.short_price,
+        fabric_long_price: fabric.long_price,
+        admin_user_id: adminUserId || null,
+        graphic_user_id: graphicUserId || null,
+        short_qty: Math.max(0, shortQty),
+        long_qty: Math.max(0, longQty),
+        free_qty: Math.max(0, freeQty),
+        qty_3xl: Math.max(0, qty3XL),
+        qty_4xl: Math.max(0, qty4XL),
+        qty_5xl: Math.max(0, qty5XL),
+        qty_6xl: Math.max(0, qty6XL),
+        extra_charge: Math.max(0, extraCharge),
+        design_deposit: Math.max(0, designDeposit),
+        factory_cost: Math.max(0, factoryCost),
+        gross_total: grossTotal,
+        net_total: netTotal,
+        initial_deposit: customerReceived,
+        balance: customerOutstanding,
+        customer_paid_full_at: customerOutstanding === 0 ? order.customer_paid_full_at || new Date().toISOString() : null,
+        factory_paid_full_at: dateInputToIso(factoryPaidFullDate),
+        production_completed_at: dateInputToIso(productionCompletedDate),
+      };
 
-    const { error } = await supabase.from("orders").update(payload).eq("id", orderId);
-    if (error) {
-      setErr(error.message);
-      return toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error.message}`);
+      const { error } = await supabase.from("orders").update(payload).eq("id", orderId);
+      if (error) {
+        setErr(error.message);
+        return toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error.message}`);
+      }
+      await safeInsertAction("update_order", "Updated order details");
+      await reloadAll();
+      toast.success("ບັນທຶກແລ້ວ");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "save_failed";
+      setErr(message);
+      toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${message}`);
     }
-    await safeInsertAction("update_order", "Updated order details");
-    await reloadAll();
-    toast.success("ບັນທຶກແລ້ວ");
   };
 
   const handleAddCustomerPayment = async () => {
@@ -491,6 +690,55 @@ export default function EditOrderPage() {
     }
     await safeInsertAction("production_completed", "Marked production completed");
     await reloadAll();
+  };
+
+  const handleSyncFactoryStatus = async () => {
+    if (!order) return;
+    const savedFactoryBillCode = String(order.factory_bill_code || "").trim();
+    const currentFactoryBillCode = String(factoryBillCode || "").trim();
+
+    if (!currentFactoryBillCode) {
+      toast.error("ກະລຸນາໃສ່ບິນໂຮງງານກ່ອນ");
+      return;
+    }
+
+    if (savedFactoryBillCode !== currentFactoryBillCode) {
+      toast.error("ກະລຸນາກົດບັນທຶກກ່ອນ sync ສະຖານະໂຮງງານ");
+      return;
+    }
+
+    setSyncingFactory(true);
+    setErr(null);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        throw new Error("no_session");
+      }
+
+      const response = await fetch(`/api/orders/${orderId}/factory-production`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "factory_sync_failed");
+      }
+
+      await reloadAll();
+      toast.success("ດຶງສະຖານະຈາກໂຮງງານແລ້ວ");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "factory_sync_failed";
+      setErr(message);
+      toast.error(message);
+    } finally {
+      setSyncingFactory(false);
+    }
   };
 
   const handleCloseOrder = async () => {
@@ -652,6 +900,16 @@ export default function EditOrderPage() {
   if (loading) return <div className="font-bold text-slate-900">ກຳລັງໂຫຼດ...</div>;
   if (!order) return <div className="font-bold text-red-700">ບໍ່ພົບຂໍ້ມູນອໍເດີ.</div>;
 
+  const factoryStatuses = Array.isArray(order.factory_production_payload?.statuses)
+    ? order.factory_production_payload?.statuses?.filter((item): item is string => Boolean(item))
+    : [];
+  const factoryEvents = Array.isArray(order.factory_production_payload?.events)
+    ? order.factory_production_payload?.events?.filter(Boolean).slice().reverse().slice(0, 6)
+    : [];
+  const factoryStatusText = order.factory_production_status?.trim()
+    ? `${Number(order.factory_production_status_index || 0) > 0 ? `#${order.factory_production_status_index} ` : ""}${order.factory_production_status}`
+    : "-";
+
   return (
     <div className="space-y-4">
       {err && <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800 font-bold">ຂໍ້ຜິດພາດ: {err}</div>}
@@ -661,6 +919,13 @@ export default function EditOrderPage() {
           <div className="text-sm text-slate-800 font-medium">ສ້າງເມື່ອ: {new Date(order.created_at).toLocaleString("en-US")}</div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleSyncFactoryStatus}
+            disabled={syncingFactory || !factoryBillCode.trim()}
+            className="rounded bg-violet-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
+          >
+            {syncingFactory ? "ກຳລັງດຶງສະຖານະ..." : "Sync ສະຖານະໂຮງງານ"}
+          </button>
           {!isReadOnlyAdmin ? <button onClick={handleCancelImport} disabled={cancelingImport || !order.production_completed_at} className="rounded bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50">{cancelingImport ? "ກຳລັງຍົກເລີກ..." : "ຍົກເລີກນຳເຂົ້າ"}</button> : null}
           <Link href="/orders" className="rounded border border-slate-400 px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50">ກັບຄືນ</Link>
           {!isReadOnlyAdmin ? <button onClick={handleMarkProductionCompleted} className="rounded bg-indigo-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-indigo-700">ຜະລິດສຳເລັດ</button> : null}
@@ -761,6 +1026,93 @@ export default function EditOrderPage() {
                   {fabrics.map((fabric) => <option key={fabric.id} value={fabric.id}>{fabric.name} (ແຂນສັ້ນ:{fabric.short_price.toLocaleString()})</option>)}
                 </select>
               </div>
+
+              <div className="md:col-span-2 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-xs font-black uppercase tracking-wide text-slate-700">ຮູບອໍເດີ</div>
+                    <label className="cursor-pointer rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white">
+                      ເລືອກຮູບ
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleOrderImageSelected(e.target.files?.[0] ?? null)}
+                      />
+                    </label>
+                  </div>
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => orderImageFileInputRef.current?.click()}
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white"
+                    >
+                      ເລືອກຮູບ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => orderImageCameraInputRef.current?.click()}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700"
+                    >
+                      ຖ່າຍຮູບ
+                    </button>
+                    <input
+                      ref={orderImageFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(e) => handleOrderImageSelected(e.target.files?.[0] ?? null)}
+                    />
+                    <input
+                      ref={orderImageCameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="sr-only"
+                      onChange={(e) => handleOrderImageSelected(e.target.files?.[0] ?? null)}
+                    />
+                  </div>
+                  {renderMediaPreview(orderImagePreviewUrl || oldFactoryFallbackImageUrl, `${order.order_code}-order-image`, "ຍັງບໍ່ມີຮູບອໍເດີ")}
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-xs font-black uppercase tracking-wide text-slate-700">ສະລິບມັດຈຳອໍເດີ</div>
+                  </div>
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => orderTransferSlipFileInputRef.current?.click()}
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white"
+                    >
+                      ເລືອກໄຟລ໌
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => orderTransferSlipCameraInputRef.current?.click()}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700"
+                    >
+                      ຖ່າຍຮູບ
+                    </button>
+                    <input
+                      ref={orderTransferSlipFileInputRef}
+                      type="file"
+                      accept="image/*,.pdf"
+                      className="sr-only"
+                      onChange={(e) => handleOrderTransferSlipSelected(e.target.files?.[0] ?? null)}
+                    />
+                    <input
+                      ref={orderTransferSlipCameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="sr-only"
+                      onChange={(e) => handleOrderTransferSlipSelected(e.target.files?.[0] ?? null)}
+                    />
+                  </div>
+                  {renderMediaPreview(orderTransferSlipPreviewUrl, `${order.order_code}-order-slip`, "ຍັງບໍ່ມີສະລິບຂອງອໍເດີ")}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -825,16 +1177,50 @@ export default function EditOrderPage() {
                 <input type="number" min={0} value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} className={`${inputClassName} font-bold`} />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-slate-700">ກຳນົດຊຳລະລູກຄ້າ</label>
-                <input type="date" value={customerRemainingDueDate} onChange={(e) => setCustomerRemainingDueDate(e.target.value)} className={inputClassName} />
+                <label className="mb-1 block text-xs font-bold text-slate-700">ວັນທີຝາກເຄື່ອງໃຫ້ລູກຄ້າ</label>
+                <input type="date" value={latestShipmentDeliveryDate} readOnly className={`${inputClassName} bg-slate-50 text-slate-500`} />
+                <div className="mt-1 text-[11px] font-bold text-slate-500">ດຶງຈາກຂໍ້ມູນຈັດສົ່ງລ່າສຸດ</div>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-bold text-slate-700">ວັນທີຊຳລະໂຮງງານ</label>
-                <input type="date" value={factoryPaymentDueDate} onChange={(e) => setFactoryPaymentDueDate(e.target.value)} className={inputClassName} />
+                <input type="date" value={factoryPaidFullDate} onChange={(e) => setFactoryPaidFullDate(e.target.value)} className={inputClassName} />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-bold text-slate-700">ວັນທີຜະລິດສຳເລັດ</label>
                 <input type="date" value={productionCompletedDate} onChange={(e) => setProductionCompletedDate(e.target.value)} className={inputClassName} />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 border-b border-slate-50 pb-2 text-xs font-bold uppercase tracking-wider text-slate-800">4) ຮູບຈາກຂັ້ນຕອນອື່ນໆ</div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-700">ສະລິບຈາກໃບສັ່ງຜະລິດ</div>
+                {renderMediaPreview(linkedDepositMedia?.transfer_slip_url || null, `${order.order_code}-deposit-slip`, "ບໍ່ມີສະລິບຈາກໃບສັ່ງຜະລິດ")}
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-700">ຮູບຝາກເຄື່ອງຈາກ shipments</div>
+                {renderMediaPreview(shipmentMedia?.handoff_photo_url || null, `${order.order_code}-handoff`, "ບໍ່ມີຮູບຝາກເຄື່ອງ")}
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-700">ສະລິບການໂອນຕອນຈັດສົ່ງ</div>
+                {renderMediaPreview(shipmentMedia?.transfer_slip_url || null, `${order.order_code}-shipment-slip`, "ບໍ່ມີສະລິບຈາກ shipments")}
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-700">ຮູບແບບຈາກໃບສັ່ງຜະລິດ</div>
+                {linkedDepositMedia?.mockup_urls.length ? (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {linkedDepositMedia.mockup_urls.map((url, index) => (
+                      <div key={`${url}-${index}`}>{renderMediaPreview(url, `${order.order_code}-mockup-${index + 1}`, "ບໍ່ມີຮູບແບບ")}</div>
+                    ))}
+                  </div>
+                ) : (
+                  renderMediaPreview(null, `${order.order_code}-mockup-empty`, "ບໍ່ມີຮູບແບບ")
+                )}
               </div>
             </div>
           </div>
@@ -880,7 +1266,58 @@ export default function EditOrderPage() {
             <div><span className="font-black">ສະຖານະຜະລິດ:</span> <span className="font-bold">{productionStatusLabel}</span></div>
             <div><span className="font-black">ສະຖານະປິດງານ:</span> <span className="font-bold">{closeStatusLabel}</span></div>
             <div><span className="font-black">ລູກຄ້າຊຳລະຄົບ:</span> <span className="font-bold">{order.customer_paid_full_at ? new Date(order.customer_paid_full_at).toLocaleString("en-US") : "-"}</span></div>
+            <div><span className="font-black">ຊຳລະໂຮງງານຄົບ:</span> <span className="font-bold">{order.factory_paid_full_at ? new Date(order.factory_paid_full_at).toLocaleString("en-US") : "-"}</span></div>
             <div><span className="font-black">ປິດອໍເດີເມື່ອ:</span> <span className="font-bold">{order.closed_at ? new Date(order.closed_at).toLocaleString("en-US") : "-"}</span></div>
+          </div>
+          <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4 text-xs text-slate-900 shadow-sm space-y-3">
+            <div className="flex items-center justify-between border-b border-violet-100 pb-2">
+              <div className="font-black text-violet-900">ສະຖານະຈາກໂຮງງານ</div>
+              <div className="text-[11px] font-bold text-violet-700">{order.factory_bill_code?.trim() || "-"}</div>
+            </div>
+            <div><span className="font-black">ຂັ້ນຕອນປັດຈຸບັນ:</span> <span className="font-bold text-violet-800">{factoryStatusText}</span></div>
+            <div><span className="font-black">ສະຖານະຈັດສົ່ງຂອງໂຮງງານ:</span> <span className="font-bold">{order.factory_production_shipping_status?.trim() || "-"}</span></div>
+            <div><span className="font-black">ກຳນົດສົ່ງ:</span> <span className="font-bold">{order.factory_production_payload?.due_date_display?.trim() || formatDateTime(order.factory_production_due_date)}</span></div>
+            <div><span className="font-black">ງານດ່ວນ:</span> <span className="font-bold">{order.factory_production_is_rush ? "ແມ່ນ" : "ບໍ່"}</span></div>
+            <div><span className="font-black">ໂຮງງານອັບເດດລ່າສຸດ:</span> <span className="font-bold">{formatDateTime(order.factory_production_source_updated_at)}</span></div>
+            <div><span className="font-black">ລະບົບ sync ລ່າສຸດ:</span> <span className="font-bold">{formatDateTime(order.factory_production_synced_at)}</span></div>
+            {order.factory_production_sync_error?.trim() ? (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-700">
+                <span className="font-black">Sync error:</span> <span className="font-bold">{order.factory_production_sync_error}</span>
+              </div>
+            ) : null}
+            {factoryStatuses.length > 0 ? (
+              <div className="space-y-2">
+                <div className="font-black text-slate-900">ລຳດັບຂັ້ນຕອນ</div>
+                <div className="space-y-1">
+                  {factoryStatuses.map((status, index) => {
+                    const stepNo = index + 1;
+                    const isActive = stepNo === Number(order.factory_production_status_index || 0);
+                    return (
+                      <div
+                        key={`${stepNo}-${status}`}
+                        className={`rounded-lg border px-3 py-2 ${isActive ? "border-violet-300 bg-white text-violet-800" : "border-violet-100 bg-white/60 text-slate-700"}`}
+                      >
+                        <span className="font-black">{stepNo}.</span> <span className="font-bold">{status}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+            {factoryEvents.length > 0 ? (
+              <div className="space-y-2">
+                <div className="font-black text-slate-900">ປະຫວັດຈາກໂຮງງານ</div>
+                <div className="space-y-2">
+                  {factoryEvents.map((event, index) => (
+                    <div key={`${event.ts || event.ts_display || event.status || index}`} className="rounded-lg border border-violet-100 bg-white/80 p-2">
+                      <div className="font-black text-slate-900">{event.status || "-"}</div>
+                      <div className="text-slate-500">{event.ts_display || formatDateTime(event.ts || null)}</div>
+                      {event.note?.trim() ? <div className="mt-1 font-medium text-slate-700">{event.note}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

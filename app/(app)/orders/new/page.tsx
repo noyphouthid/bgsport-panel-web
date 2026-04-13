@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import { buildOrderCode, normalizeOrderType, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
+import { buildSafeStorageFileName, isImageFileName, ORDER_MEDIA_BUCKET } from "@/lib/order-media";
 
 type FabricRow = {
   id: string;
@@ -58,6 +59,14 @@ export default function NewOrderPage() {
   const [adminUserId, setAdminUserId] = useState<string>("");
   const [graphicUserId, setGraphicUserId] = useState<string>("");
   const { options: orderTypeOptions } = useOrderTypeOptions(true);
+  const [orderImageFile, setOrderImageFile] = useState<File | null>(null);
+  const [orderImagePreviewUrl, setOrderImagePreviewUrl] = useState<string | null>(null);
+  const [orderTransferSlipFile, setOrderTransferSlipFile] = useState<File | null>(null);
+  const [orderTransferSlipPreviewUrl, setOrderTransferSlipPreviewUrl] = useState<string | null>(null);
+  const orderImageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const orderImageCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const orderTransferSlipFileInputRef = useRef<HTMLInputElement | null>(null);
+  const orderTransferSlipCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   // ===== 2) จำนวน & ขนาด =====
   const [shortQty, setShortQty] = useState<number>(0);
@@ -125,6 +134,13 @@ export default function NewOrderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
+      if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
+    };
+  }, [orderImagePreviewUrl, orderTransferSlipPreviewUrl]);
+
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
   const adminOptions = useMemo(() => users.filter((u) => u.role === "superadmin" || u.role === "admin"), [users]);
   const graphicOptions = useMemo(() => users.filter((u) => u.role === "graphic"), [users]);
@@ -160,6 +176,12 @@ export default function NewOrderPage() {
     setFactoryBillCode("");
     setAdminUserId("");
     setGraphicUserId("");
+    setOrderImageFile(null);
+    if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
+    setOrderImagePreviewUrl(null);
+    setOrderTransferSlipFile(null);
+    if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
+    setOrderTransferSlipPreviewUrl(null);
     if (fabrics.length > 0) setFabricId(fabrics[0].id);
     setShortQty(0);
     setLongQty(0);
@@ -204,6 +226,40 @@ export default function NewOrderPage() {
     router.push("/orders");
   };
 
+  const handleOrderImageSelected = (file: File | null) => {
+    setOrderImageFile(file);
+    if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
+    setOrderImagePreviewUrl(file && file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
+  };
+
+  const handleOrderTransferSlipSelected = (file: File | null) => {
+    setOrderTransferSlipFile(file);
+    if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
+    setOrderTransferSlipPreviewUrl(file && file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
+  };
+
+  const uploadOrderAsset = async (kind: "order-image" | "order-transfer-slip", orderCode: string, file: File | null) => {
+    if (!file) {
+      return {
+        path: null,
+        url: null,
+        fileName: null,
+      };
+    }
+
+    const safeName = buildSafeStorageFileName(file.name, kind);
+    const path = `${kind}/${orderCode}/${safeName}`;
+    const { error: uploadError } = await supabase.storage.from(ORDER_MEDIA_BUCKET).upload(path, file, { upsert: true });
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage.from(ORDER_MEDIA_BUCKET).getPublicUrl(path);
+    return {
+      path,
+      url: data.publicUrl,
+      fileName: file.name,
+    };
+  };
+
   const handleSave = async () => {
     setErr(null);
 
@@ -228,8 +284,10 @@ export default function NewOrderPage() {
       return;
     }
 
+    const orderCode = buildOrderCode(orderType, Number(orderNo));
+
     const payload = {
-      order_code: buildOrderCode(orderType, Number(orderNo)),
+      order_code: orderCode,
       order_date: orderDate,
       customer_phone: customerPhone.trim() || null,
       customer_whatsapp: customerWhatsapp.trim() || null,
@@ -276,7 +334,20 @@ export default function NewOrderPage() {
     });
     if (!confirm.isConfirmed) return;
 
-    const { error } = await supabase.from("orders").insert(payload);
+    const uploadedOrderImage = await uploadOrderAsset("order-image", orderCode, orderImageFile);
+    const uploadedOrderTransferSlip = await uploadOrderAsset("order-transfer-slip", orderCode, orderTransferSlipFile);
+
+    const finalPayload = {
+      ...payload,
+      order_image_path: uploadedOrderImage.path,
+      order_image_url: uploadedOrderImage.url,
+      order_image_file_name: uploadedOrderImage.fileName,
+      order_transfer_slip_path: uploadedOrderTransferSlip.path,
+      order_transfer_slip_url: uploadedOrderTransferSlip.url,
+      order_transfer_slip_file_name: uploadedOrderTransferSlip.fileName,
+    };
+
+    const { error } = await supabase.from("orders").insert(finalPayload);
     if (error) {
       setErr(error.message);
       toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error.message}`);
@@ -448,6 +519,55 @@ export default function NewOrderPage() {
                     ))
                   )}
                 </select>
+              </div>
+
+              <div className="md:col-span-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">ຮູບອໍເດີ ແລະ ສະລິບ</div>
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-2">ຮູບອໍເດີ</label>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => orderImageFileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-black text-white">
+                        ເລືອກຮູບ
+                      </button>
+                      <button type="button" onClick={() => orderImageCameraInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700">
+                        ຖ່າຍຮູບ
+                      </button>
+                      <input ref={orderImageFileInputRef} type="file" accept="image/*" className="sr-only" onChange={(e) => handleOrderImageSelected(e.target.files?.[0] || null)} />
+                      <input ref={orderImageCameraInputRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => handleOrderImageSelected(e.target.files?.[0] || null)} />
+                    </div>
+                    <div className="mt-2 text-xs font-semibold text-slate-500">{orderImageFile?.name || "ຍັງບໍ່ມີຮູບ"}</div>
+                    {orderImagePreviewUrl ? (
+                      <a href={orderImagePreviewUrl} target="_blank" rel="noreferrer" className="block">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={orderImagePreviewUrl} alt="order preview" className="mt-3 h-40 w-full rounded-xl border border-slate-200 object-cover" />
+                      </a>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-2">ຮູບສະລິບການໂອນ</label>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => orderTransferSlipFileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-black text-white">
+                        ເລືອກໄຟລ໌
+                      </button>
+                      <button type="button" onClick={() => orderTransferSlipCameraInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700">
+                        ຖ່າຍຮູບ
+                      </button>
+                      <input ref={orderTransferSlipFileInputRef} type="file" accept="image/*,.pdf" className="sr-only" onChange={(e) => handleOrderTransferSlipSelected(e.target.files?.[0] || null)} />
+                      <input ref={orderTransferSlipCameraInputRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => handleOrderTransferSlipSelected(e.target.files?.[0] || null)} />
+                    </div>
+                    <div className="mt-2 text-xs font-semibold text-slate-500">{orderTransferSlipFile?.name || "ຍັງບໍ່ມີໄຟລ໌"}</div>
+                    {orderTransferSlipPreviewUrl ? (
+                      <a href={orderTransferSlipPreviewUrl} target="_blank" rel="noreferrer" className="block">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={orderTransferSlipPreviewUrl} alt="transfer slip preview" className="mt-3 h-40 w-full rounded-xl border border-slate-200 object-cover" />
+                      </a>
+                    ) : orderTransferSlipFile && !isImageFileName(orderTransferSlipFile.name) ? (
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-4 text-xs font-black text-slate-600">ໄຟລ໌ PDF ຖືກເລືອກແລ້ວ</div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -77,21 +77,7 @@ export default function SalesProfitReportPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const filteredByOrderDate = useMemo(() => {
-    const { start, endExclusive } = periodRange(year, month);
-    return rows.filter((r) => {
-      const date = new Date(`${r.order_date}T00:00:00`).toISOString();
-      if (!(date >= start && date < endExclusive)) return false;
-      if (!matchPrefix(r.order_code, prefix)) return false;
-      const productionStatus = getProductionStatus(r);
-      if (status !== "all" && productionStatus !== status) return false;
-      if (factoryCostFilter === "missing_cost" && Number(r.factory_cost || 0) > 0) return false;
-      if (factoryCostFilter === "has_cost" && Number(r.factory_cost || 0) <= 0) return false;
-      return true;
-    });
-  }, [rows, month, year, prefix, status, factoryCostFilter]);
-
-  const filteredForProfit = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
     return rows.filter((r) => {
       const effectiveProfitAt = r.shipment_completed_at;
@@ -107,22 +93,22 @@ export default function SalesProfitReportPage() {
   }, [rows, month, year, prefix, status, factoryCostFilter]);
 
   const summary = useMemo(() => {
-    const totalSales = filteredByOrderDate.reduce((sum, r) => sum + (Number(r.net_total) || 0), 0);
-    const totalShirts = filteredByOrderDate.reduce(
+    const totalSales = filteredRows.reduce((sum, r) => sum + (Number(r.net_total) || 0), 0);
+    const totalShirts = filteredRows.reduce(
       (sum, r) => sum + (Number(r.short_qty) || 0) + (Number(r.long_qty) || 0) + (Number(r.free_qty) || 0),
       0
     );
-    const totalOrders = filteredByOrderDate.length;
-    const totalProfit = filteredForProfit.reduce(
+    const totalOrders = filteredRows.length;
+    const totalProfit = filteredRows.reduce(
       (sum, r) => sum + ((Number(r.net_total) || 0) - (Number(r.factory_cost) || 0)),
       0
     );
     return { totalSales, totalShirts, totalOrders, totalProfit };
-  }, [filteredByOrderDate, filteredForProfit]);
+  }, [filteredRows]);
 
   const exportExcel = () => {
     const periodLabel = month === "ALL" ? `${year}-ALL` : `${year}-${String(month).padStart(2, "0")}`;
-    const exportRows = filteredByOrderDate.map((r) => ({
+    const exportRows = filteredRows.map((r) => ({
       "ວັນທີສັ່ງ": r.order_date,
       "ວັນທີຜະລິດສຳເລັດ": toDateOnly(r.production_completed_at),
       "ວັນທີຈັດສົ່ງສຳເລັດ": toDateOnly(r.shipment_completed_at),
@@ -216,7 +202,7 @@ export default function SalesProfitReportPage() {
         </div>
 
         <div className="flex justify-end">
-          <button onClick={exportExcel} disabled={filteredByOrderDate.length === 0} className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-black hover:bg-emerald-700 transition-colors disabled:opacity-50">
+          <button onClick={exportExcel} disabled={filteredRows.length === 0} className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-black hover:bg-emerald-700 transition-colors disabled:opacity-50">
             <Download size={16} />
             ດາວໂຫຼດ XLSX
           </button>
@@ -224,7 +210,7 @@ export default function SalesProfitReportPage() {
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="p-4 border-b bg-slate-50 text-sm font-black text-slate-800 uppercase">ຕາຕະລາງຜົນໄດ້ຮັບ ({filteredByOrderDate.length})</div>
+        <div className="p-4 border-b bg-slate-50 text-sm font-black text-slate-800 uppercase">ຕາຕະລາງຜົນໄດ້ຮັບ ({filteredRows.length})</div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50/70 text-slate-700 border-b border-slate-100">
@@ -239,12 +225,12 @@ export default function SalesProfitReportPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {!loading && filteredByOrderDate.length === 0 ? (
+              {!loading && filteredRows.length === 0 ? (
                 <tr>
                   <td className="p-8 text-center text-slate-500 font-bold" colSpan={7}>ບໍ່ມີຂໍ້ມູນ</td>
                 </tr>
               ) : (
-                filteredByOrderDate.map((r) => (
+                filteredRows.map((r) => (
                   <tr key={r.id}>
                     <td className="p-3 text-slate-800">{r.order_date}</td>
                     <td className="p-3 font-black text-slate-900">{r.order_code}</td>

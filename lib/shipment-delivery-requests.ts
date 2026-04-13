@@ -43,6 +43,12 @@ export type ShipmentDeliveryRequestRow = {
   transfer_slip_path: string | null;
   transfer_slip_url: string | null;
   transfer_slip_uploaded_at: string | null;
+  transfer_slip_uploaded_by_user_id?: string | null;
+  handoff_photo_path: string | null;
+  handoff_photo_url: string | null;
+  handoff_photo_file_name: string | null;
+  handoff_photo_uploaded_at: string | null;
+  handoff_photo_uploaded_by_user_id: string | null;
   transport_receiver_name: string | null;
   transport_receiver_phone: string | null;
   transport_branch: string | null;
