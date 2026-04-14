@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
 import { supabase } from "@/lib/supabase";
 import { type OrderCodeTypeRow, fetchOrderCodeTypes } from "@/lib/order-code-options";
 import { normalizeOrderType } from "@/lib/order-code";
+import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 
 export default function OrderCodeTypesPage() {
+  const pageRef = useRef<HTMLDivElement | null>(null);
   const [rows, setRows] = useState<OrderCodeTypeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -24,6 +26,7 @@ export default function OrderCodeTypesPage() {
   const [editLabel, setEditLabel] = useState("");
   const [editSortOrder, setEditSortOrder] = useState(100);
   const [editActive, setEditActive] = useState(true);
+  const { markClean } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
 
   const load = async () => {
     setLoading(true);
@@ -91,6 +94,7 @@ export default function OrderCodeTypesPage() {
     setNewLabel("");
     setNewSortOrder(100);
     setNewActive(true);
+    markClean();
     toast.success("ເພີ່ມປະເພດລະຫັດແລ້ວ");
     await load();
   };
@@ -128,6 +132,7 @@ export default function OrderCodeTypesPage() {
 
     toast.success("ບັນທຶກແລ້ວ");
     closeEdit();
+    markClean();
     await load();
   };
 
@@ -170,7 +175,7 @@ export default function OrderCodeTypesPage() {
   const sortedRows = useMemo(() => rows, [rows]);
 
   return (
-    <div className="space-y-4">
+    <div ref={pageRef} className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">ຈັດການປະເພດລະຫັດ</h1>
         <div className="text-sm font-medium text-slate-500">

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
 import { ArrowLeft, Eye, FileImage, FileText, FileUp, Printer, Save, Shirt, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
+import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
   canApproveFactoryDepositOrder,
   canConvertFactoryDepositOrder,
@@ -333,7 +334,7 @@ function getPlayerModeInstruction(mode: ProductionPlayerMode) {
 function getPlayerModePreviewTitle(mode: ProductionPlayerMode) {
   if (mode === "name_only") return "NAME LIST";
   if (mode === "number_only") return "LIST";
-  return "PLAYER / NO.";
+  return "ຊື່ ແລະ ເບີເສື້ອ";
 }
 
 function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType, fallbackCollar: ProductionCollarType) {
@@ -416,6 +417,7 @@ export default function FactoryDepositOrderFormPage() {
   const searchParams = useSearchParams();
   const draftId = searchParams.get("draftId");
   const editId = searchParams.get("id");
+  const pageRef = useRef<HTMLDivElement | null>(null);
 
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
@@ -427,6 +429,7 @@ export default function FactoryDepositOrderFormPage() {
   const [uploadingSlip, setUploadingSlip] = useState(false);
   const [deletingSlipId, setDeletingSlipId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
 
   const [recordId, setRecordId] = useState<string | null>(null);
   const [status, setStatus] = useState<FactoryDepositOrderStatus>("draft");
@@ -1227,8 +1230,10 @@ export default function FactoryDepositOrderFormPage() {
       );
 
       setStatus(nextStatus);
+      markClean();
       toast.success(successMessage);
       if (redirectAfterSave) {
+        allowNextNavigation();
         router.push("/factory-deposit-orders");
       }
       return { depositOrderId, nextStatus };
@@ -1355,7 +1360,9 @@ export default function FactoryDepositOrderFormPage() {
 
       await insertHistory(saved.depositOrderId, "convert_to_order", `convert to order ${orderCode.trim()}`, "approved", "converted");
       setStatus("converted");
+      markClean();
       toast.success("ບັນທຶກເປັນອໍເດີແລ້ວ");
+      allowNextNavigation();
       router.push("/factory-deposit-orders");
     } catch (error) {
       const message = error instanceof Error ? error.message : "ບັນທຶກເປັນອໍເດີບໍ່ສຳເລັດ";
@@ -1371,7 +1378,7 @@ export default function FactoryDepositOrderFormPage() {
   }
 
   return (
-    <div className="space-y-6 pb-8 text-slate-900">
+    <div ref={pageRef} className="space-y-6 pb-8 text-slate-900">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between print:hidden">
         <div>
           <Link href="/factory-deposit-orders" className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 transition hover:text-slate-700">

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 
 type Fabric = {
   id: string;
@@ -14,6 +15,7 @@ type Fabric = {
 };
 
 export default function FabricPage() {
+  const pageRef = useRef<HTMLDivElement | null>(null);
   const [rows, setRows] = useState<Fabric[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -28,6 +30,7 @@ export default function FabricPage() {
   const [editShort, setEditShort] = useState<number>(0);
   const [editLongAdd, setEditLongAdd] = useState<number>(20000);
   const [editActive, setEditActive] = useState(true);
+  const { markClean } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
 
   const load = async () => {
     setLoading(true);
@@ -44,7 +47,10 @@ export default function FabricPage() {
   };
 
   useEffect(() => {
-    load();
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const openEdit = (fabric: Fabric) => {
@@ -86,6 +92,7 @@ export default function FabricPage() {
     setNewName("");
     setNewShort(0);
     setNewLongAdd(20000);
+    markClean();
     await load();
     alert("Added");
   };
@@ -110,6 +117,7 @@ export default function FabricPage() {
     }
 
     closeEdit();
+    markClean();
     await load();
     alert("Saved");
   };
@@ -157,7 +165,7 @@ export default function FabricPage() {
   const sorted = useMemo(() => rows, [rows]);
 
   return (
-    <div>
+    <div ref={pageRef}>
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-slate-800">ລາຄາຜ້າ</h1>
         <div className="text-sm font-medium text-slate-500">

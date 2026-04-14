@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import { ArrowLeft, FileText, Printer, ReceiptText, Save, Shirt } from "lucide-react";
 import bgSportLogo from "@/app/BGSPORTLOGO.png";
 import { supabase } from "@/lib/supabase";
+import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
   getQuotationDraftById,
   saveQuotationDraft,
@@ -104,6 +105,7 @@ export default function NewQuotationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const draftId = searchParams.get("draftId");
+  const pageRef = useRef<HTMLDivElement | null>(null);
 
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [loadingFabrics, setLoadingFabrics] = useState(true);
@@ -139,6 +141,7 @@ export default function NewQuotationPage() {
   const [deliveryDate, setDeliveryDate] = useState("");
   const [paymentTerms, setPaymentTerms] = useState(DEFAULT_TERMS);
   const [notes, setNotes] = useState("");
+  const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loadingFabrics });
 
   useEffect(() => {
     const loadData = async () => {
@@ -314,6 +317,8 @@ export default function NewQuotationPage() {
     try {
       await saveQuotationDraft(buildDraft());
       toast.success("ບັນທຶກຮ່າງໃບປະເມີນລາຄາແລ້ວ");
+      markClean();
+      allowNextNavigation();
       router.push("/quotations");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ບັນທຶກຮ່າງບໍ່ສຳເລັດ");
@@ -336,6 +341,8 @@ export default function NewQuotationPage() {
     try {
       const savedDraft = await saveQuotationDraft(buildDraft());
       toast.success("ບັນທຶກໃບປະເມີນ ແລະ ກຳລັງເປີດໃບມັດຈຳ");
+      markClean();
+      allowNextNavigation();
       router.push(`/factory-deposit-orders/new?draftId=${savedDraft.id}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ສ້າງໃບມັດຈຳບໍ່ສຳເລັດ");
@@ -395,7 +402,7 @@ export default function NewQuotationPage() {
   ];
 
   return (
-    <div className="pb-8 text-slate-900">
+    <div ref={pageRef} className="pb-8 text-slate-900">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between print:hidden">
         <div>
           <Link href="/quotations" className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 transition hover:text-slate-700">

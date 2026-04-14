@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
+import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 
 type User = {
   id: string;
@@ -31,6 +32,7 @@ const ROLES = [
 ] as const;
 
 export default function UsersPage() {
+  const pageRef = useRef<HTMLDivElement | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -60,6 +62,7 @@ export default function UsersPage() {
   const [transferAssignment, setTransferAssignment] = useState<TransferAssignment>("admin");
   const [transferSourceUserId, setTransferSourceUserId] = useState("");
   const [transferringOrders, setTransferringOrders] = useState(false);
+  const { markClean } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
 
   const loadUsers = async () => {
     setLoading(true);
@@ -215,6 +218,7 @@ export default function UsersPage() {
       setNewPassword("");
       setNewRole("staff");
       setNewNotes("");
+      markClean();
       await loadUsers();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "ເພີ່ມຜູ້ໃຊ້ບໍ່ສຳເລັດ";
@@ -250,6 +254,7 @@ export default function UsersPage() {
       });
       toast.success("ບັນທຶກການແກ້ໄຂແລ້ວ");
       closeEdit();
+      markClean();
       await loadUsers();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "ບັນທຶກບໍ່ສຳເລັດ";
@@ -381,7 +386,7 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div ref={pageRef} className="space-y-6">
       <div className="mb-4">
         <h1 className="text-2xl font-black text-slate-800 tracking-tight">ຈັດການຜູ້ໃຊ້</h1>
         <div className="text-sm font-medium text-slate-500">ເພີ່ມ, ແກ້ໄຂ, ລຶບຜູ້ໃຊ້ງານລະບົບ</div>
@@ -482,6 +487,7 @@ export default function UsersPage() {
           <div>
             <label className="text-[10px] font-black text-slate-400 mb-1.5 block uppercase tracking-tighter">ຄົ້ນຫາຂໍ້ມູນ</label>
             <input
+              data-unsaved-ignore="true"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="ຊື່, ເບີໂທ, ອີເມລ"
@@ -492,6 +498,7 @@ export default function UsersPage() {
           <div>
             <label className="text-[10px] font-black text-slate-400 mb-1.5 block uppercase tracking-tighter">ກອງຕາມຕຳແໜ່ງ</label>
               <select
+                data-unsaved-ignore="true"
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value as "all" | "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant")}
                 className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm font-bold text-white outline-none cursor-pointer"
@@ -509,6 +516,7 @@ export default function UsersPage() {
           <div>
             <label className="text-[10px] font-black text-slate-400 mb-1.5 block uppercase tracking-tighter">ກອງຕາມສະຖານະ</label>
               <select
+                data-unsaved-ignore="true"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "inactive")}
                 className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm font-bold text-white outline-none cursor-pointer"

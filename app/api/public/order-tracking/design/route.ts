@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const ALLOWED_HOSTS = new Set(["www.tracklifefootball.com", "tracklifefootball.com"]);
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function normalizeImageUrl(raw: string | null) {
   const value = String(raw || "").trim();
@@ -42,7 +44,10 @@ export async function GET(req: NextRequest) {
     status: 200,
     headers: {
       "Content-Type": contentType,
-      "Cache-Control": "public, max-age=300, stale-while-revalidate=600",
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+      Vary: "Accept",
     },
   });
 }

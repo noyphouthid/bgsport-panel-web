@@ -38,10 +38,36 @@ function normalizeFactoryAssetUrl(value: string | null | undefined) {
   return text.startsWith("/") ? `${base}${text}` : `${base}/${text}`;
 }
 
-function buildTrackingImageProxyUrl(value: string | null | undefined) {
+function buildTrackingImageProxyUrl(
+  value: string | null | undefined,
+  options?: {
+    orderId?: string | null;
+    factoryBillCode?: string | null;
+    updatedAt?: string | null;
+  }
+) {
   const normalized = normalizeFactoryAssetUrl(value);
   if (!normalized) return null;
-  return `/api/public/order-tracking/design?src=${encodeURIComponent(normalized)}`;
+  const params = new URLSearchParams({
+    src: normalized,
+  });
+
+  const orderId = String(options?.orderId || "").trim();
+  if (orderId) {
+    params.set("order", orderId);
+  }
+
+  const factoryBillCode = String(options?.factoryBillCode || "").trim();
+  if (factoryBillCode) {
+    params.set("bill", factoryBillCode);
+  }
+
+  const updatedAt = String(options?.updatedAt || "").trim();
+  if (updatedAt) {
+    params.set("v", updatedAt);
+  }
+
+  return `/api/public/order-tracking/design?${params.toString()}`;
 }
 
 export type PublicTrackingResult = {
@@ -127,7 +153,14 @@ export function mapOrderToPublicTracking(row: RawOrderRow): PublicTrackingResult
     customerPhoneMasked: maskPhone(row.customer_phone || row.customer_whatsapp || null),
     fabricName: row.fabric_name || null,
     totalQty,
-    designImageUrl: buildTrackingImageProxyUrl(row.factory_production_payload?.design_image_url),
+    designImageUrl: buildTrackingImageProxyUrl(row.factory_production_payload?.design_image_url, {
+      orderId: row.id,
+      factoryBillCode: row.factory_bill_code,
+      updatedAt:
+        row.factory_production_source_updated_at ||
+        row.factory_production_synced_at ||
+        row.order_date,
+    }),
     currentStatus: hasFactoryStatus ? factoryStatus : fallback.currentStatus,
     currentStageIndex: hasFactoryStatus ? Number(row.factory_production_status_index || 0) || null : fallback.activeIndex,
     currentStageSource: hasFactoryStatus ? "factory" : "shop",

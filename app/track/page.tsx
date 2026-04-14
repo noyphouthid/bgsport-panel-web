@@ -63,6 +63,7 @@ export default function PublicTrackingPage() {
     startTransition(async () => {
       setErr(null);
       setHasSearched(true);
+      setResults([]);
 
       try {
         const response = await fetch(`/api/public/order-tracking?q=${encodeURIComponent(trimmed)}`, {
@@ -168,10 +169,11 @@ export default function PublicTrackingPage() {
                 <div className="mb-4 overflow-hidden rounded-[24px] border border-[#e5dccb] bg-[#f7f3eb]">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
+                    key={`${topResult.id}-${topResult.designImageUrl || "no-image"}`}
                     src={topResult.designImageUrl}
                     alt={`ແບບເສື້ອ ${topResult.orderCode}`}
                     className="h-auto w-full object-cover"
-                    loading="lazy"
+                    loading="eager"
                   />
                 </div>
               ) : null}
@@ -259,6 +261,7 @@ export default function PublicTrackingPage() {
                   <div className="mb-3 overflow-hidden rounded-[20px] border border-[#e5dccb] bg-[#f7f3eb]">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
+                      key={`${item.id}-${item.designImageUrl || "no-image"}`}
                       src={item.designImageUrl}
                       alt={`ແບບເສື້ອ ${item.orderCode}`}
                       className="h-auto w-full object-cover"

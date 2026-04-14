@@ -24,6 +24,7 @@ import {
   type ShipmentDeliveryRequestRow,
 } from "@/lib/shipment-delivery-requests";
 import { buildFactoryDesignFallbackUrl, extractProductionMockupUrls, isImageFileName, toDisplayMediaUrl } from "@/lib/order-media";
+import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import { MobileQrScanner } from "../_components/mobile-qr-scanner";
 
 type PaymentMethod = "cash" | "transfer";
@@ -102,6 +103,7 @@ function getShipmentBlockReason(
 }
 
 export default function ShipmentsPage() {
+  const pageRef = useRef<HTMLDivElement | null>(null);
   const [scanValue, setScanValue] = useState("");
   const [shippedBy, setShippedBy] = useState("");
   const [shippedAt, setShippedAt] = useState(() => toLocalDateTimeInputValue());
@@ -133,6 +135,7 @@ export default function ShipmentsPage() {
   const transferSlipCameraInputRef = useRef<HTMLInputElement | null>(null);
   const handoffPhotoFileInputRef = useRef<HTMLInputElement | null>(null);
   const handoffPhotoCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const { confirmIfDirty, markClean, setDirty } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: Boolean(active) });
 
   useEffect(() => {
     return () => {
@@ -366,6 +369,8 @@ export default function ShipmentsPage() {
   };
 
   const openShipmentByCode = async (rawValue: string) => {
+    if (!confirmIfDirty()) return;
+    setDirty(false);
     try {
       const resolved = await findOrderAndLabel(rawValue);
       if (!resolved) {
@@ -673,6 +678,7 @@ export default function ShipmentsPage() {
             ? `ບັນທຶກບິນ ແລະ ຮ່າງການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
             : `ບັນທຶກຮ່າງການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
       );
+      markClean();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ບັນທຶກຮ່າງການຈັດສົ່ງບໍ່ສຳເລັດ");
     } finally {
@@ -852,7 +858,7 @@ export default function ShipmentsPage() {
   };
 
   return (
-    <div className="space-y-6 text-slate-900">
+    <div ref={pageRef} className="space-y-6 text-slate-900">
       <section className="rounded-[2rem] bg-gradient-to-br from-orange-950 via-orange-900 to-amber-900 p-6 text-white shadow-xl">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -906,6 +912,7 @@ export default function ShipmentsPage() {
             </div>
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
               <input
+                data-unsaved-ignore="true"
                 value={scanValue}
                 onChange={(e) => setScanValue(e.target.value)}
                 onKeyDown={(e) => {

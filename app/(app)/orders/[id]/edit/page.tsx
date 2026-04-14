@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import { buildOrderCode, normalizeOrderType, parseOrderCode, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
+import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
   buildFactoryDesignFallbackUrl,
   buildSafeStorageFileName,
@@ -157,6 +158,7 @@ export default function EditOrderPage() {
   const params = useParams();
   const router = useRouter();
   const orderId = params?.id as string;
+  const pageRef = useRef<HTMLDivElement | null>(null);
 
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [users, setUsers] = useState<UserOption[]>([]);
@@ -171,6 +173,7 @@ export default function EditOrderPage() {
   const [loadingFabrics, setLoadingFabrics] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
+  const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
 
   const [orderDate, setOrderDate] = useState("");
   const [orderType, setOrderType] = useState<OrderType>("");
@@ -600,6 +603,7 @@ export default function EditOrderPage() {
       }
       await safeInsertAction("update_order", "Updated order details");
       await reloadAll();
+      markClean();
       toast.success("ບັນທຶກແລ້ວ");
     } catch (error) {
       const message = error instanceof Error ? error.message : "save_failed";
@@ -894,6 +898,7 @@ export default function EditOrderPage() {
     if (!ok) return;
     const { error } = await supabase.from("orders").delete().eq("id", orderId);
     if (error) return setErr(error.message);
+    allowNextNavigation();
     router.push("/orders");
   };
 
@@ -911,7 +916,7 @@ export default function EditOrderPage() {
     : "-";
 
   return (
-    <div className="space-y-4">
+    <div ref={pageRef} className="space-y-4">
       {err && <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800 font-bold">ຂໍ້ຜິດພາດ: {err}</div>}
       <div className="flex items-center justify-between">
         <div>

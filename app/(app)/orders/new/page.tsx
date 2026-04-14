@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { buildOrderCode, normalizeOrderType, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import { buildSafeStorageFileName, isImageFileName, ORDER_MEDIA_BUCKET } from "@/lib/order-media";
+import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 
 type FabricRow = {
   id: string;
@@ -41,6 +42,7 @@ function getLocalDateInputValue() {
 
 export default function NewOrderPage() {
   const router = useRouter();
+  const pageRef = useRef<HTMLDivElement | null>(null);
   // Fabrics from DB
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
@@ -82,6 +84,7 @@ export default function NewOrderPage() {
   const [designDeposit, setDesignDeposit] = useState<number>(0);
   const [initialDeposit, setInitialDeposit] = useState<number>(0);
   const [factoryCost, setFactoryCost] = useState<number>(0);
+  const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef });
 
   const loadFabrics = async () => {
     setLoadingFabrics(true);
@@ -208,6 +211,7 @@ export default function NewOrderPage() {
     });
     if (!result.isConfirmed) return;
     resetForm();
+    markClean();
     toast("ລ້າງຟອມແລ້ວ");
   };
 
@@ -223,6 +227,7 @@ export default function NewOrderPage() {
     });
     if (!result.isConfirmed) return;
     toast("ຍົກເລີກການສ້າງອໍເດີ");
+    allowNextNavigation();
     router.push("/orders");
   };
 
@@ -354,12 +359,13 @@ export default function NewOrderPage() {
       return;
     }
 
-    toast.success("ບັນທຶກອໍເດີສຳເລັດ");
     resetForm();
+    markClean();
+    toast.success("ບັນທຶກອໍເດີສຳເລັດ");
   };
 
   return (
-    <div className="text-slate-900">
+    <div ref={pageRef} className="text-slate-900">
       {err && (
         <div className="mb-4 bg-red-50 border border-red-200 text-red-700 p-3 rounded text-sm">
           Error: {err}

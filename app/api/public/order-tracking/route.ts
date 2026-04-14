@@ -11,6 +11,8 @@ import {
   rankTrackingMatch,
   type PublicTrackingResult,
 } from "@/lib/public-order-tracking";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type RawOrderRow = {
   id: string;

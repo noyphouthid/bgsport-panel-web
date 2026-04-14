@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { Noto_Sans_Lao_Looped } from "next/font/google";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { ArrowLeft, Save } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
+import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
   buildTransportNoteNo,
   DEFAULT_TRANSPORT_NOTE_FORM,
@@ -33,6 +34,7 @@ function LogoMark() {
 export default function TransportNotePage() {
   const searchParams = useSearchParams();
   const noteId = searchParams.get("id");
+  const pageRef = useRef<HTMLDivElement | null>(null);
 
   const [form, setForm] = useState<TransportNoteForm>(DEFAULT_TRANSPORT_NOTE_FORM);
   const [saving, setSaving] = useState(false);
@@ -41,6 +43,7 @@ export default function TransportNotePage() {
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [accessDenied, setAccessDenied] = useState(false);
+  const { markClean } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading && !accessDenied });
 
   useEffect(() => {
     const loadUser = async () => {
@@ -168,6 +171,7 @@ export default function TransportNotePage() {
       }
 
       toast.success(currentNote?.id ? "ອັບເດດໃບຝາກເຄື່ອງແລ້ວ" : "ບັນທຶກໃບຝາກເຄື່ອງແລ້ວ");
+      markClean();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ບັນທຶກໃບຝາກເຄື່ອງບໍ່ສຳເລັດ");
     } finally {
@@ -176,7 +180,7 @@ export default function TransportNotePage() {
   };
 
   return (
-    <div className="space-y-6 text-slate-900">
+    <div ref={pageRef} className="space-y-6 text-slate-900">
       <section className="rounded-[2rem] bg-gradient-to-br from-sky-950 via-blue-900 to-slate-900 p-6 text-white shadow-xl">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
