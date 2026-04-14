@@ -292,11 +292,28 @@ function buildEmptyProductionItem(
 }
 
 function getProductionItemTotal(item: ProductionItem) {
-  return PRODUCTION_SIZE_FIELDS.reduce((sum, field) => sum + (Number(item.sizes[field.key]) || 0), 0);
+  const sizeMap = getProductionItemSizeMap(item);
+  return PRODUCTION_SIZE_FIELDS.reduce((sum, field) => sum + (Number(sizeMap[field.key]) || 0), 0);
 }
 
 function getFilledPlayerRows(item: ProductionItem) {
   return item.player_rows.filter((row) => row.size || row.player_name.trim() || row.jersey_number.trim() || row.note.trim());
+}
+
+function getProductionItemSizeMap(item: ProductionItem) {
+  const filledRows = getFilledPlayerRows(item);
+  const derivedSizes = buildEmptySizeMap();
+  let hasSizedRows = false;
+
+  if (item.player_mode !== "none") {
+    for (const row of filledRows) {
+      if (!row.size) continue;
+      derivedSizes[row.size] = (Number(derivedSizes[row.size]) || 0) + 1;
+      hasSizedRows = true;
+    }
+  }
+
+  return hasSizedRows ? derivedSizes : item.sizes;
 }
 
 function playerModeNeedsName(mode: ProductionPlayerMode) {
@@ -315,7 +332,7 @@ function getPlayerModeInstruction(mode: ProductionPlayerMode) {
 
 function getPlayerModePreviewTitle(mode: ProductionPlayerMode) {
   if (mode === "name_only") return "NAME LIST";
-  if (mode === "number_only") return "NO. LIST";
+  if (mode === "number_only") return "LIST";
   return "PLAYER / NO.";
 }
 
@@ -837,7 +854,7 @@ export default function FactoryDepositOrderFormPage() {
         jersey_number: row.jersey_number.trim(),
         note: row.note.trim(),
       })),
-      sizes: item.sizes,
+      sizes: getProductionItemSizeMap(item),
       total_qty: getProductionItemTotal(item),
     }));
 
@@ -1701,6 +1718,7 @@ export default function FactoryDepositOrderFormPage() {
               {activeProductionItems.map((item, index) => {
                 const itemTotal = getProductionItemTotal(item);
                 const filledPlayerRows = getFilledPlayerRows(item);
+                const itemSizeMap = getProductionItemSizeMap(item);
                 const imageUrl = item.mockup_preview_url || item.mockup_url;
                 const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
                 const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
@@ -1815,7 +1833,7 @@ export default function FactoryDepositOrderFormPage() {
                               <input
                                 type="number"
                                 min={0}
-                                value={item.sizes[field.key]}
+                                value={item.player_mode !== "none" && filledPlayerRows.length > 0 ? itemSizeMap[field.key] : item.sizes[field.key]}
                                 onChange={(e) =>
                                   updateProductionItem(index, (current) => ({
                                     ...current,
@@ -1850,7 +1868,7 @@ export default function FactoryDepositOrderFormPage() {
                               {item.player_rows.map((row, rowIndex) => (
                                 <div key={row.id} className="rounded-xl bg-white/80 p-2">
                                   <div className="mb-2 flex items-center justify-between">
-                                    <div className="text-xs font-black uppercase tracking-wide text-slate-500">Player {rowIndex + 1}</div>
+                                    <div className="text-sm font-black uppercase tracking-wide text-slate-600">Player {rowIndex + 1}</div>
                                     {canEdit ? (
                                       <button type="button" onClick={() => removePlayerRow(index, row.id)} className="text-xs font-black text-rose-700">
                                         ລົບ
@@ -1859,12 +1877,12 @@ export default function FactoryDepositOrderFormPage() {
                                   </div>
                                   <div className={`grid gap-2 ${item.player_mode === "name_and_number" ? "md:grid-cols-4" : item.player_mode === "name_only" || item.player_mode === "number_only" ? "md:grid-cols-3" : "md:grid-cols-4"}`}>
                                     <div>
-                                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ໄຊສ໌</label>
+                                      <label className="mb-1.5 block text-sm font-bold uppercase tracking-wide text-slate-600">ໄຊສ໌</label>
                                       <select
                                         value={row.size}
                                         onChange={(e) => updatePlayerRow(index, row.id, (current) => ({ ...current, size: e.target.value as ProductionSizeKey | "" }))}
                                         disabled={!canEdit}
-                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-base font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
                                       >
                                         <option value="">ເລືອກໄຊສ໌</option>
                                         {PRODUCTION_SIZE_FIELDS.map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}
@@ -1872,36 +1890,36 @@ export default function FactoryDepositOrderFormPage() {
                                     </div>
                                     {playerModeNeedsName(item.player_mode) ? (
                                       <div>
-                                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຊື່ Player</label>
+                                        <label className="mb-1.5 block text-sm font-bold uppercase tracking-wide text-slate-600">ຊື່ Player</label>
                                         <input
                                           value={row.player_name}
                                           onChange={(e) => updatePlayerRow(index, row.id, (current) => ({ ...current, player_name: e.target.value }))}
                                           disabled={!canEdit}
                                           placeholder="ຊື່ເທິງເສື້ອ"
-                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-base font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
                                         />
                                       </div>
                                     ) : null}
                                     {playerModeNeedsNumber(item.player_mode) ? (
                                       <div>
-                                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ເບີເສື້ອ</label>
+                                        <label className="mb-1.5 block text-sm font-bold uppercase tracking-wide text-slate-600">ເບີເສື້ອ</label>
                                         <input
                                           value={row.jersey_number}
                                           onChange={(e) => updatePlayerRow(index, row.id, (current) => ({ ...current, jersey_number: e.target.value }))}
                                           disabled={!canEdit}
                                           placeholder="07"
-                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-base font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
                                         />
                                       </div>
                                     ) : null}
                                     <div>
-                                      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ໝາຍເຫດ</label>
+                                      <label className="mb-1.5 block text-sm font-bold uppercase tracking-wide text-slate-600">ໝາຍເຫດ</label>
                                       <input
                                         value={row.note}
                                         onChange={(e) => updatePlayerRow(index, row.id, (current) => ({ ...current, note: e.target.value }))}
                                         disabled={!canEdit}
                                         placeholder="ເຊັ່ນ Captain"
-                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-base font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
                                       />
                                     </div>
                                   </div>
@@ -1999,6 +2017,7 @@ export default function FactoryDepositOrderFormPage() {
                     const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
                     const imageUrl = item.mockup_preview_url || item.mockup_url;
                     const filledPlayerRows = getFilledPlayerRows(item);
+                    const itemSizeMap = getProductionItemSizeMap(item);
                     return (
                       <div key={item.client_id} className="flex min-h-0 flex-col">
                         <div className="mb-2 rounded-md border border-slate-700 px-2 py-1.5 text-center text-[11px] font-black text-slate-700">
@@ -2016,26 +2035,26 @@ export default function FactoryDepositOrderFormPage() {
                         </div>
                         <div className="mt-3 flex-1 rounded-md border border-slate-700 p-3">
                           <div className="mb-2 text-center text-[17px] font-black text-sky-700">ຈຳນວນໄຊສ໌</div>
-                          <div className="space-y-2 text-[17px]">
-                            {PRODUCTION_SIZE_FIELDS.filter((field) => Number(item.sizes[field.key]) > 0).map((field) => (
+                          <div className="space-y-2 text-[18px]">
+                            {PRODUCTION_SIZE_FIELDS.filter((field) => Number(itemSizeMap[field.key]) > 0).map((field) => (
                               <div key={field.key} className="flex items-center justify-between gap-3">
                                 <span className="font-black text-slate-900">{field.label}:</span>
-                                <span className={`font-black ${item.sizes[field.key] > 0 ? "text-rose-600" : "text-slate-500"}`}>
-                                  {item.sizes[field.key] > 0 ? item.sizes[field.key].toLocaleString() : ""}
+                                <span className={`font-black ${itemSizeMap[field.key] > 0 ? "text-rose-600" : "text-slate-500"}`}>
+                                  {itemSizeMap[field.key] > 0 ? itemSizeMap[field.key].toLocaleString() : ""}
                                 </span>
                               </div>
                             ))}
-                            {item.player_mode === "none" && PRODUCTION_SIZE_FIELDS.every((field) => Number(item.sizes[field.key]) <= 0) ? (
+                            {item.player_mode === "none" && PRODUCTION_SIZE_FIELDS.every((field) => Number(itemSizeMap[field.key]) <= 0) ? (
                               <div className="text-center text-[13px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
                             ) : null}
                           </div>
 
                           {item.player_mode !== "none" && filledPlayerRows.length > 0 ? (
                             <div className="mt-4 border-t border-slate-200 pt-3">
-                              <div className="mb-2 text-center text-[12px] font-black text-slate-700">
+                              <div className="mb-2 text-center text-[14px] font-black text-slate-700">
                                 {getPlayerModePreviewTitle(item.player_mode)}
                               </div>
-                              <div className="space-y-0.5 text-[10px] leading-tight text-slate-900">
+                              <div className="space-y-1 text-[13px] leading-snug text-slate-900">
                                 {filledPlayerRows.map((row) => {
                                   const sizeLabel = PRODUCTION_SIZE_FIELDS.find((field) => field.key === row.size)?.label || "-";
                                   const lineParts = [
@@ -2045,7 +2064,7 @@ export default function FactoryDepositOrderFormPage() {
                                     row.note ? row.note : null,
                                   ].filter(Boolean);
                                   return (
-                                    <div key={row.id} className="truncate font-semibold">
+                                    <div key={row.id} className="truncate font-bold">
                                       {lineParts.join(" | ")}
                                     </div>
                                   );
