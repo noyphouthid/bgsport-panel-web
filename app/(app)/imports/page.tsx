@@ -6,6 +6,7 @@ import { CheckCircle2, Download, FileSpreadsheet, Upload } from "lucide-react";
 import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
+import { isAdminRole, isGraphicRole } from "@/lib/role-groups";
 
 type FabricRow = {
   id: string;
@@ -114,11 +115,11 @@ export default function ImportExcelPage() {
   }, []);
 
   const adminByName = useMemo(
-    () => new Map(users.filter((u) => u.role === "superadmin" || u.role === "admin").map((u) => [u.full_name.toLowerCase(), u])),
+    () => new Map(users.filter((u) => isAdminRole(u.role)).map((u) => [u.full_name.toLowerCase(), u])),
     [users]
   );
   const graphicByName = useMemo(
-    () => new Map(users.filter((u) => u.role === "graphic").map((u) => [u.full_name.toLowerCase(), u])),
+    () => new Map(users.filter((u) => isGraphicRole(u.role)).map((u) => [u.full_name.toLowerCase(), u])),
     [users]
   );
   const userById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users]);
@@ -126,8 +127,8 @@ export default function ImportExcelPage() {
   const fabricById = useMemo(() => new Map(fabrics.map((f) => [f.id, f])), [fabrics]);
 
   const downloadTemplate = () => {
-    const adminExample = users.find((u) => u.role === "superadmin" || u.role === "admin")?.full_name ?? "Admin 1";
-    const graphicExample = users.find((u) => u.role === "graphic")?.full_name ?? "Graphic 1";
+    const adminExample = users.find((u) => isAdminRole(u.role))?.full_name ?? "Admin 1";
+    const graphicExample = users.find((u) => isGraphicRole(u.role))?.full_name ?? "Graphic 1";
     const fabricExample = fabrics[0]?.name ?? "Sport Fabric";
 
     const rows = [
@@ -213,7 +214,7 @@ export default function ImportExcelPage() {
         (adminUserId ? userById.get(adminUserId) : null) ??
         (adminName ? adminByName.get(adminName.toLowerCase()) : null) ??
         null;
-      if (!pickedAdmin || (pickedAdmin.role !== "superadmin" && pickedAdmin.role !== "admin")) {
+      if (!pickedAdmin || !isAdminRole(pickedAdmin.role)) {
         return { rowNo: idx + 2, valid: false, reason: "ບໍ່ພົບ admin", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
       }
 
@@ -221,7 +222,7 @@ export default function ImportExcelPage() {
         (graphicUserId ? userById.get(graphicUserId) : null) ??
         (graphicName ? graphicByName.get(graphicName.toLowerCase()) : null) ??
         null;
-      if (!pickedGraphic || pickedGraphic.role !== "graphic") {
+      if (!pickedGraphic || !isGraphicRole(pickedGraphic.role)) {
         return { rowNo: idx + 2, valid: false, reason: "ບໍ່ພົບ graphic", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
       }
 
@@ -523,5 +524,3 @@ export default function ImportExcelPage() {
     </div>
   );
 }
-
-

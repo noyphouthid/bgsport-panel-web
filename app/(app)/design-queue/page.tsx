@@ -8,6 +8,7 @@ import { Check, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import type { AppRole } from "@/lib/access-control";
+import { GRAPHIC_ASSIGNABLE_ROLES } from "@/lib/role-groups";
 import { buildYearOptions, type MonthFilter } from "../reports/_lib";
 
 type DesignQueueRow = {
@@ -165,7 +166,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
 
     const [queueResult, graphicResult] = await Promise.all([
       queueQuery,
-      supabase.from("users").select("id,full_name,role,is_active").eq("is_active", true).eq("role", "graphic").order("full_name", { ascending: true }),
+      supabase.from("users").select("id,full_name,role,is_active").eq("is_active", true).in("role", GRAPHIC_ASSIGNABLE_ROLES).order("full_name", { ascending: true }),
     ]);
 
     if (queueResult.error) {

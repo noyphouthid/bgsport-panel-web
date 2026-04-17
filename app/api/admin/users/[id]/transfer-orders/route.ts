@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
+import { isAdminRole, isGraphicRole } from "@/lib/role-groups";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 type TransferOrdersBody = {
   source_user_id?: string;
   assignment_type?: "admin" | "graphic";
 };
-
-const ADMIN_ROLE_ALIASES = new Set(["superadmin", "admin", "sale-admin", "sale_admin"]);
-const GRAPHIC_ROLE_ALIASES = new Set(["graphic", "graphics", "designer"]);
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const supabaseAdmin = getSupabaseAdmin();
@@ -57,13 +55,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const sourceRole = String(sourceUser.role || "").toLowerCase();
   const targetRole = String(targetUser.role || "").toLowerCase();
-  const roleSet = assignmentType === "graphic" ? GRAPHIC_ROLE_ALIASES : ADMIN_ROLE_ALIASES;
   const roleErrorPrefix = assignmentType === "graphic" ? "graphic" : "admin";
 
-  if (!roleSet.has(sourceRole)) {
+  const hasRequiredRole = assignmentType === "graphic" ? isGraphicRole : isAdminRole;
+
+  if (!hasRequiredRole(sourceRole)) {
     return NextResponse.json({ error: `source_user_is_not_${roleErrorPrefix}` }, { status: 400 });
   }
-  if (!roleSet.has(targetRole)) {
+  if (!hasRequiredRole(targetRole)) {
     return NextResponse.json({ error: `target_user_is_not_${roleErrorPrefix}` }, { status: 400 });
   }
 

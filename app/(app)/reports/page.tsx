@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2 } from "lucide-react";
+import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2, Database, Wallet } from "lucide-react";
 
 const cards = [
   {
@@ -17,6 +17,13 @@ const cards = [
     desc: "ຕິດຕາມການຊຳລະ ແລະ ສະຖານະການຜະລິດໃນແຕ່ລະເດືອນ",
     icon: ClipboardList,
     iconBg: "bg-blue-100 text-blue-700",
+  },
+  {
+    href: "/reports/factory-payments",
+    title: "ລາຍງານຈ່າຍໂຮງງານ",
+    desc: "ສະຫຼຸບຍອດຈ່າຍໂຮງງານ, batch ການຈ່າຍ ແລະ ຍອດຄ້າງຕາມອໍເດີ",
+    icon: Wallet,
+    iconBg: "bg-emerald-100 text-emerald-700",
   },
   {
     href: "/reports/admin-sales",
@@ -38,6 +45,13 @@ const cards = [
     desc: "ສະຫຼຸບຍອດຂາຍ, ກຳໄລ, ຈຳນວນອໍເດີ້ ແລະ ບັນທຶກປິດຍອດຝັ່ງຂາຍ",
     icon: CalendarCheck2,
     iconBg: "bg-rose-100 text-rose-700",
+  },
+  {
+    href: "/reports/data-export",
+    title: "ລາຍງານດຶງຂໍ້ມູນ",
+    desc: "ເລືອກ column ແບບ multi select ເພື່ອ export ຂໍ້ມູນຕາມທີ່ຕ້ອງການ",
+    icon: Database,
+    iconBg: "bg-cyan-100 text-cyan-700",
   },
 ];
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
+import { isAdminRole, isGraphicRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
 import { buildOrderCode, normalizeOrderType, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import { buildSafeStorageFileName, isImageFileName, ORDER_MEDIA_BUCKET } from "@/lib/order-media";
@@ -116,7 +117,7 @@ export default function NewOrderPage() {
       .from("users")
       .select("id,full_name,role,is_active")
       .eq("is_active", true)
-      .in("role", ["superadmin", "admin", "graphic"])
+      .in("role", ORDER_ASSIGNABLE_USER_ROLES)
       .order("full_name", { ascending: true });
 
     if (error) {
@@ -145,8 +146,8 @@ export default function NewOrderPage() {
   }, [orderImagePreviewUrl, orderTransferSlipPreviewUrl]);
 
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
-  const adminOptions = useMemo(() => users.filter((u) => u.role === "superadmin" || u.role === "admin"), [users]);
-  const graphicOptions = useMemo(() => users.filter((u) => u.role === "graphic"), [users]);
+  const adminOptions = useMemo(() => users.filter((u) => isAdminRole(u.role)), [users]);
+  const graphicOptions = useMemo(() => users.filter((u) => isGraphicRole(u.role)), [users]);
 
   const totalProductionQty = useMemo(() => shortQty + longQty + freeQty, [shortQty, longQty, freeQty]);
   const billableQty = useMemo(() => shortQty + longQty, [shortQty, longQty]);

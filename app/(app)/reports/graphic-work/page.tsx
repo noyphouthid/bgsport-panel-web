@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { Download } from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
+import { isGraphicRole } from "@/lib/role-groups";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import { MonthFilter, PrefixFilter, buildMonthOptions, buildYearOptions, matchPrefix, periodRange } from "../_lib";
 
@@ -24,8 +25,6 @@ type UserRow = {
   role: string;
   is_active: boolean;
 };
-
-const GRAPHIC_ROLE_ALIASES = new Set(["graphic", "graphics", "designer"]);
 
 type GraphicSummary = {
   graphic_id: string;
@@ -74,7 +73,7 @@ export default function GraphicWorkReportPage() {
       setGraphics([]);
     } else {
       const allUsers = (userData ?? []) as UserRow[];
-      setGraphics(allUsers.filter((u) => GRAPHIC_ROLE_ALIASES.has(String(u.role || "").toLowerCase())));
+      setGraphics(allUsers.filter((u) => isGraphicRole(u.role)));
     }
 
     setOrders((orderData ?? []) as OrderRow[]);

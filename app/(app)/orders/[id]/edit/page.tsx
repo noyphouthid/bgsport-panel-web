@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
+import { isAdminRole, isGraphicRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
 import { buildOrderCode, normalizeOrderType, parseOrderCode, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
@@ -272,7 +273,7 @@ export default function EditOrderPage() {
 
   const loadUsers = async () => {
     setLoadingUsers(true);
-    const { data, error } = await supabase.from("users").select("id,full_name,role,is_active").eq("is_active", true).in("role", ["superadmin", "admin", "graphic"]).order("full_name", { ascending: true });
+    const { data, error } = await supabase.from("users").select("id,full_name,role,is_active").eq("is_active", true).in("role", ORDER_ASSIGNABLE_USER_ROLES).order("full_name", { ascending: true });
     if (error) throw error;
     setUsers((data ?? []) as UserOption[]);
     setLoadingUsers(false);
@@ -474,8 +475,8 @@ export default function EditOrderPage() {
     void loadViewerRole();
   }, []);
 
-  const adminOptions = useMemo(() => users.filter((u) => u.role === "superadmin" || u.role === "admin"), [users]);
-  const graphicOptions = useMemo(() => users.filter((u) => u.role === "graphic"), [users]);
+  const adminOptions = useMemo(() => users.filter((u) => isAdminRole(u.role)), [users]);
+  const graphicOptions = useMemo(() => users.filter((u) => isGraphicRole(u.role)), [users]);
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
 
   const shirtsTotal = useMemo(() => {

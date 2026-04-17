@@ -31,6 +31,11 @@ type RecentOrder = {
   shipment_completed_at?: string | null;
 };
 
+type FactoryPaymentSummaryRow = {
+  order_id: string;
+  amount: number;
+};
+
 type DateRangeMode = "today" | "7days" | "1month" | "custom";
 
 function toDateInputValue(date: Date) {
@@ -118,6 +123,41 @@ export default function DashboardPage() {
       const { data: orders, error: ordersError } = await query;
       if (ordersError) throw ordersError;
 
+      const orderRows = (orders ?? []) as Array<{
+        id: string;
+        order_code: string;
+        order_date: string;
+        fabric_name: string;
+        net_total: number;
+        balance: number;
+        factory_cost: number;
+        status: string;
+        production_completed_at: string | null;
+        shipment_status?: "pending" | "shipped";
+        shipment_completed_at?: string | null;
+        short_qty: number;
+        long_qty: number;
+        free_qty: number;
+      }>;
+
+      const orderIds = orderRows.map((order) => order.id).filter(Boolean);
+      const paidByOrder = new Map<string, number>();
+
+      if (orderIds.length > 0) {
+        const { data: factoryPayments, error: factoryPaymentsError } = await supabase
+          .from("factory_payments")
+          .select("order_id,amount")
+          .in("order_id", orderIds);
+
+        if (factoryPaymentsError && !factoryPaymentsError.message.includes("Could not find the table")) {
+          throw factoryPaymentsError;
+        }
+
+        ((factoryPayments ?? []) as FactoryPaymentSummaryRow[]).forEach((payment) => {
+          paidByOrder.set(payment.order_id, (paidByOrder.get(payment.order_id) || 0) + (Number(payment.amount) || 0));
+        });
+      }
+
       let profitQuery = supabase
         .from("orders")
         .select("id,net_total,factory_cost,shipment_completed_at")
@@ -127,20 +167,24 @@ export default function DashboardPage() {
       const { data: profitOrders, error: profitError } = await profitQuery;
       if (profitError) throw profitError;
 
-      const inProgress = orders?.filter((o) => o.status === "in_progress") || [];
+      const inProgress = orderRows.filter((o) => o.status === "in_progress");
 
       const totalProfit =
         profitOrders?.reduce(
           (sum, o) => sum + ((Number(o.net_total) || 0) - (Number(o.factory_cost) || 0)),
           0
         ) || 0;
-      const customerBalance = orders?.reduce((sum, o) => sum + (o.balance || 0), 0) || 0;
-      const factoryBalance = inProgress.reduce((sum, o) => sum + (o.factory_cost || 0), 0);
+      const customerBalance = orderRows.reduce((sum, o) => sum + (Number(o.balance) || 0), 0);
+      const factoryBalance = inProgress.reduce((sum, o) => {
+        const paidAmount = paidByOrder.get(o.id) || 0;
+        const outstandingAmount = Math.max(0, (Number(o.factory_cost) || 0) - paidAmount);
+        return sum + outstandingAmount;
+      }, 0);
 
       // คำนวณจำนวนเสื้อ
-      const shortSleeves = orders?.reduce((sum, o) => sum + (Number(o.short_qty) || 0), 0) || 0;
-      const longSleeves = orders?.reduce((sum, o) => sum + (Number(o.long_qty) || 0), 0) || 0;
-      const giveawayShirts = orders?.reduce((sum, o) => sum + (Number(o.free_qty) || 0), 0) || 0;
+      const shortSleeves = orderRows.reduce((sum, o) => sum + (Number(o.short_qty) || 0), 0);
+      const longSleeves = orderRows.reduce((sum, o) => sum + (Number(o.long_qty) || 0), 0);
+      const giveawayShirts = orderRows.reduce((sum, o) => sum + (Number(o.free_qty) || 0), 0);
       const totalShirts = shortSleeves + longSleeves + giveawayShirts;
 
       setStats({
@@ -149,7 +193,7 @@ export default function DashboardPage() {
         factoryBalance,
         inProgressOrders: inProgress.length,
         completedOrders: profitOrders?.length || 0,
-        totalOrders: orders?.length || 0,
+        totalOrders: orderRows.length,
         totalShirts,
         shortSleeves,
         longSleeves,

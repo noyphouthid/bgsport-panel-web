@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Download } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { isAdminRole } from "@/lib/role-groups";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import { MonthFilter, PrefixFilter, buildMonthOptions, buildYearOptions, matchPrefix, periodRange } from "../_lib";
 
@@ -23,8 +24,6 @@ type UserRow = {
   role: string;
   is_active: boolean;
 };
-
-const ADMIN_ROLE_ALIASES = new Set(["superadmin", "admin", "sale-admin", "sale_admin"]);
 
 type AdminSummary = {
   admin_id: string;
@@ -71,7 +70,7 @@ export default function AdminSalesReportPage() {
       setAdmins([]);
     } else {
       const allUsers = (userData ?? []) as UserRow[];
-      setAdmins(allUsers.filter((u) => ADMIN_ROLE_ALIASES.has(String(u.role || "").toLowerCase())));
+      setAdmins(allUsers.filter((u) => isAdminRole(u.role)));
     }
 
     setOrders((orderData ?? []) as OrderRow[]);

@@ -8,6 +8,7 @@ import Swal from "sweetalert2";
 import { ArrowLeft, Eye, FileImage, FileText, FileUp, Printer, Save, Shirt, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
+import { isFactoryDepositAdminRole, isGraphicRole } from "@/lib/role-groups";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
   canApproveFactoryDepositOrder,
@@ -623,11 +624,8 @@ export default function FactoryDepositOrderFormPage() {
   }, [productionItems]);
 
   const selectedFabric = useMemo(() => fabrics.find((item) => item.id === fabricId) ?? null, [fabrics, fabricId]);
-  const adminOptions = useMemo(
-    () => users.filter((item) => ["superadmin", "admin", "manager", "staff"].includes(item.role)),
-    [users]
-  );
-  const plannerOptions = useMemo(() => users.filter((item) => item.role === "graphic"), [users]);
+  const adminOptions = useMemo(() => users.filter((item) => isFactoryDepositAdminRole(item.role)), [users]);
+  const plannerOptions = useMemo(() => users.filter((item) => isGraphicRole(item.role)), [users]);
   const canEdit = viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false;
   const isSuperAdmin = viewerRole === "superadmin";
   const canApproveHere = !!recordId && !!viewerRole && isSuperAdmin && canApproveFactoryDepositOrder(viewerRole) && status === "submitted";
