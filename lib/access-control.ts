@@ -6,6 +6,15 @@ type RouteRule = {
 };
 
 const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphic", "accountant"];
+const STAFF_ALLOWED_PATHS = new Set([
+  "/search",
+  "/inventory-qr",
+  "/factory-receipts",
+  "/factory-receipts/orders",
+  "/shipments",
+  "/shipments/notes",
+  "/shipments/orders",
+]);
 
 const ROUTE_RULES: RouteRule[] = [
   { prefix: "/users", roles: ["superadmin"] },
@@ -40,9 +49,22 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/dashboard", roles: ALL_ROLES },
 ];
 
+function normalizePathname(pathname: string) {
+  if (!pathname) return "/";
+  if (pathname === "/") return "/";
+  return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+}
+
+export function getDefaultPathForRole(role: AppRole) {
+  if (role === "staff") return "/search";
+  return "/dashboard";
+}
+
 export function canAccessPath(pathname: string, role: AppRole) {
+  const normalizedPath = normalizePathname(pathname);
   if (role === "superadmin") return true;
-  const matched = ROUTE_RULES.find((rule) => pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`));
+  if (role === "staff") return STAFF_ALLOWED_PATHS.has(normalizedPath);
+  const matched = ROUTE_RULES.find((rule) => normalizedPath === rule.prefix || normalizedPath.startsWith(`${rule.prefix}/`));
   if (!matched) return false;
   return matched.roles.includes(role);
 }

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { Pencil, Printer, Search, Trash2, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import type { AppRole } from "@/lib/access-control";
+import { canAccessPath, type AppRole } from "@/lib/access-control";
 import { getTransportNoteDisplayNo, getTransportNotePrintHtml, type TransportNoteRow } from "@/lib/transport-notes";
 
 type OrderRow = {
@@ -275,9 +275,11 @@ export default function ShipmentNotesPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <Link href="/shipments/transport-note" className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20">
-              ສ້າງໃບໃໝ່
-            </Link>
+            {viewerRole && canAccessPath("/shipments/transport-note", viewerRole) ? (
+              <Link href="/shipments/transport-note" className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20">
+                ສ້າງໃບໃໝ່
+              </Link>
+            ) : null}
             <button
               type="button"
               onClick={() => void printSelected()}
@@ -405,10 +407,12 @@ export default function ShipmentNotesPage() {
                       </td>
                       <td className="p-4">
                         <div className="flex flex-wrap items-center justify-center gap-2">
-                          <Link href={`/shipments/transport-note?id=${row.id}`} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-700 transition hover:bg-slate-200">
-                            <Pencil size={14} />
-                            ແກ້ໄຂ
-                          </Link>
+                          {viewerRole && canAccessPath("/shipments/transport-note", viewerRole) ? (
+                            <Link href={`/shipments/transport-note?id=${row.id}`} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-700 transition hover:bg-slate-200">
+                              <Pencil size={14} />
+                              ແກ້ໄຂ
+                            </Link>
+                          ) : null}
                           <button onClick={() => void deleteRow(row)} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 transition hover:bg-rose-100">
                             <Trash2 size={14} />
                             ລຶບ

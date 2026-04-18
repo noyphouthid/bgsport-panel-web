@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
+import { canAccessPath, type AppRole } from "@/lib/access-control";
 
 type DateMode = "day" | "month" | "year";
 
@@ -71,7 +72,20 @@ export default function SearchPage() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const { options: orderTypeOptions } = useOrderTypeOptions(true);
+
+  useEffect(() => {
+    const loadViewerRole = async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUserId = sessionData.session?.user.id;
+      if (!authUserId) return;
+      const { data } = await supabase.from("users").select("role").eq("auth_user_id", authUserId).maybeSingle();
+      if (data?.role) setViewerRole(data.role as AppRole);
+    };
+
+    void loadViewerRole();
+  }, []);
 
   const runSearch = async () => {
     setLoading(true);
@@ -267,9 +281,11 @@ export default function SearchPage() {
                     <td className="p-4 text-right font-black text-red-600">{r.balance.toLocaleString()}</td>
                     <td className="p-4 text-center">{renderStatus(r)}</td>
                     <td className="p-4 text-center">
-                      <Link href={`/orders/${r.id}/edit`} className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-600 transition-all hover:bg-blue-600 hover:text-white">
-                        ເປີດອໍເດີ
-                      </Link>
+                      {viewerRole && canAccessPath(`/orders/${r.id}/edit`, viewerRole) ? (
+                        <Link href={`/orders/${r.id}/edit`} className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-600 transition-all hover:bg-blue-600 hover:text-white">
+                          ເປີດອໍເດີ
+                        </Link>
+                      ) : null}
                     </td>
                   </tr>
                 ))

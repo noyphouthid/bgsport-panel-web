@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { Banknote, Camera, FileUp, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import type { AppRole } from "@/lib/access-control";
+import { canAccessPath, type AppRole } from "@/lib/access-control";
 import {
   formatCurrency,
   formatDateOnly,
@@ -880,24 +880,30 @@ export default function ShipmentsPage() {
           >
             ເບິ່ງລາຍການອໍເດີຈັດສົ່ງ
           </Link>
-          <Link
-            href="/shipments/transport-note"
-            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
-          >
-            ອອກໃບຝາກເຄື່ອງ
-          </Link>
-          <Link
-            href="/shipments/notes"
-            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
-          >
-            ລາຍການໃບຝາກເຄື່ອງ
-          </Link>
-          <Link
-            href="/shipments/approvals"
-            className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
-          >
-            ອະນຸມັດສົ່ງມອບ
-          </Link>
+          {viewerRole && canAccessPath("/shipments/notes", viewerRole) ? (
+            <Link
+              href="/shipments/notes"
+              className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
+            >
+              ລາຍການໃບຝາກເຄື່ອງ
+            </Link>
+          ) : null}
+          {viewerRole && canAccessPath("/shipments/transport-note", viewerRole) ? (
+            <Link
+              href="/shipments/transport-note"
+              className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
+            >
+              ອອກໃບຝາກເຄື່ອງ
+            </Link>
+          ) : null}
+          {viewerRole && canAccessPath("/shipments/approvals", viewerRole) ? (
+            <Link
+              href="/shipments/approvals"
+              className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
+            >
+              ອະນຸມັດສົ່ງມອບ
+            </Link>
+          ) : null}
         </div>
       </section>
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Toaster } from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
-import { AppRole } from "@/lib/access-control";
+import { AppRole, getDefaultPathForRole } from "@/lib/access-control";
 
 type UserProfile = {
   id: string;
@@ -15,6 +15,31 @@ type UserProfile = {
   role: AppRole;
   is_active: boolean;
 };
+
+async function findActiveProfile(authUserId: string, emailAddress: string) {
+  const normalizedEmail = emailAddress.trim().toLowerCase();
+  const { data: byAuthId, error: byAuthIdErr } = await supabase
+    .from("users")
+    .select("id,full_name,email,role,is_active,auth_user_id")
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+
+  if (byAuthIdErr) throw byAuthIdErr;
+
+  let userRow = byAuthId;
+  if (!userRow) {
+    const { data: byEmail, error: byEmailErr } = await supabase
+      .from("users")
+      .select("id,full_name,email,role,is_active,auth_user_id")
+      .ilike("email", normalizedEmail)
+      .maybeSingle();
+    if (byEmailErr) throw byEmailErr;
+    userRow = byEmail;
+  }
+
+  if (!userRow || !userRow.is_active) return null;
+  return userRow as UserProfile;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,9 +54,23 @@ export default function LoginPage() {
     const checkSession = async () => {
       const { data } = await supabase.auth.getSession();
       if (!active) return;
-      if (data.session) {
-        router.replace("/dashboard");
-        return;
+      const session = data.session;
+      if (session) {
+        const emailAddress = String(session.user.email || "").trim().toLowerCase();
+        if (!emailAddress) {
+          await supabase.auth.signOut();
+        } else {
+          try {
+            const profile = await findActiveProfile(session.user.id, emailAddress);
+            if (profile) {
+              router.replace(getDefaultPathForRole(profile.role));
+              return;
+            }
+            await supabase.auth.signOut();
+          } catch {
+            await supabase.auth.signOut();
+          }
+        }
       }
       setCheckingSession(false);
     };
@@ -64,46 +103,26 @@ export default function LoginPage() {
       return;
     }
 
-    const { data: byAuthId, error: byAuthIdErr } = await supabase
-      .from("users")
-      .select("id,full_name,email,role,is_active,auth_user_id")
-      .eq("auth_user_id", data.user.id)
-      .maybeSingle();
-
-    if (byAuthIdErr) {
+    let profile: UserProfile | null = null;
+    try {
+      profile = await findActiveProfile(data.user.id, inputEmail);
+    } catch {
       await supabase.auth.signOut();
       setLoading(false);
       toast.error("ກວດສອບບໍ່ສຳເລັດ");
       return;
     }
 
-    let userRow = byAuthId;
-    if (!userRow) {
-      const { data: byEmail, error: byEmailErr } = await supabase
-        .from("users")
-        .select("id,full_name,email,role,is_active,auth_user_id")
-        .ilike("email", inputEmail)
-        .maybeSingle();
-      if (byEmailErr) {
-        await supabase.auth.signOut();
-        setLoading(false);
-        toast.error("ກວດສອບບໍ່ສຳເລັດ");
-        return;
-      }
-      userRow = byEmail;
-    }
-
-    if (!userRow || !userRow.is_active) {
+    if (!profile) {
       await supabase.auth.signOut();
       setLoading(false);
       toast.error("ບັນຊີນີ້ບໍ່ມີສິດໃຊ້ງານລະບົບ");
       return;
     }
 
-    const profile = userRow as UserProfile;
     toast.success(`ຍິນດີຕໍ່ຮັບ ${profile.full_name}`);
     setLoading(false);
-    router.replace("/dashboard");
+    router.replace(getDefaultPathForRole(profile.role));
   };
 
   if (checkingSession) {

@@ -30,7 +30,7 @@ import {
   Palette,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { AppRole, canAccessPath } from "@/lib/access-control";
+import { AppRole, canAccessPath, getDefaultPathForRole } from "@/lib/access-control";
 
 type UserProfile = {
   id: string;
@@ -218,7 +218,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     if (!profile) return;
     if (!canAccessPath(pathname, profile.role)) {
       toast.error("ທ່ານບໍ່ມີສິດເຂົ້າເບິ່ງໜ້ານີ້");
-      router.replace("/dashboard");
+      router.replace(getDefaultPathForRole(profile.role));
     }
   }, [pathname, profile, router]);
 

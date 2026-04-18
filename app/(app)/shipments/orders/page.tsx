@@ -5,7 +5,7 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { ClipboardCheck, MessageCircleMore } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import type { AppRole } from "@/lib/access-control";
+import { canAccessPath, type AppRole } from "@/lib/access-control";
 import {
   canSubmitOrderChangeRequest,
   ORDER_CHANGE_REQUEST_STATUS_LABELS,
@@ -498,9 +498,11 @@ export default function ShipmentOrdersPage() {
                     <td className="p-4 text-center">{displayStatusBadge(row)}</td>
                     <td className="p-4 text-center">
                       <div className="flex flex-col items-center gap-2">
-                        <Link href={`/orders/${row.orderId}/edit`} className="font-bold text-blue-600 underline-offset-4 transition-all hover:text-blue-800 hover:underline">
-                        ເປີດອໍເດີ
-                        </Link>
+                        {viewerRole && canAccessPath(`/orders/${row.orderId}/edit`, viewerRole) ? (
+                          <Link href={`/orders/${row.orderId}/edit`} className="font-bold text-blue-600 underline-offset-4 transition-all hover:text-blue-800 hover:underline">
+                            ເປີດອໍເດີ
+                          </Link>
+                        ) : null}
                         {requestMap[row.orderId] ? (
                           <span className={`rounded-full px-3 py-1 text-[11px] font-black ${ORDER_CHANGE_REQUEST_STATUS_STYLES[requestMap[row.orderId].status]}`}>
                             {ORDER_CHANGE_REQUEST_STATUS_LABELS[requestMap[row.orderId].status]}
