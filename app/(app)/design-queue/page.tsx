@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import toast from "react-hot-toast";
 import { Check, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useOrderTypeOptions } from "@/lib/order-code-options";
+import { mergeOrderTypeOptions, useOrderTypeOptions } from "@/lib/order-code-options";
 import type { AppRole } from "@/lib/access-control";
 import { GRAPHIC_ASSIGNABLE_ROLES } from "@/lib/role-groups";
 import { buildYearOptions, type MonthFilter } from "../reports/_lib";
@@ -139,7 +139,11 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const [query, setQuery] = useState("");
 
   const { options: orderTypeOptions, loading: loadingTypes } = useOrderTypeOptions(true);
-  const selectedTypeTemplate = typeTemplate || orderTypeOptions[0] || "";
+  const availableTypeOptions = useMemo(
+    () => mergeOrderTypeOptions(typeTemplate ? [typeTemplate, ...orderTypeOptions] : [...orderTypeOptions]),
+    [orderTypeOptions, typeTemplate]
+  );
+  const selectedTypeTemplate = typeTemplate || availableTypeOptions[0] || "";
   const isGraphicViewer = viewerRole === "graphic";
   const canDeleteRows = viewerRole !== "graphic";
   const canAssignGraphic = viewerRole !== "graphic";
@@ -308,7 +312,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const handleSubmit = async () => {
     setErr(null);
 
-    if (!isEditing && !resolvedTypeCode) {
+    if (!resolvedTypeCode) {
       toast.error("ກະລຸນາເລືອກ TYPE");
       return;
     }
@@ -333,6 +337,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       const response = await supabase
         .from("design_queue_entries")
         .update({
+          type_code: resolvedTypeCode,
           customer_phone: customerPhone.trim(),
           style_name: styleName.trim(),
           notes: notes.trim(),
@@ -505,11 +510,11 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
               <select
                 value={selectedTypeTemplate}
                 onChange={(event) => setTypeTemplate(event.target.value)}
-                disabled={loadingTypes || isEditing}
+                disabled={loadingTypes}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:bg-slate-50"
               >
                 {!typeTemplate ? <option value="">ເລືອກ TYPE</option> : null}
-                {orderTypeOptions.map((option) => (
+                {availableTypeOptions.map((option) => (
                   <option key={option} value={option}>
                     {syncTypeCodeYear(option, queueDate)}
                   </option>
