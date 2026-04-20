@@ -136,6 +136,8 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const [monthFilter, setMonthFilter] = useState<MonthFilter>(today.getMonth() + 1);
   const [yearFilter, setYearFilter] = useState(today.getFullYear());
   const [workTypeFilter, setWorkTypeFilter] = useState<WorkTypeFilter>("ALL");
+  const [dateFromFilter, setDateFromFilter] = useState("");
+  const [dateToFilter, setDateToFilter] = useState("");
   const [query, setQuery] = useState("");
 
   const { options: orderTypeOptions, loading: loadingTypes } = useOrderTypeOptions(true);
@@ -245,6 +247,8 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     return rows.filter((row) => {
       if (monthFilter !== "ALL" && row.queue_month !== monthFilter) return false;
       if (row.queue_year !== yearFilter) return false;
+      if (dateFromFilter && row.queue_date < dateFromFilter) return false;
+      if (dateToFilter && row.queue_date > dateToFilter) return false;
       if (isCompletedView && !row.is_designed) return false;
       if (!isCompletedView && row.is_designed) return false;
       if (workTypeFilter === "URGENT" && !isUrgentWorkType(row.style_name)) return false;
@@ -274,7 +278,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
 
       return a.order_no.localeCompare(b.order_no);
     });
-  }, [graphicNameMap, isCompletedView, monthFilter, query, rows, workTypeFilter, yearFilter]);
+  }, [dateFromFilter, dateToFilter, graphicNameMap, isCompletedView, monthFilter, query, rows, workTypeFilter, yearFilter]);
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -648,6 +652,26 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                 <option value="URGENT">{URGENT_WORK_TYPE}</option>
                 <option value="NORMAL">{NORMAL_WORK_TYPE}</option>
               </select>
+              <div>
+                <label className="mb-1 block text-xs font-black uppercase text-slate-500">ວັນທີເລີ່ມ</label>
+                <input
+                  type="date"
+                  value={dateFromFilter}
+                  max={dateToFilter || undefined}
+                  onChange={(event) => setDateFromFilter(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-black uppercase text-slate-500">ວັນທີສິ້ນສຸດ</label>
+                <input
+                  type="date"
+                  value={dateToFilter}
+                  min={dateFromFilter || undefined}
+                  onChange={(event) => setDateToFilter(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400"
+                />
+              </div>
             </div>
           </div>
 
