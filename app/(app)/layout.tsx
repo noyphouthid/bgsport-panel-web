@@ -77,6 +77,7 @@ const nav: NavItem[] = [
       { type: "link", href: "/reports/data-export", label: "ລາຍງານດຶງຂໍ້ມູນ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/admin-sales", label: "ລາຍງານຍອດຂາຍແອັດມິນ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/graphic-work", label: "ລາຍງານກຣາຟິກ", icon: FileSpreadsheet },
+      { type: "link", href: "/reports/design-phone-status", label: "ລາຍງານເບີຄິວອອກແບບ", icon: FileSpreadsheet },
     ],
   },
   { type: "link", href: "/payments", label: "ບັນຊີການຊຳລະເງິນ", icon: Wallet },

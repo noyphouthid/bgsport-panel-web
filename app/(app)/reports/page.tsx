@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2, Database, Wallet } from "lucide-react";
+import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2, Database, Wallet, Phone } from "lucide-react";
 
 const cards = [
   {
@@ -38,6 +38,13 @@ const cards = [
     desc: "ສະຫຼຸບວຽກອອກແບບ, ຈຳນວນອໍເດີ້ ແລະ ມູນຄ່າງານຕາມ graphic",
     icon: Palette,
     iconBg: "bg-amber-100 text-amber-700",
+  },
+  {
+    href: "/reports/design-phone-status",
+    title: "ລາຍງານເບີລູກຄ້າຄິວອອກແບບ",
+    desc: "ຈັດກຸ່ມຕາມເບີລູກຄ້າ ເພື່ອເບິ່ງວ່າອອກແບບແລ້ວ, ຍັງບໍ່ທັນ ຫຼື ອອກແບບບາງສ່ວນ",
+    icon: Phone,
+    iconBg: "bg-sky-100 text-sky-700",
   },
   {
     href: "/reports/monthly-close",
