@@ -113,6 +113,8 @@ export default function DesignPhoneStatusReportPage() {
   const now = new Date();
   const [month, setMonth] = useState<MonthFilter>(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
+  const [queueDateFrom, setQueueDateFrom] = useState("");
+  const [queueDateTo, setQueueDateTo] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<PrefixFilter[]>([]);
   const [statusFilter, setStatusFilter] = useState<PhoneStatusFilter>("all");
   const [graphicFilter, setGraphicFilter] = useState("ALL");
@@ -171,10 +173,12 @@ export default function DesignPhoneStatusReportPage() {
     return rows.filter((row) => {
       const queueDate = toComparableDate(row.queue_date);
       if (!(queueDate >= start && queueDate < endExclusive)) return false;
+      if (queueDateFrom && row.queue_date < queueDateFrom) return false;
+      if (queueDateTo && row.queue_date > queueDateTo) return false;
       if (!matchSelectedPrefixes(row.type_code, selectedTypes)) return false;
       return true;
     });
-  }, [month, rows, selectedTypes, year]);
+  }, [month, queueDateFrom, queueDateTo, rows, selectedTypes, year]);
 
   const phoneRows = useMemo(() => {
     const grouped = new Map<string, PhoneSummary>();
@@ -318,6 +322,7 @@ export default function DesignPhoneStatusReportPage() {
 
     const periodLabel = month === "ALL" ? `${year}-ALL` : `${year}-${String(month).padStart(2, "0")}`;
     const selectedTypeLabel = selectedTypes.length === 0 ? "ALL" : selectedTypes.join(", ");
+    const queueDateLabel = queueDateFrom || queueDateTo ? `${queueDateFrom || "..."} -> ${queueDateTo || "..."}` : "ALL";
     const out = phoneRows.map((row) => {
       const status = getPhoneStatus(row);
       return {
@@ -349,7 +354,7 @@ export default function DesignPhoneStatusReportPage() {
       Graphic: graphicFilter === "ALL" ? "Graphic ທັງໝົດ" : graphicNameMap.get(graphicFilter) || "-",
       "ຮູບແບບວຽກ": `partial=${summary.partial_phones}`,
       "ວັນທີຄິວລ່າສຸດ": periodLabel,
-      "ອັບເດດລ່າສຸດ": searchTerm || "-",
+      "ອັບເດດລ່າສຸດ": `search=${searchTerm || "-"} | queue_date=${queueDateLabel}`,
       "ລາຍການຄິວທັງໝົດ": selectedTypeLabel,
     });
 
@@ -415,6 +420,27 @@ export default function DesignPhoneStatusReportPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-xs font-black uppercase tracking-wide text-slate-500">ວັນທີຄິວຈາກ</label>
+            <input
+              type="date"
+              value={queueDateFrom}
+              onChange={(event) => setQueueDateFrom(event.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-black uppercase tracking-wide text-slate-500">ວັນທີຄິວຫາ</label>
+            <input
+              type="date"
+              value={queueDateTo}
+              onChange={(event) => setQueueDateTo(event.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none"
+            />
+          </div>
         </div>
 
         <div className="space-y-2">

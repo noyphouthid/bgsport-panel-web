@@ -28,6 +28,7 @@ type OrderStateRow = {
   id: string;
   status: "in_progress" | "completed";
   closed_at: string | null;
+  production_completed_at: string | null;
   shipment_status: "pending" | "shipped" | null;
   shipment_completed_at: string | null;
 };
@@ -70,6 +71,7 @@ function dueText(days: number) {
 function isOrderStillOpen(order: OrderStateRow | null) {
   if (!order) return true;
   if (order.status === "completed" || order.closed_at) return false;
+  if (order.production_completed_at) return false;
   if (order.shipment_status === "shipped" || order.shipment_completed_at) return false;
   return true;
 }
@@ -191,16 +193,22 @@ export default function OrderAlertsPage() {
       const orderIds = Array.from(new Set(deposits.map((row) => row.order_id).filter((value): value is string => Boolean(value))));
 
       const ordersById = new Map<string, OrderStateRow>();
+      const receivedOrderIds = new Set<string>();
       if (orderIds.length > 0) {
-        const { data: orderData, error: orderError } = await supabase
-          .from("orders")
-          .select("id,status,closed_at,shipment_status,shipment_completed_at")
-          .in("id", orderIds);
+        const [{ data: orderData, error: orderError }, { data: receiptData, error: receiptError }] = await Promise.all([
+          supabase.from("orders").select("id,status,closed_at,production_completed_at,shipment_status,shipment_completed_at").in("id", orderIds),
+          supabase.from("factory_receipt_items").select("order_id").in("order_id", orderIds),
+        ]);
 
         if (orderError) throw orderError;
+        if (receiptError) throw receiptError;
 
         for (const row of (orderData ?? []) as OrderStateRow[]) {
           ordersById.set(row.id, row);
+        }
+
+        for (const row of (receiptData ?? []) as Array<{ order_id: string }>) {
+          if (row.order_id) receivedOrderIds.add(row.order_id);
         }
       }
 
@@ -215,6 +223,7 @@ export default function OrderAlertsPage() {
           } satisfies AlertItem;
         })
         .filter((row): row is AlertItem => Boolean(row))
+        .filter((row) => !row.order_id || !receivedOrderIds.has(row.order_id))
         .filter((row) => isOrderStillOpen(row.orderState));
 
       setRows(merged);
