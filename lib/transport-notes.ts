@@ -50,6 +50,12 @@ export const DEFAULT_TRANSPORT_NOTE_FORM: TransportNoteForm = {
   shippingChargeMode: "destination",
 };
 
+export function canManageAllTransportNotes(
+  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant" | null
+) {
+  return role === "superadmin" || role === "admin";
+}
+
 export function buildTransportNoteNo() {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(-2);

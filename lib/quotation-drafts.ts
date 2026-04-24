@@ -214,10 +214,23 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
   if (!currentUser) throw new Error("ບໍ່ພົບຂໍ້ມູນຜູ້ໃຊ້");
 
   const now = new Date().toISOString();
+  let existingMeta: { created_by_user_id: string | null; created_by_name: string; created_at: string } | null = null;
+
+  if (draft.id) {
+    const { data, error } = await supabase
+      .from("quotation_drafts")
+      .select("created_by_user_id,created_by_name,created_at")
+      .eq("id", draft.id)
+      .maybeSingle();
+
+    if (error) throw error;
+    existingMeta = (data as { created_by_user_id: string | null; created_by_name: string; created_at: string } | null) ?? null;
+  }
+
   const payload = {
     ...(draft.id ? { id: draft.id } : {}),
-    created_by_user_id: currentUser.id,
-    created_by_name: draft.createdByName || currentUser.full_name || "",
+    created_by_user_id: existingMeta?.created_by_user_id || draft.createdByUserId || currentUser.id,
+    created_by_name: existingMeta?.created_by_name || draft.createdByName || currentUser.full_name || "",
     quote_no: draft.quoteNo,
     quote_date: draft.quoteDate,
     status: draft.status,
@@ -249,7 +262,7 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     payment_terms: draft.paymentTerms,
     notes: draft.notes,
     warning_note: draft.warningNote,
-    created_at: draft.createdAt || now,
+    created_at: existingMeta?.created_at || draft.createdAt || now,
     updated_at: now,
   };
 

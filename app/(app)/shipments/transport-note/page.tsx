@@ -11,6 +11,7 @@ import type { AppRole } from "@/lib/access-control";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
   buildTransportNoteNo,
+  canManageAllTransportNotes,
   DEFAULT_TRANSPORT_NOTE_FORM,
   mapTransportNoteToForm,
   TRANSPORTERS,
@@ -87,7 +88,7 @@ export default function TransportNotePage() {
 
   useEffect(() => {
     if (!currentNote || !viewerUserId) return;
-    if (viewerRole === "superadmin") {
+    if (canManageAllTransportNotes(viewerRole)) {
       setAccessDenied(false);
       return;
     }

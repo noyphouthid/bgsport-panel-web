@@ -6,7 +6,12 @@ import toast from "react-hot-toast";
 import { Pencil, Printer, Search, Trash2, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { canAccessPath, type AppRole } from "@/lib/access-control";
-import { getTransportNoteDisplayNo, getTransportNotePrintHtml, type TransportNoteRow } from "@/lib/transport-notes";
+import {
+  canManageAllTransportNotes,
+  getTransportNoteDisplayNo,
+  getTransportNotePrintHtml,
+  type TransportNoteRow,
+} from "@/lib/transport-notes";
 
 type OrderRow = {
   id: string;
@@ -134,7 +139,7 @@ export default function ShipmentNotesPage() {
   const filteredRows = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return rows.filter((row) => {
-      if (viewerRole !== "superadmin" && row.created_by_user_id !== viewerUserId) return false;
+      if (!canManageAllTransportNotes(viewerRole) && row.created_by_user_id !== viewerUserId) return false;
       if (sourceFilter !== "all" && row.source_type !== sourceFilter) return false;
       if (printFilter === "printed" && !(Number(row.print_count) > 0 || row.printed_at || row.last_printed_at)) return false;
       if (printFilter === "unprinted" && (Number(row.print_count) > 0 || row.printed_at || row.last_printed_at)) return false;
@@ -314,7 +319,7 @@ export default function ShipmentNotesPage() {
             <option value="printed">ພິມແລ້ວ</option>
             <option value="unprinted">ຍັງບໍ່ພິມ</option>
           </select>
-          {viewerRole === "superadmin" ? (
+          {canManageAllTransportNotes(viewerRole) ? (
             <select value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
               <option value="all">ທຸກແອັດມິນ</option>
               {adminOptions.map((admin) => (

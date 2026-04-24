@@ -14,6 +14,7 @@ import {
   canApproveFactoryDepositOrder,
   canConvertFactoryDepositOrder,
   canEditFactoryDepositOrder,
+  canManageAllFactoryDepositOrders,
   FACTORY_DEPOSIT_ORDER_STATUS_LABELS,
   type FactoryDepositOrderStatus,
 } from "@/lib/factory-deposit-orders";
@@ -433,6 +434,7 @@ export default function FactoryDepositOrderFormPage() {
   const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
 
   const [recordId, setRecordId] = useState<string | null>(null);
+  const [createdByUserId, setCreatedByUserId] = useState<string | null>(null);
   const [status, setStatus] = useState<FactoryDepositOrderStatus>("draft");
   const [depositNo, setDepositNo] = useState(buildDepositNo());
   const [depositDate, setDepositDate] = useState(getLocalDateInputValue);
@@ -503,6 +505,7 @@ export default function FactoryDepositOrderFormPage() {
         const currentUser = userRows.find((item) => item.auth_user_id === authUserId) || null;
         setViewerRole(currentUser?.role ?? null);
         setViewerUserId(currentUser?.id ?? null);
+        setCreatedByUserId(currentUser?.id ?? null);
 
         if (editId) {
           const { data, error } = await supabase
@@ -515,13 +518,14 @@ export default function FactoryDepositOrderFormPage() {
           if (!data) throw new Error("ບໍ່ພົບໃບມັດຈຳສັ່ງຜະລິດ");
 
           const row = data as DepositOrderRow;
-          if (currentUser?.role !== "superadmin" && row.created_by_user_id !== currentUser?.id) {
+          if (!canManageAllFactoryDepositOrders(currentUser?.role ?? null) && row.created_by_user_id !== currentUser?.id) {
             toast.error("ທ່ານສາມາດເບິ່ງໄດ້ສະເພາະໃບມັດຈຳທີ່ຕົນເອງສ້າງ");
             router.replace("/factory-deposit-orders");
             return;
           }
 
           setRecordId(row.id);
+          setCreatedByUserId(row.created_by_user_id || currentUser?.id || null);
           setStatus(row.status);
           setDepositNo(row.deposit_no);
           setDepositDate(row.deposit_date);
@@ -1179,7 +1183,7 @@ export default function FactoryDepositOrderFormPage() {
         warning_note: "",
         factory_deposit_note: "",
         production_items: serializeProductionItems(activeProductionItems),
-        created_by_user_id: viewerUserId,
+        created_by_user_id: createdByUserId || viewerUserId,
         admin_user_id: adminUserId,
         graphic_user_id: graphicUserId,
         ...(extraOrderFields ?? {}),
@@ -1196,6 +1200,7 @@ export default function FactoryDepositOrderFormPage() {
         if (error) throw error;
         depositOrderId = data.id as string;
         setRecordId(depositOrderId);
+        setCreatedByUserId(createdByUserId || viewerUserId || null);
       }
 
       if (!depositOrderId) throw new Error("ບໍ່ພົບລະຫັດໃບມັດຈຳ");

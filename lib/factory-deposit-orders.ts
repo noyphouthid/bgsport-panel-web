@@ -101,6 +101,12 @@ export function canEditFactoryDepositOrder(
   return status === "draft" || status === "submitted";
 }
 
+export function canManageAllFactoryDepositOrders(
+  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant" | null
+) {
+  return role === "superadmin" || role === "admin";
+}
+
 export function canApproveFactoryDepositOrder(
   role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant"
 ) {

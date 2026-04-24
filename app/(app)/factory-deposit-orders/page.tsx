@@ -11,6 +11,7 @@ import {
   canApproveFactoryDepositOrder,
   canConvertFactoryDepositOrder,
   canDeleteFactoryDepositOrder,
+  canManageAllFactoryDepositOrders,
   FACTORY_DEPOSIT_ORDER_STATUS_LABELS,
   FACTORY_DEPOSIT_ORDER_STATUS_STYLES,
   type FactoryDepositOrderStatus,
@@ -279,7 +280,7 @@ export default function FactoryDepositOrdersPage() {
   const filteredRows = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return rows.filter((row) => {
-      if (viewerRole !== "superadmin" && row.created_by_user_id !== viewerUserId) return false;
+      if (!canManageAllFactoryDepositOrders(viewerRole) && row.created_by_user_id !== viewerUserId) return false;
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
       if (!keyword) return true;
       return [row.deposit_no, row.order_code || "", row.quotation_quote_no || "", row.customer_name || "", row.factory_bill_code || ""]
