@@ -1,3 +1,4 @@
+import { buildEmptyPantsOrderItem, parsePantsDraftItems, type PantsOrderItemDraft } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
 
 export type QuotationDraftStatus = "draft" | "confirmed" | "cancelled";
@@ -36,6 +37,7 @@ export type QuotationDraft = {
   paymentTerms: string;
   notes: string;
   warningNote: string;
+  pantsItems: PantsOrderItemDraft[];
   updatedAt: string;
   createdAt: string;
   createdByUserId?: string | null;
@@ -76,6 +78,7 @@ type QuotationDraftDbRow = {
   payment_terms: string;
   notes: string;
   warning_note: string;
+  pants_items: unknown;
   created_at: string;
   updated_at: string;
 };
@@ -115,6 +118,7 @@ const QUOTATION_DRAFT_SELECT = `
   payment_terms,
   notes,
   warning_note,
+  pants_items,
   created_at,
   updated_at
 `;
@@ -155,6 +159,7 @@ function mapRowToDraft(row: QuotationDraftDbRow): QuotationDraft {
     paymentTerms: row.payment_terms || "",
     notes: row.notes || "",
     warningNote: row.warning_note || "",
+    pantsItems: parsePantsDraftItems(row.pants_items),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -262,6 +267,9 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     payment_terms: draft.paymentTerms,
     notes: draft.notes,
     warning_note: draft.warningNote,
+    pants_items: (draft.pantsItems || []).map((item) =>
+      buildEmptyPantsOrderItem(item)
+    ),
     created_at: existingMeta?.created_at || draft.createdAt || now,
     updated_at: now,
   };

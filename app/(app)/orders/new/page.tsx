@@ -5,6 +5,15 @@ import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
+import {
+  buildEmptyPantsOrderItem,
+  buildPantsOrderItemPayload,
+  buildShirtOrderItemPayload,
+  getPantsItemsSummary,
+  getPantsLineGross,
+  getPantsTotalQty,
+  type PantsOrderItemDraft,
+} from "@/lib/order-items";
 import { isAdminRole, isGraphicRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
 import { buildOrderCode, normalizeOrderType, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
@@ -79,6 +88,7 @@ export default function NewOrderPage() {
   const [qty4XL, setQty4XL] = useState<number>(0);
   const [qty5XL, setQty5XL] = useState<number>(0);
   const [qty6XL, setQty6XL] = useState<number>(0);
+  const [pantsItems, setPantsItems] = useState<PantsOrderItemDraft[]>([]);
 
   // ===== 3) การเงิน & ค่าธรรมเนียม =====
   const [extraCharge, setExtraCharge] = useState<number>(0);
@@ -146,6 +156,7 @@ export default function NewOrderPage() {
   }, [orderImagePreviewUrl, orderTransferSlipPreviewUrl]);
 
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
+  const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
   const adminOptions = useMemo(() => users.filter((u) => isAdminRole(u.role)), [users]);
   const graphicOptions = useMemo(() => users.filter((u) => isGraphicRole(u.role)), [users]);
 
@@ -164,10 +175,18 @@ export default function NewOrderPage() {
       qty6XL * SIZE_UPCHARGES["5XL"],
     [qty3XL, qty4XL, qty5XL, qty6XL]
   );
-  const grossTotal = useMemo(() => shirtsTotal + plusSizeTotal + extraCharge, [shirtsTotal, plusSizeTotal, extraCharge]);
+  const pantsSummary = useMemo(() => getPantsItemsSummary(pantsItems), [pantsItems]);
+  const grossTotal = useMemo(
+    () => shirtsTotal + plusSizeTotal + pantsSummary.grossTotal + extraCharge,
+    [shirtsTotal, plusSizeTotal, pantsSummary.grossTotal, extraCharge]
+  );
   const netTotal = useMemo(() => Math.max(0, grossTotal - designDeposit), [grossTotal, designDeposit]);
   const balance = useMemo(() => Math.max(0, netTotal - initialDeposit), [netTotal, initialDeposit]);
-  const profitPreview = useMemo(() => netTotal - factoryCost, [netTotal, factoryCost]);
+  const totalFactoryCost = useMemo(() => Math.max(0, factoryCost) + pantsSummary.factoryCostTotal, [factoryCost, pantsSummary.factoryCostTotal]);
+  const profitPreview = useMemo(() => netTotal - totalFactoryCost, [netTotal, totalFactoryCost]);
+  const totalOrderBillableQty = useMemo(() => billableQty + pantsSummary.billableQty, [billableQty, pantsSummary.billableQty]);
+  const totalOrderFreeQty = useMemo(() => freeQty + pantsSummary.freeQty, [freeQty, pantsSummary.freeQty]);
+  const totalOrderQty = useMemo(() => totalProductionQty + pantsSummary.billableQty + pantsSummary.freeQty, [totalProductionQty, pantsSummary.billableQty, pantsSummary.freeQty]);
   const isCustomOrderType = useMemo(() => Boolean(orderType) && !orderTypeOptions.includes(orderType), [orderType, orderTypeOptions]);
   const orderTypeSelectValue = isCustomOrderType ? CUSTOM_ORDER_TYPE_VALUE : orderType;
 
@@ -194,10 +213,23 @@ export default function NewOrderPage() {
     setQty4XL(0);
     setQty5XL(0);
     setQty6XL(0);
+    setPantsItems([]);
     setExtraCharge(0);
     setDesignDeposit(0);
     setInitialDeposit(0);
     setFactoryCost(0);
+  };
+
+  const addPantsItem = () => {
+    setPantsItems((prev) => [...prev, buildEmptyPantsOrderItem()]);
+  };
+
+  const updatePantsItem = (clientId: string, updater: (item: PantsOrderItemDraft) => PantsOrderItemDraft) => {
+    setPantsItems((prev) => prev.map((item) => (item.clientId === clientId ? updater(item) : item)));
+  };
+
+  const removePantsItem = (clientId: string) => {
+    setPantsItems((prev) => prev.filter((item) => item.clientId !== clientId));
   };
 
   const handleCancelReset = async () => {
@@ -290,6 +322,28 @@ export default function NewOrderPage() {
       return;
     }
 
+    const hasShirtLine = billableQty > 0 || freeQty > 0 || qty3XL > 0 || qty4XL > 0 || qty5XL > 0 || qty6XL > 0;
+    const hasPantsLine = pantsItems.some((item) => getPantsTotalQty(item) > 0);
+    if (!hasShirtLine && !hasPantsLine) {
+      toast.error("ກະລຸນາປ້ອນຢ່າງໜ້ອຍ 1 ລາຍການສິນຄ້າ");
+      return;
+    }
+
+    for (const item of pantsItems) {
+      if (getPantsTotalQty(item) <= 0) {
+        toast.error("ລາຍການໂສ້ງແຕ່ລະອັນຕ້ອງມີຈຳນວນຫຼາຍກວ່າ 0");
+        return;
+      }
+      if (!item.fabricId) {
+        toast.error("ກະລຸນາເລືອກຜ້າໃຫ້ລາຍການໂສ້ງ");
+        return;
+      }
+      if ((Number(item.unitPrice) || 0) <= 0) {
+        toast.error("ກະລຸນາປ້ອນລາຄາຂາຍຂອງລາຍການໂສ້ງ");
+        return;
+      }
+    }
+
     const orderCode = buildOrderCode(orderType, Number(orderNo));
 
     const payload = {
@@ -320,7 +374,7 @@ export default function NewOrderPage() {
       extra_charge: Math.max(0, extraCharge),
       design_deposit: Math.max(0, designDeposit),
       initial_deposit: Math.max(0, initialDeposit),
-      factory_cost: Math.max(0, factoryCost),
+      factory_cost: totalFactoryCost,
 
       gross_total: grossTotal,
       net_total: netTotal,
@@ -353,11 +407,55 @@ export default function NewOrderPage() {
       order_transfer_slip_file_name: uploadedOrderTransferSlip.fileName,
     };
 
-    const { error } = await supabase.from("orders").insert(finalPayload);
-    if (error) {
-      setErr(error.message);
-      toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error.message}`);
+    const { data: insertedOrder, error } = await supabase.from("orders").insert(finalPayload).select("id").single();
+    if (error || !insertedOrder?.id) {
+      setErr(error?.message || "insert_order_failed");
+      toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error?.message || "insert_order_failed"}`);
       return;
+    }
+
+    const itemPayloads = [
+      ...(hasShirtLine
+        ? [
+            buildShirtOrderItemPayload({
+              orderId: insertedOrder.id as string,
+              lineNo: 1,
+              fabric: {
+                id: selectedFabric.id,
+                name: selectedFabric.name,
+                shortPrice: selectedFabric.short_price,
+                longPrice: selectedFabric.long_price,
+              },
+              shortQty,
+              longQty,
+              freeQty,
+              qty3XL,
+              qty4XL,
+              qty5XL,
+              qty6XL,
+              grossTotal: shirtsTotal + plusSizeTotal,
+              netTotal: shirtsTotal + plusSizeTotal,
+              factoryCostTotal: Math.max(0, factoryCost),
+            }),
+          ]
+        : []),
+      ...pantsItems.map((item, index) =>
+        buildPantsOrderItemPayload({
+          orderId: insertedOrder.id as string,
+          lineNo: index + 2,
+          item,
+          fabricsById,
+        })
+      ),
+    ];
+
+    if (itemPayloads.length > 0) {
+      const { error: itemError } = await supabase.from("order_items").insert(itemPayloads);
+      if (itemError) {
+        setErr(itemError.message);
+        toast.error(`ບັນທຶກລາຍການສິນຄ້າບໍ່ສຳເລັດ: ${itemError.message}`);
+        return;
+      }
     }
 
     resetForm();
@@ -580,7 +678,7 @@ export default function NewOrderPage() {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">2) ຈຳນວນ & ບວກເພີ່ມໄຊສ໌</div>
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">2) ເສື້ອພິມລາຍ</div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
@@ -623,7 +721,117 @@ export default function NewOrderPage() {
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">3) ຮູບແບບມັດຈຳ & ລາຍການບວກເພີ່ມ</div>
+            <div className="mb-3 flex items-center justify-between border-b border-slate-50 pb-2">
+              <div className="font-bold text-slate-800 uppercase text-xs tracking-wider">3) ໂສ້ງພິມລາຍ</div>
+              <button onClick={addPantsItem} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white hover:bg-slate-800">
+                ເພີ່ມລາຍການໂສ້ງ
+              </button>
+            </div>
+
+            {pantsItems.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm font-medium text-slate-500">
+                ຍັງບໍ່ມີລາຍການໂສ້ງ. ຖ້າອໍເດີມີໂສ້ງພິມລາຍ ໃຫ້ກົດ `ເພີ່ມລາຍການໂສ້ງ`
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pantsItems.map((item, index) => (
+                  <div key={item.clientId} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-sm font-black text-slate-800">ລາຍການໂສ້ງ {index + 1}</div>
+                      <button onClick={() => removePantsItem(item.clientId)} className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 hover:bg-rose-100">
+                        ລົບ
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">ຊື່ລາຍການ</label>
+                        <input
+                          value={item.productName}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, productName: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">ຜ້າ</label>
+                        <select
+                          value={item.fabricId}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, fabricId: e.target.value }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-900 bg-white"
+                        >
+                          <option value="">ເລືອກຜ້າ</option>
+                          {fabrics.map((fabric) => (
+                            <option key={fabric.id} value={fabric.id}>
+                              {fabric.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">ຈຳນວນຄິດເງິນ</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={item.qty}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, qty: Number(e.target.value) }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">ຈຳນວນແຖມ</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={item.freeQty}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, freeQty: Number(e.target.value) }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-orange-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">ລາຄາຂາຍ/ຕົວ</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={item.unitPrice}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, unitPrice: Number(e.target.value) }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">ຕົ້ນທຶນໂຮງງານຂອງລາຍການ</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={item.factoryCost}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, factoryCost: Number(e.target.value) }))}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-900"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="text-xs font-bold text-slate-700 block mb-1">ໝາຍເຫດ</label>
+                        <textarea
+                          value={item.notes}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, notes: e.target.value }))}
+                          rows={2}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-900"
+                          placeholder="ເຊັ່ນ ໄຊສ໌, ກະເປົາ, ຊົງໂສ້ງ..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <div className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-600">ຜະລິດລວມ: <span className="text-slate-900">{getPantsTotalQty(item).toLocaleString()}</span></div>
+                      <div className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-600">ຍອດຂາຍ: <span className="text-slate-900">{getPantsLineGross(item).toLocaleString()}</span></div>
+                      <div className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-600">ຕົ້ນທຶນ: <span className="text-slate-900">{Math.max(0, Number(item.factoryCost) || 0).toLocaleString()}</span></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
+            <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">4) ຮູບແບບມັດຈຳ & ລາຍການບວກເພີ່ມ</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
@@ -642,7 +850,7 @@ export default function NewOrderPage() {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">ຕົ້ນທຶນໂຮງງານ</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ຕົ້ນທຶນໂຮງງານສ່ວນເສື້ອ</label>
                 <input type="number" value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold" min={0} />
               </div>
             </div>
@@ -660,17 +868,37 @@ export default function NewOrderPage() {
 
         <div className="space-y-4">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 sticky top-4">
-            <div className="font-bold text-slate-800 mb-4 uppercase text-xs tracking-widest border-b pb-3 border-slate-50">4) ສະຫຼຸບອໍເດີ</div>
+            <div className="font-bold text-slate-800 mb-4 uppercase text-xs tracking-widest border-b pb-3 border-slate-50">5) ສະຫຼຸບອໍເດີ</div>
 
             <div className="space-y-3 text-sm">
               <div className="flex justify-between items-center">
                 <span className="text-slate-500 font-medium">ຈຳນວນສັ່ງທັງໝົດ:</span>
+                <span className="font-bold text-slate-900">{totalOrderBillableQty.toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ຈຳນວນເສື້ອ:</span>
                 <span className="font-bold text-slate-900">{billableQty.toLocaleString()}</span>
               </div>
 
               <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ຈຳນວນໂສ້ງ:</span>
+                <span className="font-bold text-slate-900">{pantsSummary.billableQty.toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between items-center">
                 <span className="text-slate-500 font-medium">ຈຳນວນແຖມ:</span>
+                <span className="font-bold text-orange-600">{totalOrderFreeQty.toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ແຖມເສື້ອ:</span>
                 <span className="font-bold text-orange-600">{freeQty.toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ແຖມໂສ້ງ:</span>
+                <span className="font-bold text-orange-600">{pantsSummary.freeQty.toLocaleString()}</span>
               </div>
 
               <div className="flex justify-between items-center">
@@ -681,6 +909,11 @@ export default function NewOrderPage() {
               <div className="flex justify-between items-center">
                 <span className="text-slate-500 font-medium">ຄ່າເສື້ອທັງໝົດ:</span>
                 <span className="font-bold text-slate-800">{shirtsTotal.toLocaleString()}</span>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ຄ່າໂສ້ງທັງໝົດ:</span>
+                <span className="font-bold text-slate-800">{pantsSummary.grossTotal.toLocaleString()}</span>
               </div>
 
               <div className="flex justify-between items-center">
@@ -713,6 +946,11 @@ export default function NewOrderPage() {
                 <span className="text-xl font-black text-rose-600">{balance.toLocaleString()}</span>
               </div>
 
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">ຕົ້ນທຶນລວມ:</span>
+                <span className="font-bold text-slate-800">{totalFactoryCost.toLocaleString()}</span>
+              </div>
+
               <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center">
                 <span className="text-slate-500 font-medium">ກຳໄລ (ຕົວຢ່າງ):</span>
                 <span className={`text-lg font-black ${profitPreview >= 0 ? "text-blue-600" : "text-red-600"}`}>
@@ -722,7 +960,7 @@ export default function NewOrderPage() {
             </div>
 
             <div className="mt-6 p-3 bg-amber-50 rounded-xl text-[10px] text-amber-700 font-bold leading-relaxed border border-amber-100">
-              ⚠️ ກຳໄລຈະນັບເມື່ອປິດງານ (Completed) ແລະ ຈ່າຍຄົບ 100% ເທົ່ານັ້ນ
+              ລາຍການລວມ: {totalOrderQty.toLocaleString()} ຊິ້ນ | ກຳໄລຈະນັບເມື່ອປິດງານ (Completed) ແລະ ຈ່າຍຄົບ 100%
             </div>
           </div>
         </div>

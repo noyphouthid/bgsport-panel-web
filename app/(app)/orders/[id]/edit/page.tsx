@@ -6,6 +6,17 @@ import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
+import {
+  buildEmptyPantsOrderItem,
+  buildPantsOrderItemPayload,
+  buildShirtOrderItemPayload,
+  getPantsItemsSummary,
+  getPantsLineGross,
+  getPantsTotalQty,
+  parsePantsOrderItems,
+  type OrderItemRow,
+  type PantsOrderItemDraft,
+} from "@/lib/order-items";
 import { isAdminRole, isGraphicRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
 import { buildOrderCode, normalizeOrderType, parseOrderCode, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
@@ -192,6 +203,7 @@ export default function EditOrderPage() {
   const [qty4XL, setQty4XL] = useState(0);
   const [qty5XL, setQty5XL] = useState(0);
   const [qty6XL, setQty6XL] = useState(0);
+  const [pantsItems, setPantsItems] = useState<PantsOrderItemDraft[]>([]);
   const [extraCharge, setExtraCharge] = useState(0);
   const [designDeposit, setDesignDeposit] = useState(0);
   const [initialDeposit, setInitialDeposit] = useState(0);
@@ -239,6 +251,15 @@ export default function EditOrderPage() {
     const { data, error } = await supabase.from("orders").select("*").eq("id", orderId).single();
     if (error) throw error;
     const o = data as OrderDetail;
+    const { data: itemData, error: itemError } = await supabase
+      .from("order_items")
+      .select("id,order_id,line_no,product_type,product_name,fabric_id,fabric_name,qty,free_qty,unit_price,extra_charge,line_discount,gross_total,net_total,factory_cost_total,size_breakdown,attributes,notes,created_at,updated_at")
+      .eq("order_id", orderId)
+      .order("line_no", { ascending: true });
+    if (itemError && !itemError.message.includes("Could not find the table")) throw itemError;
+    const itemRows = ((itemData ?? []) as OrderItemRow[]) || [];
+    const shirtItem = itemRows.find((row) => row.product_type === "shirt_printed") || null;
+
     const parsedOrderCode = parseOrderCode(o.order_code);
     setOrder(o);
     setOrderDate(o.order_date);
@@ -260,7 +281,8 @@ export default function EditOrderPage() {
     setExtraCharge(o.extra_charge);
     setDesignDeposit(o.design_deposit);
     setInitialDeposit(o.initial_deposit);
-    setFactoryCost(o.factory_cost);
+    setFactoryCost(shirtItem ? Math.max(0, Number(shirtItem.factory_cost_total) || 0) : itemRows.length > 0 ? 0 : o.factory_cost);
+    setPantsItems(parsePantsOrderItems(itemRows));
     setFactoryPaidFullDate(toDateInput(o.factory_paid_full_at));
     setProductionCompletedDate(toDateInput(o.production_completed_at));
     setOrderImageFile(null);
@@ -478,6 +500,7 @@ export default function EditOrderPage() {
   const adminOptions = useMemo(() => users.filter((u) => isAdminRole(u.role)), [users]);
   const graphicOptions = useMemo(() => users.filter((u) => isGraphicRole(u.role)), [users]);
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
+  const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
 
   const shirtsTotal = useMemo(() => {
     const shortPrice = selectedFabric?.short_price ?? order?.fabric_short_price ?? 0;
@@ -493,7 +516,11 @@ export default function EditOrderPage() {
       qty6XL * SIZE_UPCHARGES["5XL"],
     [qty3XL, qty4XL, qty5XL, qty6XL]
   );
-  const grossTotal = useMemo(() => shirtsTotal + plusSizeTotal + extraCharge, [shirtsTotal, plusSizeTotal, extraCharge]);
+  const pantsSummary = useMemo(() => getPantsItemsSummary(pantsItems), [pantsItems]);
+  const grossTotal = useMemo(
+    () => shirtsTotal + plusSizeTotal + pantsSummary.grossTotal + extraCharge,
+    [shirtsTotal, plusSizeTotal, pantsSummary.grossTotal, extraCharge]
+  );
   const netTotal = useMemo(() => Math.max(0, grossTotal - designDeposit), [grossTotal, designDeposit]);
 
   const customerReceived = useMemo(() => {
@@ -505,8 +532,12 @@ export default function EditOrderPage() {
 
   const customerOutstanding = useMemo(() => Math.max(0, netTotal - customerReceived), [netTotal, customerReceived]);
   const factoryPaid = useMemo(() => factoryPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0), [factoryPayments]);
-  const factoryOutstanding = useMemo(() => Math.max(0, Math.max(0, Number(factoryCost || 0)) - factoryPaid), [factoryCost, factoryPaid]);
-  const profitPreview = useMemo(() => netTotal - Math.max(0, Number(factoryCost || 0)), [netTotal, factoryCost]);
+  const totalFactoryCost = useMemo(() => Math.max(0, Number(factoryCost || 0)) + pantsSummary.factoryCostTotal, [factoryCost, pantsSummary.factoryCostTotal]);
+  const factoryOutstanding = useMemo(() => Math.max(0, totalFactoryCost - factoryPaid), [totalFactoryCost, factoryPaid]);
+  const profitPreview = useMemo(() => netTotal - totalFactoryCost, [netTotal, totalFactoryCost]);
+  const totalOrderBillableQty = useMemo(() => shortQty + longQty + pantsSummary.billableQty, [shortQty, longQty, pantsSummary.billableQty]);
+  const totalOrderFreeQty = useMemo(() => freeQty + pantsSummary.freeQty, [freeQty, pantsSummary.freeQty]);
+  const totalOrderQty = useMemo(() => shortQty + longQty + freeQty + pantsSummary.billableQty + pantsSummary.freeQty, [shortQty, longQty, freeQty, pantsSummary.billableQty, pantsSummary.freeQty]);
 
   const productionStatusLabel = order?.production_completed_at ? "ຜະລິດສຳເລັດ" : "ກຳລັງຜະລິດ";
   const closeStatusLabel = order?.status === "completed" ? "ປິດງານແລ້ວ" : "ຍັງບໍ່ປິດງານ";
@@ -547,6 +578,18 @@ export default function EditOrderPage() {
     );
   };
 
+  const addPantsItem = () => {
+    setPantsItems((prev) => [...prev, buildEmptyPantsOrderItem()]);
+  };
+
+  const updatePantsItem = (clientId: string, updater: (item: PantsOrderItemDraft) => PantsOrderItemDraft) => {
+    setPantsItems((prev) => prev.map((item) => (item.clientId === clientId ? updater(item) : item)));
+  };
+
+  const removePantsItem = (clientId: string) => {
+    setPantsItems((prev) => prev.filter((item) => item.clientId !== clientId));
+  };
+
   const handleUpdate = async () => {
     if (!order || isReadOnlyAdmin) return;
     if (!orderType) return toast.error("ກະລຸນາເລືອກ TYPE");
@@ -554,6 +597,16 @@ export default function EditOrderPage() {
     if (!adminUserId) return toast.error("ກະລຸນາເລືອກ Admin");
     if (!graphicUserId) return toast.error("ກະລຸນາເລືອກ Graphic");
     if (!fabricId) return toast.error("ກະລຸນາເລືອກປະເພດຜ້າ");
+
+    const hasShirtLine = shortQty > 0 || longQty > 0 || freeQty > 0 || qty3XL > 0 || qty4XL > 0 || qty5XL > 0 || qty6XL > 0;
+    const hasPantsLine = pantsItems.some((item) => getPantsTotalQty(item) > 0);
+    if (!hasShirtLine && !hasPantsLine) return toast.error("ກະລຸນາປ້ອນຢ່າງໜ້ອຍ 1 ລາຍການສິນຄ້າ");
+
+    for (const item of pantsItems) {
+      if (getPantsTotalQty(item) <= 0) return toast.error("ລາຍການໂສ້ງແຕ່ລະອັນຕ້ອງມີຈຳນວນຫຼາຍກວ່າ 0");
+      if (!item.fabricId) return toast.error("ກະລຸນາເລືອກຜ້າໃຫ້ລາຍການໂສ້ງ");
+      if ((Number(item.unitPrice) || 0) <= 0) return toast.error("ກະລຸນາປ້ອນລາຄາຂາຍຂອງລາຍການໂສ້ງ");
+    }
 
     try {
       const fabric = selectedFabric ?? { id: order.fabric_id, name: order.fabric_name, short_price: order.fabric_short_price, long_add: 0, long_price: order.fabric_long_price, is_active: true };
@@ -587,7 +640,7 @@ export default function EditOrderPage() {
         qty_6xl: Math.max(0, qty6XL),
         extra_charge: Math.max(0, extraCharge),
         design_deposit: Math.max(0, designDeposit),
-        factory_cost: Math.max(0, factoryCost),
+        factory_cost: totalFactoryCost,
         gross_total: grossTotal,
         net_total: netTotal,
         initial_deposit: customerReceived,
@@ -602,6 +655,56 @@ export default function EditOrderPage() {
         setErr(error.message);
         return toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error.message}`);
       }
+
+      const { error: deleteItemsError } = await supabase.from("order_items").delete().eq("order_id", orderId);
+      if (deleteItemsError && !deleteItemsError.message.includes("Could not find the table")) {
+        setErr(deleteItemsError.message);
+        return toast.error(`ບັນທຶກລາຍການສິນຄ້າບໍ່ສຳເລັດ: ${deleteItemsError.message}`);
+      }
+
+      const itemPayloads = [
+        ...(hasShirtLine
+          ? [
+              buildShirtOrderItemPayload({
+                orderId,
+                lineNo: 1,
+                fabric: {
+                  id: fabric.id,
+                  name: fabric.name,
+                  shortPrice: fabric.short_price,
+                  longPrice: fabric.long_price,
+                },
+                shortQty,
+                longQty,
+                freeQty,
+                qty3XL,
+                qty4XL,
+                qty5XL,
+                qty6XL,
+                grossTotal: shirtsTotal + plusSizeTotal,
+                netTotal: shirtsTotal + plusSizeTotal,
+                factoryCostTotal: Math.max(0, factoryCost),
+              }),
+            ]
+          : []),
+        ...pantsItems.map((item, index) =>
+          buildPantsOrderItemPayload({
+            orderId,
+            lineNo: index + 2,
+            item,
+            fabricsById,
+          })
+        ),
+      ];
+
+      if (itemPayloads.length > 0) {
+        const { error: insertItemsError } = await supabase.from("order_items").insert(itemPayloads);
+        if (insertItemsError) {
+          setErr(insertItemsError.message);
+          return toast.error(`ບັນທຶກລາຍການສິນຄ້າບໍ່ສຳເລັດ: ${insertItemsError.message}`);
+        }
+      }
+
       await safeInsertAction("update_order", "Updated order details");
       await reloadAll();
       markClean();
@@ -1123,7 +1226,7 @@ export default function EditOrderPage() {
           </div>
 
           <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-            <div className="mb-3 border-b border-slate-50 pb-2 text-xs font-bold uppercase tracking-wider text-slate-800">2) ຈຳນວນ & ບວກເພີ່ມໄຊສ໌</div>
+            <div className="mb-3 border-b border-slate-50 pb-2 text-xs font-bold uppercase tracking-wider text-slate-800">2) ເສື້ອພິມລາຍ</div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div>
                 <label className="mb-1 block text-xs font-bold text-slate-700">ແຂນສັ້ນ</label>
@@ -1164,7 +1267,79 @@ export default function EditOrderPage() {
           </div>
 
           <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-            <div className="mb-3 border-b border-slate-50 pb-2 text-xs font-bold uppercase tracking-wider text-slate-800">3) ຮູບແບບມັດຈຳ & ລາຍການບວກເພີ່ມ</div>
+            <div className="mb-3 flex items-center justify-between border-b border-slate-50 pb-2">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-800">3) ໂສ້ງພິມລາຍ</div>
+              {!isReadOnlyAdmin ? (
+                <button onClick={addPantsItem} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white hover:bg-slate-800">
+                  ເພີ່ມລາຍການໂສ້ງ
+                </button>
+              ) : null}
+            </div>
+
+            {pantsItems.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm font-medium text-slate-500">
+                ຍັງບໍ່ມີລາຍການໂສ້ງ
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pantsItems.map((item, index) => (
+                  <div key={item.clientId} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-sm font-black text-slate-800">ລາຍການໂສ້ງ {index + 1}</div>
+                      {!isReadOnlyAdmin ? (
+                        <button onClick={() => removePantsItem(item.clientId)} className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 hover:bg-rose-100">
+                          ລົບ
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-bold text-slate-700">ຊື່ລາຍການ</label>
+                        <input value={item.productName} onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, productName: e.target.value }))} className={inputClassName} readOnly={isReadOnlyAdmin} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-bold text-slate-700">ຜ້າ</label>
+                        <select value={item.fabricId} onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, fabricId: e.target.value }))} className={`${inputClassName} bg-white font-bold`} disabled={isReadOnlyAdmin}>
+                          <option value="">ເລືອກຜ້າ</option>
+                          {fabrics.map((fabric) => <option key={fabric.id} value={fabric.id}>{fabric.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-bold text-slate-700">ຈຳນວນຄິດເງິນ</label>
+                        <input type="number" min={0} value={item.qty} onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, qty: Number(e.target.value) }))} className={inputClassName} readOnly={isReadOnlyAdmin} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-bold text-slate-700">ຈຳນວນແຖມ</label>
+                        <input type="number" min={0} value={item.freeQty} onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, freeQty: Number(e.target.value) }))} className={`${inputClassName} text-orange-600`} readOnly={isReadOnlyAdmin} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-bold text-slate-700">ລາຄາຂາຍ/ຕົວ</label>
+                        <input type="number" min={0} value={item.unitPrice} onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, unitPrice: Number(e.target.value) }))} className={inputClassName} readOnly={isReadOnlyAdmin} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-bold text-slate-700">ຕົ້ນທຶນໂຮງງານຂອງລາຍການ</label>
+                        <input type="number" min={0} value={item.factoryCost} onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, factoryCost: Number(e.target.value) }))} className={inputClassName} readOnly={isReadOnlyAdmin} />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="mb-1 block text-xs font-bold text-slate-700">ໝາຍເຫດ</label>
+                        <textarea value={item.notes} onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, notes: e.target.value }))} rows={2} className={inputClassName} readOnly={isReadOnlyAdmin} />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <div className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-600">ຜະລິດລວມ: <span className="text-slate-900">{getPantsTotalQty(item).toLocaleString()}</span></div>
+                      <div className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-600">ຍອດຂາຍ: <span className="text-slate-900">{getPantsLineGross(item).toLocaleString()}</span></div>
+                      <div className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-slate-600">ຕົ້ນທຶນ: <span className="text-slate-900">{Math.max(0, Number(item.factoryCost) || 0).toLocaleString()}</span></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+            <div className="mb-3 border-b border-slate-50 pb-2 text-xs font-bold uppercase tracking-wider text-slate-800">4) ຮູບແບບມັດຈຳ & ລາຍການບວກເພີ່ມ</div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-bold text-slate-700">ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ)</label>
@@ -1179,7 +1354,7 @@ export default function EditOrderPage() {
                 <input type="number" min={0} value={initialDeposit} onChange={(e) => setInitialDeposit(Number(e.target.value))} className={`${inputClassName} font-bold text-emerald-600`} />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-slate-700">ຕົ້ນທຶນໂຮງງານ</label>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ຕົ້ນທຶນໂຮງງານສ່ວນເສື້ອ</label>
                 <input type="number" min={0} value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} className={`${inputClassName} font-bold`} />
               </div>
               <div>
@@ -1257,15 +1432,18 @@ export default function EditOrderPage() {
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
             <div className="font-black text-slate-900 border-b pb-2 border-slate-100 mb-2">ສະຫຼຸບອໍເດີ</div>
-            <div className="mt-2 flex justify-between text-slate-800 font-bold"><span>ຈຳນວນສັ່ງທັງໝົດ</span><span className="font-black text-slate-900">{(shortQty + longQty).toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ຈຳນວນແຖມ</span><span className="font-black text-orange-600">{freeQty.toLocaleString()}</span></div>
+            <div className="mt-2 flex justify-between text-slate-800 font-bold"><span>ຈຳນວນສັ່ງທັງໝົດ</span><span className="font-black text-slate-900">{totalOrderBillableQty.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ຈຳນວນແຖມ</span><span className="font-black text-orange-600">{totalOrderFreeQty.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ຄ່າເສື້ອລວມ</span><span className="font-black text-slate-900">{(shirtsTotal + plusSizeTotal).toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ຄ່າໂສ້ງລວມ</span><span className="font-black text-slate-900">{pantsSummary.grossTotal.toLocaleString()}</span></div>
             <div className="flex justify-between text-slate-800 font-bold"><span>ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ)</span><span className="font-black text-slate-900">{extraCharge.toLocaleString()}</span></div>
             <div className="flex justify-between text-slate-800 font-bold"><span>ຫັກຄ່າແບບ-ສ່ວນຫຼຸດ</span><span className="font-black text-red-600">-{designDeposit.toLocaleString()}</span></div>
             <div className="mt-2 flex justify-between text-slate-800 font-bold"><span>ຍອດສຸດທິ</span><span className="font-black text-slate-900">{netTotal.toLocaleString()}</span></div>
             <div className="flex justify-between text-slate-800 font-bold"><span>ເງິນມັດຈຳສັ່ງຜະລິດ</span><span className="font-black text-emerald-700">{initialDeposit.toLocaleString()}</span></div>
             <div className="flex justify-between text-slate-800 font-bold"><span>ຮັບແແລ້ວ</span><span className="font-black text-emerald-700">{customerReceived.toLocaleString()}</span></div>
             <div className="flex justify-between text-slate-800 font-bold"><span>ຄ້າງຊຳລະ</span><span className="font-black text-rose-700">{customerOutstanding.toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ຕົ້ນທຶນ</span><span className="font-black text-slate-900">{factoryCost.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ຕົ້ນທຶນ</span><span className="font-black text-slate-900">{totalFactoryCost.toLocaleString()}</span></div>
+            <div className="flex justify-between text-slate-800 font-bold"><span>ລາຍການລວມ</span><span className="font-black text-slate-900">{totalOrderQty.toLocaleString()}</span></div>
             <div className="flex justify-between border-t pt-2 border-slate-100 mt-2 text-slate-800 font-bold"><span>ກຳໄລເບື້ອງຕົ້ນ</span><span className={`font-black ${profitPreview >= 0 ? "text-blue-700" : "text-red-700"}`}>{profitPreview.toLocaleString()}</span></div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-900 shadow-sm space-y-1">

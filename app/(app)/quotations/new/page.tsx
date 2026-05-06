@@ -7,6 +7,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { ArrowLeft, FileText, Printer, ReceiptText, Save, Shirt } from "lucide-react";
 import bgSportLogo from "@/app/BGSPORTLOGO.png";
+import {
+  buildEmptyPantsOrderItem,
+  getPantsItemsSummary,
+  getPantsLineGross,
+  getPantsTotalQty,
+  type PantsOrderItemDraft,
+} from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
@@ -132,6 +139,7 @@ export default function NewQuotationPage() {
   const [qty4XL, setQty4XL] = useState(0);
   const [qty5XL, setQty5XL] = useState(0);
   const [qty6XL, setQty6XL] = useState(0);
+  const [pantsItems, setPantsItems] = useState<PantsOrderItemDraft[]>([]);
   const [collarType, setCollarType] = useState<"none" | "polo" | "mandarin">("none");
   const [collarQty, setCollarQty] = useState(0);
   const [extraCharge, setExtraCharge] = useState(0);
@@ -194,6 +202,7 @@ export default function NewQuotationPage() {
           setQty4XL(draft.qty4XL);
           setQty5XL(draft.qty5XL);
           setQty6XL(draft.qty6XL || 0);
+          setPantsItems(draft.pantsItems || []);
           setCollarType(draft.collarType);
           setCollarQty(draft.collarQty);
           setExtraCharge(draft.extraCharge);
@@ -228,9 +237,10 @@ export default function NewQuotationPage() {
       Math.max(0, qty6XL) * SIZE_UPCHARGES["6XL"],
     [qty3XL, qty4XL, qty5XL, qty6XL]
   );
+  const pantsSummary = useMemo(() => getPantsItemsSummary(pantsItems), [pantsItems]);
   const grossTotal = useMemo(
-    () => shirtTotal + plusSizeTotal + collarTotal + Math.max(0, extraCharge),
-    [shirtTotal, plusSizeTotal, collarTotal, extraCharge]
+    () => shirtTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + Math.max(0, extraCharge),
+    [shirtTotal, plusSizeTotal, pantsSummary.grossTotal, collarTotal, extraCharge]
   );
   const netTotal = useMemo(() => Math.max(0, grossTotal - Math.max(0, discount)), [grossTotal, discount]);
   const outstanding = useMemo(() => Math.max(0, netTotal - Math.max(0, deposit)), [netTotal, deposit]);
@@ -252,6 +262,7 @@ export default function NewQuotationPage() {
     setQty4XL(0);
     setQty5XL(0);
     setQty6XL(0);
+    setPantsItems([]);
     setCollarType("none");
     setCollarQty(0);
     setExtraCharge(0);
@@ -265,6 +276,18 @@ export default function NewQuotationPage() {
   };
 
   const derivedSleeveType: "short" | "long" | "mixed" = shortQty > 0 && longQty > 0 ? "mixed" : longQty > 0 ? "long" : "short";
+
+  const addPantsItem = () => {
+    setPantsItems((prev) => [...prev, buildEmptyPantsOrderItem()]);
+  };
+
+  const updatePantsItem = (clientId: string, updater: (item: PantsOrderItemDraft) => PantsOrderItemDraft) => {
+    setPantsItems((prev) => prev.map((item) => (item.clientId === clientId ? updater(item) : item)));
+  };
+
+  const removePantsItem = (clientId: string) => {
+    setPantsItems((prev) => prev.filter((item) => item.clientId !== clientId));
+  };
 
   const buildDraft = (): QuotationDraft => ({
     id: draftId || undefined,
@@ -300,6 +323,7 @@ export default function NewQuotationPage() {
     paymentTerms,
     notes,
     warningNote: "",
+    pantsItems,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
@@ -312,6 +336,20 @@ export default function NewQuotationPage() {
     if (!selectedFabric) {
       toast.error("ກະລຸນາເລືອກຜ້າ");
       return;
+    }
+    for (const item of pantsItems) {
+      if (getPantsTotalQty(item) <= 0) {
+        toast.error("ລາຍການໂສ້ງແຕ່ລະອັນຕ້ອງມີຈຳນວນຫຼາຍກວ່າ 0");
+        return;
+      }
+      if (!item.fabricId) {
+        toast.error("ກະລຸນາເລືອກຜ້າໃຫ້ລາຍການໂສ້ງ");
+        return;
+      }
+      if ((Number(item.unitPrice) || 0) <= 0) {
+        toast.error("ກະລຸນາປ້ອນລາຄາຂາຍຂອງລາຍການໂສ້ງ");
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -335,6 +373,20 @@ export default function NewQuotationPage() {
     if (!selectedFabric) {
       toast.error("ກະລຸນາເລືອກຜ້າ");
       return;
+    }
+    for (const item of pantsItems) {
+      if (getPantsTotalQty(item) <= 0) {
+        toast.error("ລາຍການໂສ້ງແຕ່ລະອັນຕ້ອງມີຈຳນວນຫຼາຍກວ່າ 0");
+        return;
+      }
+      if (!item.fabricId) {
+        toast.error("ກະລຸນາເລືອກຜ້າໃຫ້ລາຍການໂສ້ງ");
+        return;
+      }
+      if ((Number(item.unitPrice) || 0) <= 0) {
+        toast.error("ກະລຸນາປ້ອນລາຄາຂາຍຂອງລາຍການໂສ້ງ");
+        return;
+      }
     }
 
     setCreatingDeposit(true);
@@ -392,11 +444,19 @@ export default function NewQuotationPage() {
     collarTotal > 0
       ? { key: "collar", label: "ບວກຄໍເສື້ອ/ແຂນເສື້ອ", qty: collarQty, price: COLLAR_PRICE, total: collarTotal }
       : null,
+    ...pantsItems.map((item, index) => ({
+      key: `pants-${item.clientId}`,
+      label: `${item.productName || `ໂສ້ງພິມລາຍ ${index + 1}`}${item.freeQty > 0 ? ` + ແຖມ ${item.freeQty}` : ""}${item.notes.trim() ? ` (${item.notes.trim()})` : ""}`,
+      qty: Math.max(0, Number(item.qty) || 0),
+      price: Number(item.unitPrice) || 0,
+      total: getPantsLineGross(item),
+    })),
   ].filter(Boolean) as Array<{ key: string; label: string; qty: number; price: number; total: number; muted?: boolean }>;
 
   const summaryItems = [
     { label: "ຄ່າເສື້ອລວມ", value: shirtTotal, color: "text-slate-900" },
     { label: "ບວກໄຊສ໌ໃຫຍ່", value: plusSizeTotal, color: "text-amber-700" },
+    { label: "ຄ່າໂສ້ງລວມ", value: pantsSummary.grossTotal, color: "text-indigo-700" },
     { label: "ບວກຄໍເສື້ອ/ແຂນເສື້ອ", value: collarTotal, color: "text-sky-700" },
     { label: "ບວກເພີ່ມອື່ນໆ", value: extraCharge, color: "text-violet-700" },
   ];
@@ -535,6 +595,106 @@ export default function NewQuotationPage() {
                 <NumberField value={extraCharge} onChange={setExtraCharge} />
               </div>
             </div>
+          </section>
+
+          <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <CardTitle icon={Shirt} title="ໂສ້ງພິມລາຍ" subtitle="ເພີ່ມລາຍການໂສ້ງເຂົ້າໃນໃບປະເມີນລາຄາ" />
+              <button
+                type="button"
+                onClick={addPantsItem}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white transition hover:bg-slate-800"
+              >
+                ເພີ່ມລາຍການໂສ້ງ
+              </button>
+            </div>
+
+            {pantsItems.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm font-medium text-slate-500">
+                ຍັງບໍ່ມີລາຍການໂສ້ງ. ຖ້າລູກຄ້າສັ່ງໂສ້ງພິມລາຍ ໃຫ້ກົດ `ເພີ່ມລາຍການໂສ້ງ`
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pantsItems.map((item, index) => (
+                  <div key={item.clientId} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="text-sm font-black text-slate-800">ລາຍການໂສ້ງ {index + 1}</div>
+                      <button
+                        type="button"
+                        onClick={() => removePantsItem(item.clientId)}
+                        className="rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 transition hover:bg-rose-100"
+                      >
+                        ລົບ
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div>
+                        <FieldLabel>ຊື່ລາຍການ</FieldLabel>
+                        <input
+                          value={item.productName}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, productName: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>ຜ້າ</FieldLabel>
+                        <select
+                          value={item.fabricId}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, fabricId: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                        >
+                          <option value="">ເລືອກຜ້າ</option>
+                          {fabrics.map((fabric) => (
+                            <option key={fabric.id} value={fabric.id}>
+                              {fabric.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <FieldLabel>ຈຳນວນຄິດເງິນ</FieldLabel>
+                        <NumberField value={item.qty} onChange={(value) => updatePantsItem(item.clientId, (current) => ({ ...current, qty: value }))} />
+                      </div>
+                      <div>
+                        <FieldLabel>ຈຳນວນແຖມ</FieldLabel>
+                        <NumberField value={item.freeQty} onChange={(value) => updatePantsItem(item.clientId, (current) => ({ ...current, freeQty: value }))} />
+                      </div>
+                      <div>
+                        <FieldLabel>ລາຄາຂາຍ/ຕົວ</FieldLabel>
+                        <NumberField value={item.unitPrice} onChange={(value) => updatePantsItem(item.clientId, (current) => ({ ...current, unitPrice: value }))} />
+                      </div>
+                      <div>
+                        <FieldLabel>ຕົ້ນທຶນໂຮງງານຂອງລາຍການ</FieldLabel>
+                        <NumberField value={item.factoryCost} onChange={(value) => updatePantsItem(item.clientId, (current) => ({ ...current, factoryCost: value }))} />
+                      </div>
+                      <div className="md:col-span-2">
+                        <FieldLabel>ໝາຍເຫດ</FieldLabel>
+                        <textarea
+                          rows={2}
+                          value={item.notes}
+                          onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, notes: e.target.value }))}
+                          placeholder="ເຊັ່ນ ໄຊສ໌, ຊົງໂສ້ງ, ກະເປົາ..."
+                          className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm font-medium outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <div className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-slate-600">
+                        ຜະລິດລວມ: <span className="text-slate-900">{getPantsTotalQty(item).toLocaleString()}</span>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-slate-600">
+                        ຍອດຂາຍ: <span className="text-slate-900">{getPantsLineGross(item).toLocaleString()}</span>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2 text-xs font-bold text-slate-600">
+                        ຕົ້ນທຶນ: <span className="text-slate-900">{Math.max(0, Number(item.factoryCost) || 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -689,7 +849,10 @@ export default function NewQuotationPage() {
                     </div>
                     <div>
                       <div className="font-black text-slate-700">ຈຳນວນລວມ</div>
-                      <div>ໄລ່ເງິນ {billableQty} ຜືນ/ ຜະລິດລວມ {totalQty} ຜືນ</div>
+                      <div>ເສື້ອ: ໄລ່ເງິນ {billableQty} ຜືນ / ຜະລິດລວມ {totalQty} ຜືນ</div>
+                      {pantsItems.length > 0 ? (
+                        <div>ໂສ້ງ: ໄລ່ເງິນ {pantsSummary.billableQty} ຕົວ / ຜະລິດລວມ {(pantsSummary.billableQty + pantsSummary.freeQty).toLocaleString()} ຕົວ</div>
+                      ) : null}
                     </div>
                   </div>
                   <div className="space-y-1.5 rounded-3xl bg-slate-50 p-2 text-[10px]">
