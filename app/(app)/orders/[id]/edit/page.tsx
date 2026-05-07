@@ -282,7 +282,16 @@ export default function EditOrderPage() {
     setDesignDeposit(o.design_deposit);
     setInitialDeposit(o.initial_deposit);
     setFactoryCost(shirtItem ? Math.max(0, Number(shirtItem.factory_cost_total) || 0) : itemRows.length > 0 ? 0 : o.factory_cost);
-    setPantsItems(parsePantsOrderItems(itemRows));
+    pantsItems.forEach((item) => {
+      if (item.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.mockupPreviewUrl);
+    });
+    setPantsItems(
+      parsePantsOrderItems(itemRows).map((item) => ({
+        ...item,
+        mockupUrl: toDisplayMediaUrl(item.mockupUrl) || item.mockupUrl || null,
+        mockupPreviewUrl: toDisplayMediaUrl(item.mockupUrl) || item.mockupUrl || null,
+      }))
+    );
     setFactoryPaidFullDate(toDateInput(o.factory_paid_full_at));
     setProductionCompletedDate(toDateInput(o.production_completed_at));
     setOrderImageFile(null);
@@ -483,8 +492,11 @@ export default function EditOrderPage() {
     return () => {
       if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
       if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
+      pantsItems.forEach((item) => {
+        if (item.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.mockupPreviewUrl);
+      });
     };
-  }, [orderImagePreviewUrl, orderTransferSlipPreviewUrl]);
+  }, [orderImagePreviewUrl, orderTransferSlipPreviewUrl, pantsItems]);
 
   useEffect(() => {
     const loadViewerRole = async () => {
@@ -587,7 +599,69 @@ export default function EditOrderPage() {
   };
 
   const removePantsItem = (clientId: string) => {
-    setPantsItems((prev) => prev.filter((item) => item.clientId !== clientId));
+    setPantsItems((prev) => {
+      const removed = prev.find((item) => item.clientId === clientId);
+      if (removed?.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(removed.mockupPreviewUrl);
+      return prev.filter((item) => item.clientId !== clientId);
+    });
+  };
+
+  const handlePantsMockupSelected = (clientId: string, file: File | null) => {
+    updatePantsItem(clientId, (current) => {
+      if (current.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(current.mockupPreviewUrl);
+      return {
+        ...current,
+        mockupFile: file,
+        mockupFileName: file?.name || current.mockupFileName || null,
+        mockupPreviewUrl: file && file.type.startsWith("image/") ? URL.createObjectURL(file) : current.mockupUrl || null,
+      };
+    });
+  };
+
+  const clearPantsMockup = (clientId: string) => {
+    updatePantsItem(clientId, (current) => {
+      if (current.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(current.mockupPreviewUrl);
+      return {
+        ...current,
+        mockupPath: null,
+        mockupUrl: null,
+        mockupFileName: null,
+        mockupFile: null,
+        mockupPreviewUrl: null,
+      };
+    });
+  };
+
+  const uploadPantsMockupsIfNeeded = async (currentOrderCode: string) => {
+    const nextItems: PantsOrderItemDraft[] = [];
+
+    for (let index = 0; index < pantsItems.length; index += 1) {
+      const item = pantsItems[index];
+      if (!item.mockupFile) {
+        nextItems.push(item);
+        continue;
+      }
+
+      const safeName = buildSafeStorageFileName(item.mockupFile.name, `pants-mockup-${index + 1}`);
+      const path = `pants-mockup/${currentOrderCode}/${safeName}`;
+      const { error: uploadError } = await supabase.storage.from(ORDER_MEDIA_BUCKET).upload(path, item.mockupFile, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from(ORDER_MEDIA_BUCKET).getPublicUrl(path);
+      if (item.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.mockupPreviewUrl);
+
+      nextItems.push({
+        ...item,
+        mockupPath: path,
+        mockupUrl: data.publicUrl,
+        mockupFileName: item.mockupFile.name,
+        mockupFile: null,
+        mockupPreviewUrl: data.publicUrl,
+      });
+    }
+
+    setPantsItems(nextItems);
+    return nextItems;
   };
 
   const handleUpdate = async () => {
@@ -613,6 +687,7 @@ export default function EditOrderPage() {
       const currentOrderCode = buildOrderCode(orderType, Number(orderNo));
       const orderImageAsset = await uploadOrderAsset("order-image", currentOrderCode, orderImageFile);
       const orderTransferSlipAsset = await uploadOrderAsset("order-transfer-slip", currentOrderCode, orderTransferSlipFile);
+      const uploadedPantsItems = await uploadPantsMockupsIfNeeded(currentOrderCode);
       const payload = {
         order_code: currentOrderCode,
         order_date: orderDate,
@@ -687,7 +762,7 @@ export default function EditOrderPage() {
               }),
             ]
           : []),
-        ...pantsItems.map((item, index) =>
+        ...uploadedPantsItems.map((item, index) =>
           buildPantsOrderItemPayload({
             orderId,
             lineNo: index + 2,
@@ -1294,6 +1369,48 @@ export default function EditOrderPage() {
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="md:col-span-2">
+                        <label className="mb-1 block text-xs font-bold text-slate-700">ຮູບໂສ້ງ</label>
+                        <div className="rounded-xl border border-dashed border-slate-200 bg-white p-3">
+                          {!isReadOnlyAdmin ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700">
+                                ເລືອກຮູບ
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="sr-only"
+                                  onChange={(e) => handlePantsMockupSelected(item.clientId, e.target.files?.[0] || null)}
+                                />
+                              </label>
+                              {(item.mockupPreviewUrl || item.mockupUrl) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => clearPantsMockup(item.clientId)}
+                                  className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100"
+                                >
+                                  ລົບຮູບ
+                                </button>
+                              ) : null}
+                              <span className="text-xs font-medium text-slate-500">{item.mockupFileName || "ຍັງບໍ່ມີຮູບ"}</span>
+                            </div>
+                          ) : (
+                            <div className="text-xs font-medium text-slate-500">{item.mockupFileName || "ຍັງບໍ່ມີຮູບ"}</div>
+                          )}
+                          {(item.mockupPreviewUrl || item.mockupUrl) ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={item.mockupPreviewUrl || item.mockupUrl || ""}
+                              alt={`pants-mockup-${index + 1}`}
+                              className="mt-3 h-40 w-full rounded-xl border border-slate-200 object-contain bg-white"
+                            />
+                          ) : (
+                            <div className="mt-3 flex h-40 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-xs font-bold text-slate-500">
+                              ຍັງບໍ່ມີຮູບໂສ້ງ
+                            </div>
+                          )}
+                        </div>
+                      </div>
                       <div>
                         <label className="mb-1 block text-xs font-bold text-slate-700">ຊື່ລາຍການ</label>
                         <input value={item.productName} onChange={(e) => updatePantsItem(item.clientId, (current) => ({ ...current, productName: e.target.value }))} className={inputClassName} readOnly={isReadOnlyAdmin} />

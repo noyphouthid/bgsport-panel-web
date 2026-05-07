@@ -150,6 +150,8 @@ type PantsProductionItem = PantsOrderItemDraft & {
   mockup_file: File | null;
   mockup_preview_url: string | null;
   sizes: ProductionSizeMap;
+  player_mode: ProductionPlayerMode;
+  player_rows: ProductionPlayerRow[];
 };
 
 const COLLAR_PRICE = 20000;
@@ -183,6 +185,11 @@ const PRODUCTION_PLAYER_MODE_OPTIONS: Array<{ value: ProductionPlayerMode; label
   { value: "name_only", label: "ມີສະເພາະຊື່" },
   { value: "number_only", label: "ມີສະເພາະເບີເສື້ອ" },
   { value: "name_and_number", label: "ມີຊື່ + ເບີເສື້ອ" },
+];
+
+const PANTS_PLAYER_MODE_OPTIONS: Array<{ value: ProductionPlayerMode; label: string }> = [
+  { value: "none", label: "ມີສະເພາະໄຊສ໌" },
+  { value: "number_only", label: "ໄຊສ໌ + ເບີໂສ້ງ" },
 ];
 
 const PRODUCTION_SIZE_FIELDS: Array<{ key: ProductionSizeKey; label: string }> = [
@@ -318,7 +325,7 @@ function getProductionItemTotal(item: ProductionItem) {
   return PRODUCTION_SIZE_FIELDS.reduce((sum, field) => sum + (Number(sizeMap[field.key]) || 0), 0);
 }
 
-function getFilledPlayerRows(item: ProductionItem) {
+function getFilledPlayerRows(item: { player_rows: ProductionPlayerRow[] }) {
   return item.player_rows.filter((row) => row.size || row.player_name.trim() || row.jersey_number.trim() || row.note.trim());
 }
 
@@ -346,16 +353,16 @@ function playerModeNeedsNumber(mode: ProductionPlayerMode) {
   return mode === "number_only" || mode === "name_and_number";
 }
 
-function getPlayerModeInstruction(mode: ProductionPlayerMode) {
+function getPlayerModeInstruction(mode: ProductionPlayerMode, numberLabel = "ເບີເສື້ອ") {
   if (mode === "name_only") return "ໄຊສ໌ + ຊື່ Player";
-  if (mode === "number_only") return "ໄຊສ໌ + ເບີເສື້ອ";
-  return "ໄຊສ໌ + ຊື່ + ເບີເສື້ອ";
+  if (mode === "number_only") return `ໄຊສ໌ + ${numberLabel}`;
+  return `ໄຊສ໌ + ຊື່ + ${numberLabel}`;
 }
 
-function getPlayerModePreviewTitle(mode: ProductionPlayerMode) {
+function getPlayerModePreviewTitle(mode: ProductionPlayerMode, numberLabel = "ເບີເສື້ອ") {
   if (mode === "name_only") return "NAME LIST";
   if (mode === "number_only") return "LIST";
-  return "ຊື່ ແລະ ເບີເສື້ອ";
+  return `ຊື່ ແລະ ${numberLabel}`;
 }
 
 function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType, fallbackCollar: ProductionCollarType) {
@@ -447,6 +454,8 @@ function buildEmptyPantsProductionItem(overrides?: Partial<PantsProductionItem>)
     mockup_file_name: overrides?.mockup_file_name ?? null,
     mockup_file: overrides?.mockup_file ?? null,
     mockup_preview_url: overrides?.mockup_preview_url ?? null,
+    player_mode: overrides?.player_mode ?? "none",
+    player_rows: overrides?.player_rows ?? [],
     sizes: {
       ...buildEmptySizeMap(),
       ...(overrides?.sizes ?? {}),
@@ -461,6 +470,7 @@ function parsePantsProductionItems(raw: unknown) {
     .map((entry, index) => {
       const row = typeof entry === "object" && entry ? (entry as Record<string, unknown>) : {};
       const nestedSizes = typeof row.sizes === "object" && row.sizes ? (row.sizes as Record<string, unknown>) : {};
+      const nestedPlayers = Array.isArray(row.player_rows) ? row.player_rows : [];
       return buildEmptyPantsProductionItem({
         id: typeof row.id === "string" ? row.id : undefined,
         clientId:
@@ -498,6 +508,19 @@ function parsePantsProductionItems(raw: unknown) {
         mockup_url: typeof row.mockup_url === "string" ? row.mockup_url : null,
         mockup_path: typeof row.mockup_path === "string" ? row.mockup_path : null,
         mockup_file_name: typeof row.mockup_file_name === "string" ? row.mockup_file_name : null,
+        player_mode: row.player_mode === "number_only" ? "number_only" : "none",
+        player_rows: nestedPlayers
+          .map((player) => {
+            const playerRow = typeof player === "object" && player ? (player as Record<string, unknown>) : {};
+            const sizeValue = typeof playerRow.size === "string" ? playerRow.size : "";
+            return buildEmptyPlayerRow({
+              size: PRODUCTION_SIZE_FIELDS.some((field) => field.key === sizeValue) ? (sizeValue as ProductionSizeKey) : "",
+              player_name: "",
+              jersey_number: typeof playerRow.jersey_number === "string" ? playerRow.jersey_number : "",
+              note: typeof playerRow.note === "string" ? playerRow.note : "",
+            });
+          })
+          .filter((player) => player.size || player.player_name.trim() || player.jersey_number.trim() || player.note.trim()),
         sizes: {
           xs: toPositiveInt(nestedSizes.xs),
           jxs: toPositiveInt(nestedSizes.jxs),
@@ -522,7 +545,24 @@ function parsePantsProductionItems(raw: unknown) {
 }
 
 function getPantsProductionItemTotal(item: PantsProductionItem) {
-  return PRODUCTION_SIZE_FIELDS.reduce((sum, field) => sum + (Number(item.sizes[field.key]) || 0), 0);
+  const sizeMap = getPantsProductionItemSizeMap(item);
+  return PRODUCTION_SIZE_FIELDS.reduce((sum, field) => sum + (Number(sizeMap[field.key]) || 0), 0);
+}
+
+function getPantsProductionItemSizeMap(item: PantsProductionItem) {
+  const filledRows = getFilledPlayerRows(item);
+  const derivedSizes = buildEmptySizeMap();
+  let hasSizedRows = false;
+
+  if (item.player_mode !== "none") {
+    for (const row of filledRows) {
+      if (!row.size) continue;
+      derivedSizes[row.size] = (Number(derivedSizes[row.size]) || 0) + 1;
+      hasSizedRows = true;
+    }
+  }
+
+  return hasSizedRows ? derivedSizes : item.sizes;
 }
 
 export default function FactoryDepositOrderFormPage() {
@@ -1004,7 +1044,7 @@ export default function FactoryDepositOrderFormPage() {
       player_mode: item.player_mode,
       player_rows: getFilledPlayerRows(item).map((row) => ({
         size: row.size,
-        player_name: row.player_name.trim(),
+        player_name: "",
         jersey_number: row.jersey_number.trim(),
         note: row.note.trim(),
       })),
@@ -1026,7 +1066,14 @@ export default function FactoryDepositOrderFormPage() {
       mockup_url: item.mockup_url,
       mockup_path: item.mockup_path,
       mockup_file_name: item.mockup_file_name,
-      sizes: item.sizes,
+      player_mode: item.player_mode,
+      player_rows: getFilledPlayerRows(item).map((row) => ({
+        size: row.size,
+        player_name: row.player_name.trim(),
+        jersey_number: row.jersey_number.trim(),
+        note: row.note.trim(),
+      })),
+      sizes: getPantsProductionItemSizeMap(item),
       total_qty: getPantsProductionItemTotal(item),
     }));
 
@@ -1195,6 +1242,27 @@ export default function FactoryDepositOrderFormPage() {
     }));
   };
 
+  const addPantsPlayerRow = (clientId: string) => {
+    updatePantsItem(clientId, (current) => ({
+      ...current,
+      player_rows: [...current.player_rows, buildEmptyPlayerRow()],
+    }));
+  };
+
+  const removePantsPlayerRow = (clientId: string, rowId: string) => {
+    updatePantsItem(clientId, (current) => ({
+      ...current,
+      player_rows: current.player_rows.filter((row) => row.id !== rowId),
+    }));
+  };
+
+  const updatePantsPlayerRow = (clientId: string, rowId: string, updater: (row: ProductionPlayerRow) => ProductionPlayerRow) => {
+    updatePantsItem(clientId, (current) => ({
+      ...current,
+      player_rows: current.player_rows.map((row) => (row.id === rowId ? updater(row) : row)),
+    }));
+  };
+
   const handleMockupChange = (index: number, event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1335,6 +1403,23 @@ export default function FactoryDepositOrderFormPage() {
         if (!item.mockup_url && !item.mockup_file) {
           toast.error(`ກະລຸນາແນບ mockup ໃຫ້ ${item.productName || "ລາຍການໂສ້ງ"}`);
           return null;
+        }
+        if (item.player_mode !== "none") {
+          const filledRows = getFilledPlayerRows(item);
+          if (filledRows.length !== pantsTargetQty) {
+            toast.error(`ຈຳນວນລາຍຊື່ Player/ເບີໂສ້ງ ຂອງ ${item.productName || "ລາຍການໂສ້ງ"} ຕ້ອງເທົ່າກັບ ${pantsTargetQty}`);
+            return null;
+          }
+          for (const row of filledRows) {
+            if (!row.size) {
+              toast.error("ກະລຸນາເລືອກໄຊສ໌ໃຫ້ຄົບທຸກລາຍການເບີໂສ້ງ");
+              return null;
+            }
+            if (playerModeNeedsNumber(item.player_mode) && !row.jersey_number.trim()) {
+              toast.error("ກະລຸນາປ້ອນເບີໂສ້ງໃຫ້ຄົບ");
+              return null;
+            }
+          }
         }
       }
     }
@@ -1947,6 +2032,7 @@ export default function FactoryDepositOrderFormPage() {
                   const targetQty = getPantsTotalQty(item);
                   const quantityMatchesHere = itemTotal === targetQty;
                   const imageUrl = item.mockup_preview_url || item.mockup_url;
+                  const filledPantsPlayerRows = getFilledPlayerRows(item);
 
                   return (
                     <div key={item.clientId} className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
@@ -2040,44 +2126,154 @@ export default function FactoryDepositOrderFormPage() {
                                 ))}
                               </select>
                             </div>
+                            <div>
+                              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ໄຊສ໌ / ເບີໂສ້ງ</label>
+                              <select
+                                value={item.player_mode}
+                                onChange={(e) =>
+                                  updatePantsItem(item.clientId, (current) => ({
+                                    ...current,
+                                    player_mode: e.target.value as ProductionPlayerMode,
+                                    player_rows:
+                                      e.target.value === "none"
+                                        ? []
+                                        : current.player_rows.length > 0
+                                          ? current.player_rows
+                                          : [buildEmptyPlayerRow()],
+                                  }))
+                                }
+                                disabled={!canEdit}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
+                              >
+                                {PANTS_PLAYER_MODE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                         </div>
 
                         <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-4">
-                          <div className="mb-4 flex items-center justify-between">
-                            <div>
-                              <div className="text-xs font-black uppercase tracking-wide text-slate-500">ຈຳນວນໄຊສ໌ຂອງໂສ້ງ</div>
-                              <div className="mt-1 text-sm font-medium text-slate-500">ຈຳນວນໂສ້ງລາຍການນີ້ {targetQty.toLocaleString()} ຕົວ</div>
-                            </div>
-                            <div className="rounded-2xl bg-slate-100 px-4 py-3 text-center">
-                              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">TOTAL</div>
-                              <div className="mt-1 text-2xl font-black text-slate-900">{itemTotal.toLocaleString()}</div>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                            {PRODUCTION_SIZE_FIELDS.map((field) => (
-                              <div key={`${item.clientId}-${field.key}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                                <label className="mb-2 block text-center text-sm font-black uppercase tracking-wide text-slate-700">{field.label}</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={item.sizes[field.key]}
-                                  onChange={(e) =>
-                                    updatePantsItem(item.clientId, (current) => ({
-                                      ...current,
-                                      sizes: {
-                                        ...current.sizes,
-                                        [field.key]: Math.max(0, Number(e.target.value) || 0),
-                                      },
-                                    }))
-                                  }
-                                  disabled={!canEdit}
-                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
-                                />
+                            <div className="mb-4 flex items-center justify-between">
+                              <div>
+                              <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                                {item.player_mode === "number_only" ? "ລາຍການໄຊສ໌ + ເບີໂສ້ງ" : "ຈຳນວນໄຊສ໌ຂອງໂສ້ງ"}
                               </div>
-                            ))}
-                          </div>
+                              <div className="mt-1 text-sm font-medium text-slate-500">
+                                {item.player_mode === "number_only"
+                                  ? `ປ້ອນໃຫ້ຄົບ ${targetQty.toLocaleString()} ລາຍການ`
+                                  : `ຈຳນວນໂສ້ງລາຍການນີ້ ${targetQty.toLocaleString()} ຕົວ`}
+                              </div>
+                              </div>
+                              <div className="rounded-2xl bg-slate-100 px-4 py-3 text-center">
+                                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">TOTAL</div>
+                                <div className="mt-1 text-2xl font-black text-slate-900">{itemTotal.toLocaleString()}</div>
+                              </div>
+                            </div>
+
+                          {item.player_mode === "none" ? (
+                            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                              {PRODUCTION_SIZE_FIELDS.map((field) => (
+                                <div key={`${item.clientId}-${field.key}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                                  <label className="mb-2 block text-center text-sm font-black uppercase tracking-wide text-slate-700">{field.label}</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={item.sizes[field.key]}
+                                    onChange={(e) =>
+                                      updatePantsItem(item.clientId, (current) => ({
+                                        ...current,
+                                        sizes: {
+                                          ...current.sizes,
+                                          [field.key]: Math.max(0, Number(e.target.value) || 0),
+                                        },
+                                      }))
+                                    }
+                                    disabled={!canEdit}
+                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {item.player_mode !== "none" ? (
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                              <div className="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                  <div className="text-xs font-black uppercase tracking-wide text-slate-500">ໄຊສ໌ / ເບີໂສ້ງ</div>
+                                  <div className="mt-1 text-sm font-medium text-slate-500">
+                                    ປ້ອນໄຊສ໌ + ເບີໂສ້ງ ໃຫ້ຄົບ {targetQty.toLocaleString()} ລາຍການ
+                                  </div>
+                                </div>
+                                <div className={`rounded-full px-3 py-1 text-xs font-black ${filledPantsPlayerRows.length === targetQty ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>
+                                  {filledPantsPlayerRows.length}/{targetQty}
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                {item.player_rows.map((row, rowIndex) => (
+                                  <div key={row.id} className="rounded-xl bg-white/80 p-2">
+                                    <div className="mb-2 flex items-center justify-between">
+                                      <div className="text-sm font-black uppercase tracking-wide text-slate-600">Player {rowIndex + 1}</div>
+                                      {canEdit ? (
+                                        <button type="button" onClick={() => removePantsPlayerRow(item.clientId, row.id)} className="text-xs font-black text-rose-700">
+                                          ລົບ
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                    <div className={`grid gap-2 ${item.player_mode === "name_and_number" ? "md:grid-cols-4" : item.player_mode === "name_only" || item.player_mode === "number_only" ? "md:grid-cols-3" : "md:grid-cols-4"}`}>
+                                      <div>
+                                        <label className="mb-1.5 block text-sm font-bold uppercase tracking-wide text-slate-600">ໄຊສ໌</label>
+                                        <select
+                                          value={row.size}
+                                          onChange={(e) => updatePantsPlayerRow(item.clientId, row.id, (current) => ({ ...current, size: e.target.value as ProductionSizeKey | "" }))}
+                                          disabled={!canEdit}
+                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-base font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                        >
+                                          <option value="">ເລືອກໄຊສ໌</option>
+                                          {PRODUCTION_SIZE_FIELDS.map((field) => (
+                                            <option key={field.key} value={field.key}>
+                                              {field.label}
+                                            </option>
+                                          ))}
+                                          </select>
+                                      </div>
+                                      <div>
+                                        <label className="mb-1.5 block text-sm font-bold uppercase tracking-wide text-slate-600">ເບີໂສ້ງ</label>
+                                        <input
+                                          value={row.jersey_number}
+                                          onChange={(e) => updatePantsPlayerRow(item.clientId, row.id, (current) => ({ ...current, jersey_number: e.target.value }))}
+                                          disabled={!canEdit}
+                                          placeholder="07"
+                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-base font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="mb-1.5 block text-sm font-bold uppercase tracking-wide text-slate-600">ໝາຍເຫດ</label>
+                                        <input
+                                          value={row.note}
+                                          onChange={(e) => updatePantsPlayerRow(item.clientId, row.id, (current) => ({ ...current, note: e.target.value }))}
+                                          disabled={!canEdit}
+                                          placeholder="ເຊັ່ນ Captain"
+                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-base font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+
+                                {canEdit ? (
+                                  <button type="button" onClick={() => addPantsPlayerRow(item.clientId)} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+                                    <Save size={14} />
+                                    ເພີ່ມລາຍຊື່ Player
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : null}
 
                           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                             <div>
@@ -2600,11 +2796,16 @@ export default function FactoryDepositOrderFormPage() {
                   <div className="rounded-md border border-slate-700 p-4">
                     <div className="text-[15px] font-black text-slate-700">ວັນທີ່ສົ່ງຜະລິດ: <span className="font-black text-slate-900">{productionSentDate || "-"}</span></div>
                     <div className="mt-1 text-[15px] font-black text-slate-700">ກຳນົດສົ່ງລູກຄ້າ: <span className="font-black text-slate-900">{customerDeliveryDate || "-"}</span></div>
-                    <div className="mt-4 text-[12px] font-black text-slate-700">ຈຳນວນເສື້ອທັງໝົດ</div>
-                    <div className="mt-1 text-[26px] font-black leading-none text-sky-700">{totalProductionQty.toLocaleString()} ຕົວ</div>
-                    {pantsTotalQty > 0 ? (
-                      <div className="mt-2 text-[12px] font-black text-indigo-700">ໂສ້ງເພີ່ມ {pantsTotalQty.toLocaleString()} ຕົວ</div>
-                    ) : null}
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="rounded-md bg-sky-50 px-3 py-2">
+                        <div className="text-[11px] font-black text-slate-700">ຈຳນວນເສື້ອ</div>
+                        <div className="mt-1 text-[24px] font-black leading-none text-sky-700">{totalProductionQty.toLocaleString()}</div>
+                      </div>
+                      <div className="rounded-md bg-indigo-50 px-3 py-2">
+                        <div className="text-[11px] font-black text-slate-700">ຈຳນວນໂສ້ງ</div>
+                        <div className="mt-1 text-[24px] font-black leading-none text-indigo-700">{pantsTotalQty.toLocaleString()}</div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -2618,61 +2819,6 @@ export default function FactoryDepositOrderFormPage() {
                   <span className="opacity-80">ປະເພດງານ:</span>{" "}
                   <span className={productionPriority === "urgent" ? "text-red-600" : "text-sky-700"}>{priorityBannerText}</span>
                 </div>
-
-                {pantsItems.length > 0 ? (
-                  <div className="mt-3 rounded-md border border-indigo-200 bg-indigo-50 px-4 py-3 text-[12px] font-bold text-indigo-900">
-                    <div className="mb-2 text-[13px] font-black uppercase tracking-wide text-indigo-700">ລາຍການໂສ້ງເພີ່ມ</div>
-                    <div className="grid grid-cols-2 gap-3">
-                      {pantsItems.map((item, index) => {
-                        const imageUrl = item.mockup_preview_url || item.mockup_url;
-                        const sizeEntries = PRODUCTION_SIZE_FIELDS.filter((field) => Number(item.sizes[field.key]) > 0);
-                        return (
-                          <div key={item.clientId} className="rounded-md border border-indigo-200 bg-white p-3 text-slate-900">
-                            <div className="mb-2 flex items-start justify-between gap-3">
-                              <div>
-                                <div className="text-[12px] font-black text-indigo-700">ໂສ້ງ {index + 1}</div>
-                                <div className="mt-1 text-[13px] font-black">{item.productName || "ໂສ້ງພິມລາຍ"}</div>
-                              </div>
-                              <div className="text-right text-[11px] font-black text-indigo-700">
-                                {getPantsProductionItemTotal(item)}/{getPantsTotalQty(item)}
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-[72px_1fr] gap-3">
-                              <div className="h-[72px] overflow-hidden rounded-md border border-indigo-100 bg-slate-50">
-                                {imageUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={imageUrl} alt={`pants-preview-${index + 1}`} className="h-full w-full object-contain bg-white" />
-                                ) : (
-                                  <div className="flex h-full items-center justify-center text-center text-[10px] font-bold text-slate-400">
-                                    No Mockup
-                                  </div>
-                                )}
-                              </div>
-                              <div>
-                                <div className="text-[11px] font-bold text-indigo-700">
-                                  {item.qty.toLocaleString()} + ແຖມ {item.freeQty.toLocaleString()}
-                                </div>
-                                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-                                  {sizeEntries.length > 0 ? (
-                                    sizeEntries.map((field) => (
-                                      <div key={`${item.clientId}-${field.key}`} className="flex items-center justify-between gap-2">
-                                        <span className="font-black">{field.label}</span>
-                                        <span className="font-black text-rose-600">{item.sizes[field.key]}</span>
-                                      </div>
-                                    ))
-                                  ) : (
-                                    <div className="col-span-2 text-[10px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
-                                  )}
-                                </div>
-                                {item.notes.trim() ? <div className="mt-1 text-[10px] font-bold text-slate-500">{item.notes.trim()}</div> : null}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : null}
 
                 <div className="mt-4 grid flex-1 grid-cols-4 gap-3">
                   {activeProductionItems.map((item, index) => {
@@ -2739,6 +2885,76 @@ export default function FactoryDepositOrderFormPage() {
                       </div>
                     );
                   })}
+                  {pantsItems.length > 0
+                    ? pantsItems.map((item, index) => {
+                        const imageUrl = item.mockup_preview_url || item.mockup_url;
+                        const filledPantsPlayerRows = getFilledPlayerRows(item);
+                        const pantsItemSizeMap = getPantsProductionItemSizeMap(item);
+                        const sizeEntries = PRODUCTION_SIZE_FIELDS.filter((field) => Number(pantsItemSizeMap[field.key]) > 0);
+                        return (
+                          <div key={item.clientId} className="flex min-h-0 flex-col">
+                            <div className="mb-2 rounded-md border border-indigo-300 bg-indigo-50 px-2 py-1.5 text-center text-[11px] font-black text-indigo-700">
+                              ໂສ້ງ {index + 1}
+                            </div>
+                            <div className="aspect-square overflow-hidden rounded-md border border-slate-700 bg-white">
+                              {imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={imageUrl} alt={`pants-preview-${index + 1}`} className="h-full w-full object-contain bg-white" />
+                              ) : (
+                                <div className="flex h-full items-center justify-center text-center text-[11px] font-bold text-slate-400">
+                                  ບໍ່ມີຮູບ Mockup
+                                </div>
+                              )}
+                            </div>
+                            <div className="mt-3 flex-1 rounded-md border border-slate-700 p-3">
+                              {item.player_mode === "none" ? (
+                                <>
+                                  <div className="mb-2 text-center text-[17px] font-black text-sky-700">ຈຳນວນໄຊສ໌</div>
+                                  <div className="space-y-2 text-[18px]">
+                                    {sizeEntries.map((field) => (
+                                      <div key={`${item.clientId}-${field.key}`} className="flex items-center justify-between gap-3">
+                                        <span className="font-black text-slate-900">{field.label}:</span>
+                                        <span className="font-black text-rose-600">{pantsItemSizeMap[field.key].toLocaleString()}</span>
+                                      </div>
+                                    ))}
+                                    {sizeEntries.length === 0 ? (
+                                      <div className="text-center text-[13px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
+                                    ) : null}
+                                  </div>
+                                </>
+                              ) : null}
+                              {item.player_mode !== "none" && filledPantsPlayerRows.length > 0 ? (
+                                <div>
+                                  <div className="mb-2 text-center text-[14px] font-black text-slate-700">
+                                    LIST
+                                  </div>
+                                  <div className="space-y-1 text-[13px] leading-snug text-slate-900">
+                                    {filledPantsPlayerRows.map((row) => {
+                                      const sizeLabel = PRODUCTION_SIZE_FIELDS.find((field) => field.key === row.size)?.label || "-";
+                                      const lineParts = [
+                                        sizeLabel,
+                                        row.jersey_number || "-",
+                                        row.note ? row.note : null,
+                                      ].filter(Boolean);
+                                      return (
+                                        <div key={row.id} className="truncate font-bold">
+                                          {lineParts.join(" | ")}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
+                              {item.notes.trim() ? (
+                                <div className="mt-4 border-t border-slate-200 pt-3 text-[12px] font-bold text-slate-500">
+                                  {item.notes.trim()}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })
+                    : null}
                 </div>
 
                 <div className="mt-5 grid grid-cols-2 gap-10 px-8 text-center text-[12px] text-slate-900">

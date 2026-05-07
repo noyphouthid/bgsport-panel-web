@@ -152,8 +152,11 @@ export default function NewOrderPage() {
     return () => {
       if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
       if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
+      pantsItems.forEach((item) => {
+        if (item.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.mockupPreviewUrl);
+      });
     };
-  }, [orderImagePreviewUrl, orderTransferSlipPreviewUrl]);
+  }, [orderImagePreviewUrl, orderTransferSlipPreviewUrl, pantsItems]);
 
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
   const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
@@ -213,6 +216,9 @@ export default function NewOrderPage() {
     setQty4XL(0);
     setQty5XL(0);
     setQty6XL(0);
+    pantsItems.forEach((item) => {
+      if (item.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.mockupPreviewUrl);
+    });
     setPantsItems([]);
     setExtraCharge(0);
     setDesignDeposit(0);
@@ -229,7 +235,41 @@ export default function NewOrderPage() {
   };
 
   const removePantsItem = (clientId: string) => {
-    setPantsItems((prev) => prev.filter((item) => item.clientId !== clientId));
+    setPantsItems((prev) => {
+      const removed = prev.find((item) => item.clientId === clientId);
+      if (removed?.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(removed.mockupPreviewUrl);
+      return prev.filter((item) => item.clientId !== clientId);
+    });
+  };
+
+  const handlePantsMockupSelected = (clientId: string, file: File | null) => {
+    updatePantsItem(clientId, (current) => {
+      if (current.mockupPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(current.mockupPreviewUrl);
+      }
+      return {
+        ...current,
+        mockupFile: file,
+        mockupFileName: file?.name || current.mockupFileName || null,
+        mockupPreviewUrl: file && file.type.startsWith("image/") ? URL.createObjectURL(file) : current.mockupUrl || null,
+      };
+    });
+  };
+
+  const clearPantsMockup = (clientId: string) => {
+    updatePantsItem(clientId, (current) => {
+      if (current.mockupPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(current.mockupPreviewUrl);
+      }
+      return {
+        ...current,
+        mockupPath: null,
+        mockupUrl: null,
+        mockupFileName: null,
+        mockupFile: null,
+        mockupPreviewUrl: null,
+      };
+    });
   };
 
   const handleCancelReset = async () => {
@@ -296,6 +336,38 @@ export default function NewOrderPage() {
       url: data.publicUrl,
       fileName: file.name,
     };
+  };
+
+  const uploadPantsMockupsIfNeeded = async (currentOrderCode: string) => {
+    const nextItems: PantsOrderItemDraft[] = [];
+
+    for (let index = 0; index < pantsItems.length; index += 1) {
+      const item = pantsItems[index];
+      if (!item.mockupFile) {
+        nextItems.push(item);
+        continue;
+      }
+
+      const safeName = buildSafeStorageFileName(item.mockupFile.name, `pants-mockup-${index + 1}`);
+      const path = `pants-mockup/${currentOrderCode}/${safeName}`;
+      const { error: uploadError } = await supabase.storage.from(ORDER_MEDIA_BUCKET).upload(path, item.mockupFile, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from(ORDER_MEDIA_BUCKET).getPublicUrl(path);
+      if (item.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.mockupPreviewUrl);
+
+      nextItems.push({
+        ...item,
+        mockupPath: path,
+        mockupUrl: data.publicUrl,
+        mockupFileName: item.mockupFile.name,
+        mockupFile: null,
+        mockupPreviewUrl: data.publicUrl,
+      });
+    }
+
+    setPantsItems(nextItems);
+    return nextItems;
   };
 
   const handleSave = async () => {
@@ -396,6 +468,7 @@ export default function NewOrderPage() {
 
     const uploadedOrderImage = await uploadOrderAsset("order-image", orderCode, orderImageFile);
     const uploadedOrderTransferSlip = await uploadOrderAsset("order-transfer-slip", orderCode, orderTransferSlipFile);
+    const uploadedPantsItems = await uploadPantsMockupsIfNeeded(orderCode);
 
     const finalPayload = {
       ...payload,
@@ -439,7 +512,7 @@ export default function NewOrderPage() {
             }),
           ]
         : []),
-      ...pantsItems.map((item, index) =>
+      ...uploadedPantsItems.map((item, index) =>
         buildPantsOrderItemPayload({
           orderId: insertedOrder.id as string,
           lineNo: index + 2,
@@ -744,6 +817,40 @@ export default function NewOrderPage() {
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="md:col-span-2">
+                        <label className="text-xs font-bold text-slate-700 block mb-1">ຮູບໂສ້ງ</label>
+                        <div className="rounded-xl border border-dashed border-slate-200 bg-white p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700">
+                              ເລືອກຮູບ
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="sr-only"
+                                onChange={(e) => handlePantsMockupSelected(item.clientId, e.target.files?.[0] || null)}
+                              />
+                            </label>
+                            {(item.mockupPreviewUrl || item.mockupUrl) ? (
+                              <button
+                                type="button"
+                                onClick={() => clearPantsMockup(item.clientId)}
+                                className="rounded-lg bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100"
+                              >
+                                ລົບຮູບ
+                              </button>
+                            ) : null}
+                            <span className="text-xs font-medium text-slate-500">{item.mockupFileName || "ຍັງບໍ່ມີຮູບ"}</span>
+                          </div>
+                          {(item.mockupPreviewUrl || item.mockupUrl) ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={item.mockupPreviewUrl || item.mockupUrl || ""}
+                              alt={`pants-mockup-${index + 1}`}
+                              className="mt-3 h-40 w-full rounded-xl border border-slate-200 object-contain bg-white"
+                            />
+                          ) : null}
+                        </div>
+                      </div>
                       <div>
                         <label className="text-xs font-bold text-slate-700 block mb-1">ຊື່ລາຍການ</label>
                         <input

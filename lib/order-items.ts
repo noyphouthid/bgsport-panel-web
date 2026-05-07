@@ -33,6 +33,11 @@ export type PantsOrderItemDraft = {
   unitPrice: number;
   factoryCost: number;
   notes: string;
+  mockupPath?: string | null;
+  mockupUrl?: string | null;
+  mockupFileName?: string | null;
+  mockupFile?: File | null;
+  mockupPreviewUrl?: string | null;
 };
 
 type ShirtOrderItemPayloadInput = {
@@ -81,6 +86,11 @@ export function buildEmptyPantsOrderItem(overrides?: Partial<PantsOrderItemDraft
     unitPrice: Math.max(0, Number(overrides?.unitPrice) || 0),
     factoryCost: Math.max(0, Number(overrides?.factoryCost) || 0),
     notes: overrides?.notes || "",
+    mockupPath: overrides?.mockupPath ?? null,
+    mockupUrl: overrides?.mockupUrl ?? null,
+    mockupFileName: overrides?.mockupFileName ?? null,
+    mockupFile: overrides?.mockupFile ?? null,
+    mockupPreviewUrl: overrides?.mockupPreviewUrl ?? null,
   };
 }
 
@@ -122,6 +132,24 @@ export function parsePantsDraftItems(value: unknown) {
             ? Math.max(0, Number(row.factoryCost) || 0)
             : Math.max(0, Number(row.factory_cost) || 0),
         notes: typeof row.notes === "string" ? row.notes : "",
+        mockupPath:
+          typeof row.mockupPath === "string"
+            ? row.mockupPath
+            : typeof row.mockup_path === "string"
+              ? row.mockup_path
+              : null,
+        mockupUrl:
+          typeof row.mockupUrl === "string"
+            ? row.mockupUrl
+            : typeof row.mockup_url === "string"
+              ? row.mockup_url
+              : null,
+        mockupFileName:
+          typeof row.mockupFileName === "string"
+            ? row.mockupFileName
+            : typeof row.mockup_file_name === "string"
+              ? row.mockup_file_name
+              : null,
       });
     })
     .filter((item) => item.productName.trim() || item.fabricId || item.qty > 0 || item.freeQty > 0 || item.unitPrice > 0 || item.factoryCost > 0 || item.notes.trim());
@@ -219,7 +247,11 @@ export function buildPantsOrderItemPayload(input: PantsOrderItemPayloadInput) {
     net_total: getPantsLineNet(input.item),
     factory_cost_total: getPantsLineFactoryCost(input.item),
     size_breakdown: {},
-    attributes: {},
+    attributes: {
+      mockup_path: input.item.mockupPath ?? null,
+      mockup_url: input.item.mockupUrl ?? null,
+      mockup_file_name: input.item.mockupFileName ?? null,
+    },
     notes: input.item.notes.trim(),
   };
 }
@@ -229,6 +261,9 @@ export function parsePantsOrderItems(rows: OrderItemRow[]) {
     .filter((row) => row.product_type === "pants_printed")
     .sort((a, b) => a.line_no - b.line_no)
     .map((row) =>
+      {
+        const attributes = row.attributes && typeof row.attributes === "object" ? (row.attributes as Record<string, unknown>) : {};
+        return (
       buildEmptyPantsOrderItem({
         id: row.id,
         clientId: row.id,
@@ -239,6 +274,11 @@ export function parsePantsOrderItems(rows: OrderItemRow[]) {
         unitPrice: Math.max(0, Number(row.unit_price) || 0),
         factoryCost: Math.max(0, Number(row.factory_cost_total) || 0),
         notes: row.notes || "",
+        mockupPath: typeof attributes.mockup_path === "string" ? attributes.mockup_path : null,
+        mockupUrl: typeof attributes.mockup_url === "string" ? attributes.mockup_url : null,
+        mockupFileName: typeof attributes.mockup_file_name === "string" ? attributes.mockup_file_name : null,
       })
+        );
+      }
     );
 }
