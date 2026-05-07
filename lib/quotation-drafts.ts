@@ -83,7 +83,7 @@ type QuotationDraftDbRow = {
   updated_at: string;
 };
 
-const QUOTATION_DRAFT_SELECT = `
+const QUOTATION_DRAFT_BASE_SELECT = `
   id,
   created_by_user_id,
   created_by_name,
@@ -118,9 +118,13 @@ const QUOTATION_DRAFT_SELECT = `
   payment_terms,
   notes,
   warning_note,
-  pants_items,
   created_at,
   updated_at
+`;
+
+const QUOTATION_DRAFT_SELECT = `
+  ${QUOTATION_DRAFT_BASE_SELECT},
+  pants_items,
 `;
 
 function mapRowToDraft(row: QuotationDraftDbRow): QuotationDraft {
@@ -165,6 +169,18 @@ function mapRowToDraft(row: QuotationDraftDbRow): QuotationDraft {
   };
 }
 
+function isMissingPantsItemsColumnError(error: { message?: string } | null | undefined) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("pants_items") && (message.includes("column") || message.includes("schema cache"));
+}
+
+function mapLegacyRowToDraft(row: Omit<QuotationDraftDbRow, "pants_items"> & { pants_items?: unknown }): QuotationDraft {
+  return mapRowToDraft({
+    ...row,
+    pants_items: row.pants_items ?? [],
+  } as QuotationDraftDbRow);
+}
+
 async function getCurrentUserProfile() {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) throw sessionError;
@@ -198,8 +214,19 @@ export async function getQuotationDrafts(): Promise<QuotationDraft[]> {
     .select(QUOTATION_DRAFT_SELECT)
     .order("updated_at", { ascending: false });
 
-  if (error) throw error;
-  return ((data ?? []) as QuotationDraftDbRow[]).map(mapRowToDraft);
+  if (!error) {
+    return ((data ?? []) as unknown as QuotationDraftDbRow[]).map(mapRowToDraft);
+  }
+
+  if (!isMissingPantsItemsColumnError(error)) throw error;
+
+  const legacyResult = await supabase
+    .from("quotation_drafts")
+    .select(QUOTATION_DRAFT_BASE_SELECT)
+    .order("updated_at", { ascending: false });
+
+  if (legacyResult.error) throw legacyResult.error;
+  return ((legacyResult.data ?? []) as Array<Omit<QuotationDraftDbRow, "pants_items">>).map(mapLegacyRowToDraft);
 }
 
 export async function getQuotationDraftById(id: string) {
@@ -209,9 +236,22 @@ export async function getQuotationDraftById(id: string) {
     .eq("id", id)
     .maybeSingle();
 
-  if (error) throw error;
-  if (!data) return null;
-  return mapRowToDraft(data as QuotationDraftDbRow);
+  if (!error) {
+    if (!data) return null;
+    return mapRowToDraft(data as unknown as QuotationDraftDbRow);
+  }
+
+  if (!isMissingPantsItemsColumnError(error)) throw error;
+
+  const legacyResult = await supabase
+    .from("quotation_drafts")
+    .select(QUOTATION_DRAFT_BASE_SELECT)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (legacyResult.error) throw legacyResult.error;
+  if (!legacyResult.data) return null;
+  return mapLegacyRowToDraft(legacyResult.data as Omit<QuotationDraftDbRow, "pants_items">);
 }
 
 export async function saveQuotationDraft(draft: QuotationDraft) {
@@ -280,8 +320,22 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     .select(QUOTATION_DRAFT_SELECT)
     .single();
 
-  if (error) throw error;
-  return mapRowToDraft(data as QuotationDraftDbRow);
+  if (!error) {
+    return mapRowToDraft(data as unknown as QuotationDraftDbRow);
+  }
+
+  if (!isMissingPantsItemsColumnError(error)) throw error;
+
+  const legacyPayload: Record<string, unknown> = { ...payload };
+  delete legacyPayload.pants_items;
+  const legacyResult = await supabase
+    .from("quotation_drafts")
+    .upsert(legacyPayload, { onConflict: "id" })
+    .select(QUOTATION_DRAFT_BASE_SELECT)
+    .single();
+
+  if (legacyResult.error) throw legacyResult.error;
+  return mapLegacyRowToDraft(legacyResult.data as Omit<QuotationDraftDbRow, "pants_items">);
 }
 
 export async function deleteQuotationDraft(id: string) {

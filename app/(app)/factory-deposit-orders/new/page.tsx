@@ -433,6 +433,11 @@ function ensureProductionItemCount(items: ProductionItem[], count: ProductionSlo
   return next;
 }
 
+function isMissingPantsItemsColumnError(error: { message?: string } | null | undefined) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("pants_items") && (message.includes("column") || message.includes("schema cache"));
+}
+
 function buildEmptyPantsProductionItem(overrides?: Partial<PantsProductionItem>): PantsProductionItem {
   const base = buildEmptyPantsOrderItem(overrides);
   return {
@@ -1453,12 +1458,26 @@ export default function FactoryDepositOrderFormPage() {
       const previousStatus = status;
 
       if (recordId) {
-        const { error } = await supabase.from("factory_deposit_orders").update(payload).eq("id", recordId);
-        if (error) throw error;
+        const updateResult = await supabase.from("factory_deposit_orders").update(payload).eq("id", recordId);
+        if (updateResult.error) {
+          if (!isMissingPantsItemsColumnError(updateResult.error)) throw updateResult.error;
+          const legacyPayload: Record<string, unknown> = { ...payload };
+          delete legacyPayload.pants_items;
+          const legacyUpdateResult = await supabase.from("factory_deposit_orders").update(legacyPayload).eq("id", recordId);
+          if (legacyUpdateResult.error) throw legacyUpdateResult.error;
+        }
       } else {
-        const { data, error } = await supabase.from("factory_deposit_orders").insert(payload).select("id").single();
-        if (error) throw error;
-        depositOrderId = data.id as string;
+        const insertResult = await supabase.from("factory_deposit_orders").insert(payload).select("id").single();
+        if (insertResult.error) {
+          if (!isMissingPantsItemsColumnError(insertResult.error)) throw insertResult.error;
+          const legacyPayload: Record<string, unknown> = { ...payload };
+          delete legacyPayload.pants_items;
+          const legacyInsertResult = await supabase.from("factory_deposit_orders").insert(legacyPayload).select("id").single();
+          if (legacyInsertResult.error) throw legacyInsertResult.error;
+          depositOrderId = legacyInsertResult.data.id as string;
+        } else {
+          depositOrderId = insertResult.data.id as string;
+        }
         setRecordId(depositOrderId);
         setCreatedByUserId(createdByUserId || viewerUserId || null);
       }
@@ -1480,11 +1499,20 @@ export default function FactoryDepositOrderFormPage() {
         updateAfterUpload.transfer_slip_uploaded_by_user_id = viewerUserId;
       }
 
-      const { error: syncError } = await supabase
+      const syncResult = await supabase
         .from("factory_deposit_orders")
         .update(updateAfterUpload)
         .eq("id", depositOrderId);
-      if (syncError) throw syncError;
+      if (syncResult.error) {
+        if (!isMissingPantsItemsColumnError(syncResult.error)) throw syncResult.error;
+        const legacyUpdateAfterUpload: Record<string, unknown> = { ...updateAfterUpload };
+        delete legacyUpdateAfterUpload.pants_items;
+        const legacySyncResult = await supabase
+          .from("factory_deposit_orders")
+          .update(legacyUpdateAfterUpload)
+          .eq("id", depositOrderId);
+        if (legacySyncResult.error) throw legacySyncResult.error;
+      }
 
       await insertHistory(
         depositOrderId,
