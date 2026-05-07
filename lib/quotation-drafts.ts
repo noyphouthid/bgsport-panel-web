@@ -83,49 +83,47 @@ type QuotationDraftDbRow = {
   updated_at: string;
 };
 
-const QUOTATION_DRAFT_BASE_SELECT = `
-  id,
-  created_by_user_id,
-  created_by_name,
-  quote_no,
-  quote_date,
-  status,
-  customer_name,
-  customer_phone,
-  customer_whatsapp,
-  customer_facebook,
-  fabric_id,
-  fabric_name,
-  fabric_short_price,
-  fabric_long_price,
-  style_name,
-  color_name,
-  sleeve_type,
-  short_qty,
-  long_qty,
-  free_qty,
-  qty_3xl,
-  qty_4xl,
-  qty_5xl,
-  qty_6xl,
-  collar_type,
-  collar_qty,
-  extra_charge,
-  discount,
-  deposit,
-  payment_due_date,
-  delivery_date,
-  payment_terms,
-  notes,
-  warning_note,
-  created_at,
-  updated_at
-`;
+const QUOTATION_DRAFT_BASE_FIELDS = [
+  "id",
+  "created_by_user_id",
+  "created_by_name",
+  "quote_no",
+  "quote_date",
+  "status",
+  "customer_name",
+  "customer_phone",
+  "customer_whatsapp",
+  "customer_facebook",
+  "fabric_id",
+  "fabric_name",
+  "fabric_short_price",
+  "fabric_long_price",
+  "style_name",
+  "color_name",
+  "sleeve_type",
+  "short_qty",
+  "long_qty",
+  "free_qty",
+  "qty_3xl",
+  "qty_4xl",
+  "qty_5xl",
+  "qty_6xl",
+  "collar_type",
+  "collar_qty",
+  "extra_charge",
+  "discount",
+  "deposit",
+  "payment_due_date",
+  "delivery_date",
+  "payment_terms",
+  "notes",
+  "warning_note",
+  "created_at",
+  "updated_at",
+] as const;
 
-const QUOTATION_DRAFT_SELECT = `
-  ${QUOTATION_DRAFT_BASE_SELECT},
-  pants_items,
-`;
+const QUOTATION_DRAFT_BASE_SELECT = QUOTATION_DRAFT_BASE_FIELDS.join(",");
+const QUOTATION_DRAFT_SELECT = [...QUOTATION_DRAFT_BASE_FIELDS, "pants_items"].join(",");
 
 function mapRowToDraft(row: QuotationDraftDbRow): QuotationDraft {
   return {
@@ -226,7 +224,7 @@ export async function getQuotationDrafts(): Promise<QuotationDraft[]> {
     .order("updated_at", { ascending: false });
 
   if (legacyResult.error) throw legacyResult.error;
-  return ((legacyResult.data ?? []) as Array<Omit<QuotationDraftDbRow, "pants_items">>).map(mapLegacyRowToDraft);
+  return ((legacyResult.data ?? []) as unknown as Array<Omit<QuotationDraftDbRow, "pants_items">>).map(mapLegacyRowToDraft);
 }
 
 export async function getQuotationDraftById(id: string) {
@@ -251,7 +249,7 @@ export async function getQuotationDraftById(id: string) {
 
   if (legacyResult.error) throw legacyResult.error;
   if (!legacyResult.data) return null;
-  return mapLegacyRowToDraft(legacyResult.data as Omit<QuotationDraftDbRow, "pants_items">);
+  return mapLegacyRowToDraft(legacyResult.data as unknown as Omit<QuotationDraftDbRow, "pants_items">);
 }
 
 export async function saveQuotationDraft(draft: QuotationDraft) {
@@ -335,7 +333,7 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     .single();
 
   if (legacyResult.error) throw legacyResult.error;
-  return mapLegacyRowToDraft(legacyResult.data as Omit<QuotationDraftDbRow, "pants_items">);
+  return mapLegacyRowToDraft(legacyResult.data as unknown as Omit<QuotationDraftDbRow, "pants_items">);
 }
 
 export async function deleteQuotationDraft(id: string) {
