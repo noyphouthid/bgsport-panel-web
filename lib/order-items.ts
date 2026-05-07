@@ -71,6 +71,11 @@ type PantsOrderItemPayloadInput = {
 export const PRINTED_SHIRT_PRODUCT_NAME = "ເສື້ອພິມລາຍ";
 export const PRINTED_PANTS_PRODUCT_NAME = "ໂສ້ງພິມລາຍ";
 
+export function isMissingOrderItemsTableError(error: { message?: string } | null | undefined) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("order_items") && (message.includes("could not find the table") || message.includes("schema cache"));
+}
+
 export function buildOrderItemClientId() {
   return `order-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }

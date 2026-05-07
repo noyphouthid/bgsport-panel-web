@@ -12,6 +12,7 @@ import {
   getPantsItemsSummary,
   getPantsLineGross,
   getPantsTotalQty,
+  isMissingOrderItemsTableError,
   type PantsOrderItemDraft,
 } from "@/lib/order-items";
 import { isAdminRole, isGraphicRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
@@ -525,9 +526,15 @@ export default function NewOrderPage() {
     if (itemPayloads.length > 0) {
       const { error: itemError } = await supabase.from("order_items").insert(itemPayloads);
       if (itemError) {
+        if (isMissingOrderItemsTableError(itemError)) {
+          if (hasPantsLine) {
+            toast("ບັນທຶກອໍເດີແລ້ວ ແຕ່ຂໍ້ມູນໂສ້ງຍັງບໍ່ຖືກເກັບ ເນື່ອງຈາກ `order_items` ຍັງບໍ່ພ້ອມ");
+          }
+        } else {
         setErr(itemError.message);
         toast.error(`ບັນທຶກລາຍການສິນຄ້າບໍ່ສຳເລັດ: ${itemError.message}`);
         return;
+        }
       }
     }
 

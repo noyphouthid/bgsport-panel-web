@@ -13,6 +13,7 @@ import {
   getPantsItemsSummary,
   getPantsLineGross,
   getPantsTotalQty,
+  isMissingOrderItemsTableError,
   parsePantsOrderItems,
   type OrderItemRow,
   type PantsOrderItemDraft,
@@ -256,7 +257,7 @@ export default function EditOrderPage() {
       .select("id,order_id,line_no,product_type,product_name,fabric_id,fabric_name,qty,free_qty,unit_price,extra_charge,line_discount,gross_total,net_total,factory_cost_total,size_breakdown,attributes,notes,created_at,updated_at")
       .eq("order_id", orderId)
       .order("line_no", { ascending: true });
-    if (itemError && !itemError.message.includes("Could not find the table")) throw itemError;
+    if (itemError && !isMissingOrderItemsTableError(itemError)) throw itemError;
     const itemRows = ((itemData ?? []) as OrderItemRow[]) || [];
     const shirtItem = itemRows.find((row) => row.product_type === "shirt_printed") || null;
 
@@ -731,10 +732,15 @@ export default function EditOrderPage() {
         return toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error.message}`);
       }
 
+      let orderItemsUnavailable = false;
       const { error: deleteItemsError } = await supabase.from("order_items").delete().eq("order_id", orderId);
-      if (deleteItemsError && !deleteItemsError.message.includes("Could not find the table")) {
-        setErr(deleteItemsError.message);
-        return toast.error(`ບັນທຶກລາຍການສິນຄ້າບໍ່ສຳເລັດ: ${deleteItemsError.message}`);
+      if (deleteItemsError) {
+        if (isMissingOrderItemsTableError(deleteItemsError)) {
+          orderItemsUnavailable = true;
+        } else {
+          setErr(deleteItemsError.message);
+          return toast.error(`ບັນທຶກລາຍການສິນຄ້າບໍ່ສຳເລັດ: ${deleteItemsError.message}`);
+        }
       }
 
       const itemPayloads = [
@@ -772,17 +778,24 @@ export default function EditOrderPage() {
         ),
       ];
 
-      if (itemPayloads.length > 0) {
+      if (!orderItemsUnavailable && itemPayloads.length > 0) {
         const { error: insertItemsError } = await supabase.from("order_items").insert(itemPayloads);
         if (insertItemsError) {
-          setErr(insertItemsError.message);
-          return toast.error(`ບັນທຶກລາຍການສິນຄ້າບໍ່ສຳເລັດ: ${insertItemsError.message}`);
+          if (isMissingOrderItemsTableError(insertItemsError)) {
+            orderItemsUnavailable = true;
+          } else {
+            setErr(insertItemsError.message);
+            return toast.error(`ບັນທຶກລາຍການສິນຄ້າບໍ່ສຳເລັດ: ${insertItemsError.message}`);
+          }
         }
       }
 
       await safeInsertAction("update_order", "Updated order details");
       await reloadAll();
       markClean();
+      if (orderItemsUnavailable && hasPantsLine) {
+        toast("ບັນທຶກອໍເດີແລ້ວ ແຕ່ຂໍ້ມູນໂສ້ງຍັງບໍ່ຖືກ sync ເນື່ອງຈາກ `order_items` ຍັງບໍ່ພ້ອມ");
+      }
       toast.success("ບັນທຶກແລ້ວ");
     } catch (error) {
       const message = error instanceof Error ? error.message : "save_failed";
