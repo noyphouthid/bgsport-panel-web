@@ -321,7 +321,7 @@ export default function ShipmentNotesPage() {
           </select>
           {canManageAllTransportNotes(viewerRole) ? (
             <select value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="all">ທຸກແອັດມິນ</option>
+              <option value="all">ທຸກຜູ້ສ້າງ</option>
               {adminOptions.map((admin) => (
                 <option key={admin.id} value={admin.id}>
                   {admin.full_name}

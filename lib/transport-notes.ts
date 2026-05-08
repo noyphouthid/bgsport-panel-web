@@ -53,7 +53,7 @@ export const DEFAULT_TRANSPORT_NOTE_FORM: TransportNoteForm = {
 export function canManageAllTransportNotes(
   role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant" | null
 ) {
-  return role === "superadmin" || role === "admin";
+  return role === "superadmin" || role === "admin" || role === "manager" || role === "staff";
 }
 
 export function buildTransportNoteNo() {
