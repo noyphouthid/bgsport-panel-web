@@ -502,7 +502,8 @@ export default function FactoryDepositOrdersPage() {
 
       const { data: orderData, error: insertOrderError } = await supabase.from("orders").insert(orderPayload).select("id").single();
       if (insertOrderError) throw new Error(`ສ້າງ order ບໍ່ສຳເລັດ: ${insertOrderError.message}`);
-      createdOrderId = orderData.id as string;
+      const orderId = orderData.id as string;
+      createdOrderId = orderId;
 
       const hasShirtLine =
         Math.max(0, Number(row.short_qty) || 0) > 0 ||
@@ -518,7 +519,7 @@ export default function FactoryDepositOrdersPage() {
         ...(hasShirtLine
           ? [
               buildShirtOrderItemPayload({
-                orderId: createdOrderId,
+                orderId,
                 lineNo: 1,
                 fabric: {
                   id: row.fabric_id || "",
@@ -541,7 +542,7 @@ export default function FactoryDepositOrdersPage() {
           : []),
         ...pantsItems.map((item, index) =>
           buildPantsOrderItemPayload({
-            orderId: createdOrderId,
+            orderId,
             lineNo: index + (hasShirtLine ? 2 : 1),
             item,
             fabricsById,
@@ -566,7 +567,7 @@ export default function FactoryDepositOrdersPage() {
         .from("factory_deposit_orders")
         .update({
           status: "converted",
-          order_id: createdOrderId,
+          order_id: orderId,
           converted_at: new Date().toISOString(),
           converted_by_user_id: viewerUserId,
         })

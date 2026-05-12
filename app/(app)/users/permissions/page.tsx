@@ -35,7 +35,7 @@ const MODE_OPTIONS: Array<{ value: PermissionMode; label: string }> = [
 ];
 
 function groupAccessItems() {
-  const grouped = new Map<string, typeof ACCESS_PERMISSION_ITEMS>();
+  const grouped = new Map<string, Array<(typeof ACCESS_PERMISSION_ITEMS)[number]>>();
   ACCESS_PERMISSION_ITEMS.forEach((item) => {
     const current = grouped.get(item.group) || [];
     grouped.set(item.group, [...current, item]);

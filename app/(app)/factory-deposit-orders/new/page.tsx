@@ -1748,7 +1748,8 @@ export default function FactoryDepositOrderFormPage() {
 
       const { data: orderData, error: insertOrderError } = await supabase.from("orders").insert(orderPayload).select("id").single();
       if (insertOrderError) throw new Error(`ສ້າງ order ບໍ່ສຳເລັດ: ${insertOrderError.message}`);
-      createdOrderId = orderData.id as string;
+      const orderId = orderData.id as string;
+      createdOrderId = orderId;
 
       const hasShirtLine =
         Math.max(0, shortQty) > 0 ||
@@ -1763,7 +1764,7 @@ export default function FactoryDepositOrderFormPage() {
         ...(hasShirtLine
           ? [
               buildShirtOrderItemPayload({
-                orderId: createdOrderId,
+                orderId,
                 lineNo: 1,
                 fabric: {
                   id: selectedFabric.id,
@@ -1786,7 +1787,7 @@ export default function FactoryDepositOrderFormPage() {
           : []),
         ...convertedPantsItems.map((item, index) =>
           buildPantsOrderItemPayload({
-            orderId: createdOrderId,
+            orderId,
             lineNo: index + (hasShirtLine ? 2 : 1),
             item,
             fabricsById,
@@ -1811,7 +1812,7 @@ export default function FactoryDepositOrderFormPage() {
         .from("factory_deposit_orders")
         .update({
           status: "converted",
-          order_id: createdOrderId,
+          order_id: orderId,
           converted_at: new Date().toISOString(),
           converted_by_user_id: viewerUserId,
         })
@@ -2969,7 +2970,7 @@ export default function FactoryDepositOrderFormPage() {
                           ) : null}
 
                           {item.player_mode !== "none" && filledPlayerRows.length > 0 ? (
-                            <div className={item.player_mode === "none" ? "mt-4 border-t border-slate-200 pt-3" : ""}>
+                            <div>
                               <div className="mb-2 text-center text-[14px] font-black text-slate-700">
                                 {getPlayerModePreviewTitle(item.player_mode)}
                               </div>
