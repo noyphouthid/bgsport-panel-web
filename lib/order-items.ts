@@ -38,6 +38,10 @@ export type PantsOrderItemDraft = {
   mockupFileName?: string | null;
   mockupFile?: File | null;
   mockupPreviewUrl?: string | null;
+  sizeBreakdown?: Record<string, number>;
+  playerMode?: string | null;
+  playerRows?: Array<Record<string, unknown>>;
+  attributes?: Record<string, unknown>;
 };
 
 type ShirtOrderItemPayloadInput = {
@@ -96,7 +100,69 @@ export function buildEmptyPantsOrderItem(overrides?: Partial<PantsOrderItemDraft
     mockupFileName: overrides?.mockupFileName ?? null,
     mockupFile: overrides?.mockupFile ?? null,
     mockupPreviewUrl: overrides?.mockupPreviewUrl ?? null,
+    sizeBreakdown: overrides?.sizeBreakdown ?? {},
+    playerMode: overrides?.playerMode ?? null,
+    playerRows: overrides?.playerRows ?? [],
+    attributes: overrides?.attributes ?? {},
   };
+}
+
+function toRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function toNumberRecord(value: unknown) {
+  const record = toRecord(value);
+  return Object.fromEntries(Object.entries(record).map(([key, entry]) => [key, Math.max(0, Number(entry) || 0)]));
+}
+
+function toPlayerRows(value: unknown) {
+  if (!Array.isArray(value)) return [] as Array<Record<string, unknown>>;
+  return value
+    .map((entry) => (entry && typeof entry === "object" ? { ...(entry as Record<string, unknown>) } : null))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+}
+
+function getPantsItemMedia(item: PantsOrderItemDraft & Record<string, unknown>) {
+  return {
+    mockupPath:
+      typeof item.mockupPath === "string"
+        ? item.mockupPath
+        : typeof item.mockup_path === "string"
+          ? item.mockup_path
+          : null,
+    mockupUrl:
+      typeof item.mockupUrl === "string"
+        ? item.mockupUrl
+        : typeof item.mockup_url === "string"
+          ? item.mockup_url
+          : null,
+    mockupFileName:
+      typeof item.mockupFileName === "string"
+        ? item.mockupFileName
+        : typeof item.mockup_file_name === "string"
+          ? item.mockup_file_name
+          : null,
+  };
+}
+
+function getPantsItemSizeBreakdown(item: PantsOrderItemDraft & Record<string, unknown>) {
+  if (item.sizeBreakdown) return toNumberRecord(item.sizeBreakdown);
+  if (item.size_breakdown) return toNumberRecord(item.size_breakdown);
+  if (item.sizes) return toNumberRecord(item.sizes);
+  return {};
+}
+
+function getPantsItemPlayerMode(item: PantsOrderItemDraft & Record<string, unknown>) {
+  if (typeof item.playerMode === "string") return item.playerMode;
+  if (typeof item.player_mode === "string") return item.player_mode;
+  return "none";
+}
+
+function getPantsItemPlayerRows(item: PantsOrderItemDraft & Record<string, unknown>) {
+  if (Array.isArray(item.playerRows)) return toPlayerRows(item.playerRows);
+  if (Array.isArray(item.player_rows)) return toPlayerRows(item.player_rows);
+  return [];
 }
 
 export function parsePantsDraftItems(value: unknown) {
@@ -155,6 +221,26 @@ export function parsePantsDraftItems(value: unknown) {
             : typeof row.mockup_file_name === "string"
               ? row.mockup_file_name
               : null,
+        sizeBreakdown:
+          typeof row.sizeBreakdown === "object" && row.sizeBreakdown
+            ? toNumberRecord(row.sizeBreakdown)
+            : typeof row.size_breakdown === "object" && row.size_breakdown
+              ? toNumberRecord(row.size_breakdown)
+              : typeof row.sizes === "object" && row.sizes
+                ? toNumberRecord(row.sizes)
+                : {},
+        playerMode:
+          typeof row.playerMode === "string"
+            ? row.playerMode
+            : typeof row.player_mode === "string"
+              ? row.player_mode
+              : null,
+        playerRows:
+          Array.isArray(row.playerRows)
+            ? toPlayerRows(row.playerRows)
+            : Array.isArray(row.player_rows)
+              ? toPlayerRows(row.player_rows)
+              : [],
       });
     })
     .filter((item) => item.productName.trim() || item.fabricId || item.qty > 0 || item.freeQty > 0 || item.unitPrice > 0 || item.factoryCost > 0 || item.notes.trim());
@@ -236,6 +322,13 @@ export function buildShirtOrderItemPayload(input: ShirtOrderItemPayloadInput) {
 
 export function buildPantsOrderItemPayload(input: PantsOrderItemPayloadInput) {
   const fabric = input.fabricsById.get(input.item.fabricId);
+  const rawItem = input.item as PantsOrderItemDraft & Record<string, unknown>;
+  const media = getPantsItemMedia(rawItem);
+  const sizeBreakdown = getPantsItemSizeBreakdown(rawItem);
+  const playerMode = getPantsItemPlayerMode(rawItem);
+  const playerRows = getPantsItemPlayerRows(rawItem);
+  const attributes = toRecord(rawItem.attributes);
+
   return {
     order_id: input.orderId,
     line_no: input.lineNo,
@@ -251,11 +344,14 @@ export function buildPantsOrderItemPayload(input: PantsOrderItemPayloadInput) {
     gross_total: getPantsLineGross(input.item),
     net_total: getPantsLineNet(input.item),
     factory_cost_total: getPantsLineFactoryCost(input.item),
-    size_breakdown: {},
+    size_breakdown: sizeBreakdown,
     attributes: {
-      mockup_path: input.item.mockupPath ?? null,
-      mockup_url: input.item.mockupUrl ?? null,
-      mockup_file_name: input.item.mockupFileName ?? null,
+      ...attributes,
+      mockup_path: media.mockupPath,
+      mockup_url: media.mockupUrl,
+      mockup_file_name: media.mockupFileName,
+      player_mode: playerMode,
+      player_rows: playerRows,
     },
     notes: input.item.notes.trim(),
   };
@@ -265,10 +361,9 @@ export function parsePantsOrderItems(rows: OrderItemRow[]) {
   return rows
     .filter((row) => row.product_type === "pants_printed")
     .sort((a, b) => a.line_no - b.line_no)
-    .map((row) =>
-      {
-        const attributes = row.attributes && typeof row.attributes === "object" ? (row.attributes as Record<string, unknown>) : {};
-        return (
+    .map((row) => {
+      const attributes = toRecord(row.attributes);
+      return (
       buildEmptyPantsOrderItem({
         id: row.id,
         clientId: row.id,
@@ -282,8 +377,11 @@ export function parsePantsOrderItems(rows: OrderItemRow[]) {
         mockupPath: typeof attributes.mockup_path === "string" ? attributes.mockup_path : null,
         mockupUrl: typeof attributes.mockup_url === "string" ? attributes.mockup_url : null,
         mockupFileName: typeof attributes.mockup_file_name === "string" ? attributes.mockup_file_name : null,
+        sizeBreakdown: toNumberRecord(row.size_breakdown),
+        playerMode: typeof attributes.player_mode === "string" ? attributes.player_mode : null,
+        playerRows: toPlayerRows(attributes.player_rows),
+        attributes,
       })
-        );
-      }
-    );
+      );
+    });
 }

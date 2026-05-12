@@ -4,15 +4,36 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
 import { supabase } from "@/lib/supabase";
-import { type OrderCodeTypeRow, fetchOrderCodeTypes } from "@/lib/order-code-options";
+import {
+  buildFallbackOrderCodeTypeRows,
+  isMissingOrderCodeTypesTableError,
+  isProtectedOrderCodeType,
+  seedDefaultOrderCodeTypes,
+  type OrderCodeTypeRow,
+} from "@/lib/order-code-options";
 import { normalizeOrderType } from "@/lib/order-code";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
+
+function getSupabaseErrorMessage(error: unknown, fallback = "unknown_error") {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object") {
+    const maybe = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const parts = [maybe.message, maybe.details, maybe.hint, maybe.code]
+      .filter((value) => typeof value === "string" && value.trim().length > 0)
+      .map((value) => String(value).trim());
+    if (parts.length > 0) return parts.join(" | ");
+  }
+  return fallback;
+}
 
 export default function OrderCodeTypesPage() {
   const pageRef = useRef<HTMLDivElement | null>(null);
   const [rows, setRows] = useState<OrderCodeTypeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [tableMissing, setTableMissing] = useState(false);
+  const [usingFallbackRows, setUsingFallbackRows] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -27,16 +48,67 @@ export default function OrderCodeTypesPage() {
   const [editSortOrder, setEditSortOrder] = useState(100);
   const [editActive, setEditActive] = useState(true);
   const { markClean } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
+  const editingProtected = editing ? isProtectedOrderCodeType(editing.code) : false;
+
+  const fetchPersistedRows = async () => {
+    const { data, error } = await supabase
+      .from("order_code_types")
+      .select("id,code,label,sort_order,is_active,is_system,created_at,updated_at")
+      .order("sort_order", { ascending: true })
+      .order("code", { ascending: true });
+
+    if (error) throw error;
+
+    return ((data ?? []) as OrderCodeTypeRow[]).map((row) => ({
+      ...row,
+      code: normalizeOrderType(row.code),
+    }));
+  };
 
   const load = async () => {
     setLoading(true);
     setErr(null);
+    setNotice(null);
+    setTableMissing(false);
+    setUsingFallbackRows(false);
 
     try {
-      const nextRows = await fetchOrderCodeTypes(false);
+      let nextRows: OrderCodeTypeRow[] = [];
+
+      try {
+        nextRows = await fetchPersistedRows();
+      } catch (error) {
+        if (error instanceof Error && isMissingOrderCodeTypesTableError(error.message)) {
+          setTableMissing(true);
+          setUsingFallbackRows(true);
+          setRows(buildFallbackOrderCodeTypeRows());
+          setNotice("ຖານຂໍ້ມູນຍັງບໍ່ມີຕາຕະລາງປະເພດລະຫັດ ຈຶ່ງສະແດງລາຍການ default ຊົ່ວຄາວ ແລະຍັງແກ້ໄຂບໍ່ໄດ້");
+          return;
+        }
+
+        throw error;
+      }
+
+      if (nextRows.length === 0) {
+        try {
+          await seedDefaultOrderCodeTypes();
+          nextRows = await fetchPersistedRows();
+          if (nextRows.length > 0) {
+            setNotice("ລະບົບໄດ້ສ້າງລາຍການ default ເຂົ້າຖານຂໍ້ມູນໃຫ້ແລ້ວ");
+          }
+        } catch (error) {
+          const message = getSupabaseErrorMessage(error, "seed_default_order_code_types_failed");
+          setErr(message);
+          setUsingFallbackRows(true);
+          setRows(buildFallbackOrderCodeTypeRows());
+          setNotice("ຕາຕະລາງປະເພດລະຫັດຍັງບໍ່ມີຂໍ້ມູນ ແລະການ seed ຈາກ Supabase ບໍ່ສຳເລັດ ຈຶ່ງສະແດງລາຍການ default ຊົ່ວຄາວ");
+          return;
+        }
+      }
+
       setRows(nextRows);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "load_failed";
+      const message = getSupabaseErrorMessage(error, "load_failed");
       setErr(message);
       setRows([]);
     } finally {
@@ -57,6 +129,11 @@ export default function OrderCodeTypesPage() {
   };
 
   const openEdit = (row: OrderCodeTypeRow) => {
+    if (usingFallbackRows) {
+      toast.error("ລາຍການ default ນີ້ຍັງບໍ່ໄດ້ຖືກບັນທຶກໃນ database");
+      return;
+    }
+
     setEditing(row);
     setEditCode(row.code);
     setEditLabel(row.label || "");
@@ -65,6 +142,11 @@ export default function OrderCodeTypesPage() {
   };
 
   const addType = async () => {
+    if (tableMissing || usingFallbackRows) {
+      toast.error("ຍັງບໍ່ສາມາດບັນທຶກໄດ້ ເພາະ table ຍັງບໍ່ພ້ອມ");
+      return;
+    }
+
     const code = normalizeOrderType(newCode);
     if (!code) {
       toast.error("ກະລຸນາປ້ອນປະເພດລະຫັດ");
@@ -101,6 +183,10 @@ export default function OrderCodeTypesPage() {
 
   const saveEdit = async () => {
     if (!editing) return;
+    if (tableMissing || usingFallbackRows) {
+      toast.error("ຍັງບໍ່ສາມາດບັນທຶກໄດ້ ເພາະ table ຍັງບໍ່ພ້ອມ");
+      return;
+    }
 
     const code = normalizeOrderType(editCode);
     if (!code) {
@@ -111,13 +197,16 @@ export default function OrderCodeTypesPage() {
     setSaving(true);
     setErr(null);
 
+    const resolvedCode = editingProtected ? editing.code : code;
+    const resolvedActive = editingProtected ? true : editActive;
+
     const { error } = await supabase
       .from("order_code_types")
       .update({
-        code,
+        code: resolvedCode,
         label: editLabel.trim() || null,
         sort_order: Math.max(0, Number(editSortOrder) || 0),
-        is_active: editActive,
+        is_active: resolvedActive,
         updated_at: new Date().toISOString(),
       })
       .eq("id", editing.id);
@@ -137,8 +226,29 @@ export default function OrderCodeTypesPage() {
   };
 
   const deleteType = async (row: OrderCodeTypeRow) => {
-    if (row.is_system) {
-      toast.error("ລະຫັດລະບົບບໍ່ສາມາດລຶບໄດ້");
+    if (tableMissing || usingFallbackRows) {
+      toast.error("ຍັງບໍ່ສາມາດລຶບໄດ້ ເພາະ table ຍັງບໍ່ພ້ອມ");
+      return;
+    }
+
+    if (isProtectedOrderCodeType(row.code)) {
+      toast.error("ລະຫັດຫຼັກຂອງລະບົບບໍ່ສາມາດລຶບໄດ້");
+      return;
+    }
+
+    const { count, error: usageError } = await supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .ilike("order_code", `${row.code}-%`);
+
+    if (usageError) {
+      setErr(usageError.message);
+      toast.error(usageError.message);
+      return;
+    }
+
+    if ((count ?? 0) > 0) {
+      toast.error("ຍັງມີອໍເດີໃຊ້ລະຫັດນີ້ຢູ່ ເລີຍລຶບບໍ່ໄດ້");
       return;
     }
 
@@ -182,6 +292,11 @@ export default function OrderCodeTypesPage() {
           ເພີ່ມ ຫຼື ປິດການໃຊ້ງານປະເພດລະຫັດທີ່ຈະໄປສະແດງໃນໜ້າສ້າງອໍເດີ
         </div>
         {err ? <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">ຂໍ້ຜິດພາດ: {err}</div> : null}
+        {notice ? (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
+            {notice}
+          </div>
+        ) : null}
       </div>
 
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -193,6 +308,7 @@ export default function OrderCodeTypesPage() {
               value={newCode}
               onChange={(e) => setNewCode(normalizeOrderType(e.target.value))}
               placeholder="ຕົວຢ່າງ PK27"
+              disabled={tableMissing || usingFallbackRows}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold uppercase text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -202,6 +318,7 @@ export default function OrderCodeTypesPage() {
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               placeholder="ຕົວຢ່າງ: MK26 ຮ້ານ"
+              disabled={tableMissing || usingFallbackRows}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -212,18 +329,19 @@ export default function OrderCodeTypesPage() {
               min={0}
               value={newSortOrder}
               onChange={(e) => setNewSortOrder(Number(e.target.value))}
+              disabled={tableMissing || usingFallbackRows}
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-900"
             />
           </div>
           <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
-            <input type="checkbox" checked={newActive} onChange={(e) => setNewActive(e.target.checked)} />
+            <input type="checkbox" checked={newActive} onChange={(e) => setNewActive(e.target.checked)} disabled={tableMissing || usingFallbackRows} />
             ເປີດໃຊ້ງານ
           </label>
         </div>
         <div className="mt-3 flex justify-end">
           <button
             onClick={addType}
-            disabled={saving}
+            disabled={saving || tableMissing || usingFallbackRows}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-black text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
           >
             + ເພີ່ມລາຍການ
@@ -245,6 +363,7 @@ export default function OrderCodeTypesPage() {
               <input
                 value={editCode}
                 onChange={(e) => setEditCode(normalizeOrderType(e.target.value))}
+                disabled={tableMissing || usingFallbackRows || editingProtected}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold uppercase text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -253,6 +372,7 @@ export default function OrderCodeTypesPage() {
               <input
                 value={editLabel}
                 onChange={(e) => setEditLabel(e.target.value)}
+                disabled={tableMissing || usingFallbackRows}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -263,18 +383,19 @@ export default function OrderCodeTypesPage() {
                 min={0}
                 value={editSortOrder}
                 onChange={(e) => setEditSortOrder(Number(e.target.value))}
+                disabled={tableMissing || usingFallbackRows}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-900"
               />
             </div>
             <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
-              <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
+              <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} disabled={tableMissing || usingFallbackRows || editingProtected} />
               ເປີດໃຊ້ງານ
             </label>
           </div>
           <div className="mt-3 flex justify-end">
             <button
               onClick={saveEdit}
-              disabled={saving}
+              disabled={saving || tableMissing || usingFallbackRows}
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-black text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
             >
               ບັນທຶກການແກ້ໄຂ
@@ -332,12 +453,16 @@ export default function OrderCodeTypesPage() {
                     <td className="p-4 text-xs font-medium text-slate-500">{(row.updated_at || row.created_at || "").slice(0, 10) || "-"}</td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        <button onClick={() => openEdit(row)} className="rounded-lg px-3 py-1.5 text-xs font-black text-blue-600 transition-all hover:bg-blue-50">
+                        <button
+                          onClick={() => openEdit(row)}
+                          disabled={tableMissing || usingFallbackRows}
+                          className="rounded-lg px-3 py-1.5 text-xs font-black text-blue-600 transition-all hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                        >
                           ແກ້ໄຂ
                         </button>
                         <button
                           onClick={() => deleteType(row)}
-                          disabled={deletingId === row.id || row.is_system}
+                          disabled={tableMissing || usingFallbackRows || deletingId === row.id || isProtectedOrderCodeType(row.code)}
                           className="rounded-lg px-3 py-1.5 text-xs font-black text-rose-600 transition-all hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-300"
                         >
                           {deletingId === row.id ? "ກຳລັງລຶບ..." : "ລຶບ"}

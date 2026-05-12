@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { MessageCircleMore } from "lucide-react";
+import { isMissingOrderItemsTableError, type OrderItemRow } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import { WhatsappMessageModal } from "../_components/whatsapp-message-modal";
@@ -51,6 +52,7 @@ function getDisplayShirtTotal(row: Pick<OrderRow, "short_qty" | "long_qty" | "fr
 
 export default function OrdersPage() {
   const [rows, setRows] = useState<OrderRow[]>([]);
+  const [pantsQtyByOrder, setPantsQtyByOrder] = useState<Record<string, number>>({});
   const [filteredTotal, setFilteredTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -99,6 +101,7 @@ export default function OrdersPage() {
     if (error) {
       setErr(error.message);
       setRows([]);
+      setPantsQtyByOrder({});
       setFilteredTotal(0);
     } else {
       const filteredRows = ((data ?? []) as OrderRow[]).filter((row) => {
@@ -118,8 +121,36 @@ export default function OrdersPage() {
       });
       const from = (page - 1) * pageSize;
       const to = from + pageSize;
+      const pageRows = filteredRows.slice(from, to);
       setFilteredTotal(filteredRows.length);
-      setRows(filteredRows.slice(from, to));
+      setRows(pageRows);
+
+      const orderIds = pageRows.map((row) => row.id);
+      if (orderIds.length === 0) {
+        setPantsQtyByOrder({});
+      } else {
+        const { data: itemData, error: itemError } = await supabase
+          .from("order_items")
+          .select("order_id,product_type,qty,free_qty")
+          .in("order_id", orderIds)
+          .eq("product_type", "pants_printed");
+
+        if (itemError) {
+          if (!isMissingOrderItemsTableError(itemError)) {
+            setErr(itemError.message);
+          }
+          setPantsQtyByOrder({});
+        } else {
+          const totals = ((itemData ?? []) as Pick<OrderItemRow, "order_id" | "product_type" | "qty" | "free_qty">[]).reduce<Record<string, number>>(
+            (acc, item) => {
+              acc[item.order_id] = (acc[item.order_id] || 0) + (Number(item.qty) || 0) + (Number(item.free_qty) || 0);
+              return acc;
+            },
+            {}
+          );
+          setPantsQtyByOrder(totals);
+        }
+      }
     }
     setLoading(false);
   };
@@ -391,12 +422,12 @@ export default function OrdersPage() {
             />
           </div>
           <div className="flex gap-2 md:col-span-7 mt-2">
-            {!isAdminLimited ? <button
+            <button
               onClick={runSearch}
               className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
             >
               ຄົ້ນຫາ
-            </button> : null}
+            </button>
             <button
               onClick={resetAll}
               className="bg-slate-100 text-slate-600 px-6 py-2 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors border border-slate-200"
@@ -446,6 +477,7 @@ export default function OrdersPage() {
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ເບີໂທ / WhatsApp</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ຜ້າ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຈຳນວນເສື້ອ</th>
+                <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຈຳນວນໂສ້ງ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຍອດສຸດທິ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຄ້າງ</th>
                 <th className="p-4 text-right font-bold uppercase text-[14px] tracking-widest">ຕົ້ນທຶນໂຮງງານ</th>
@@ -456,7 +488,7 @@ export default function OrdersPage() {
             <tbody className="divide-y divide-slate-50">
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={12}>
+                  <td className="p-10 text-slate-400 text-center font-medium" colSpan={13}>
                     ບໍ່ພົບຂໍ້ມູນໃນລະບົບ
                   </td>
                 </tr>
@@ -495,6 +527,9 @@ export default function OrdersPage() {
                     </td>
                     <td className="p-4 text-slate-600 font-medium">{r.fabric_name}</td>
                     <td className="p-4 text-right font-bold text-slate-700">{getDisplayShirtTotal(r).toLocaleString()}</td>
+                    <td className="p-4 text-right font-bold text-indigo-700">
+                      {pantsQtyByOrder[r.id] > 0 ? pantsQtyByOrder[r.id].toLocaleString() : "-"}
+                    </td>
                     <td className="p-4 text-right font-bold text-slate-600">{r.net_total.toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-rose-600 bg-rose-50/30">{r.balance.toLocaleString()}</td>
                     <td className="p-4 text-right font-bold text-slate-700">{r.factory_cost.toLocaleString()}</td>

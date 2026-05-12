@@ -35,11 +35,21 @@ export type PayrollBreakdown = PayrollEmployee & {
   paymentStatus: "ready" | "reviewing" | "hold";
 };
 
-export const payrollMonthOptions: PayrollMonthOption[] = [
-  { value: "2026-03", label: "ເດືອນ 3 / 2026", status: "reviewing" },
-  { value: "2026-02", label: "ເດືອນ 2 / 2026", status: "closed" },
-  { value: "2026-01", label: "ເດືອນ 1 / 2026", status: "closed" },
-];
+function buildPayrollMonthOptions(referenceDate = new Date(), count = 12): PayrollMonthOption[] {
+  return Array.from({ length: count }, (_, index) => {
+    const monthDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - index, 1);
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth() + 1;
+
+    return {
+      value: `${year}-${String(month).padStart(2, "0")}`,
+      label: `ເດືອນ ${month} / ${year}`,
+      status: index === 0 ? "reviewing" : "closed",
+    };
+  });
+}
+
+export const payrollMonthOptions: PayrollMonthOption[] = buildPayrollMonthOptions();
 
 export function createEmployeeCode(index: number) {
   return `EMP-${String(index).padStart(3, "0")}`;

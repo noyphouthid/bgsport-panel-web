@@ -5,6 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
 import { ExternalLink, Eye, FileImage, FilePlus2, FileText, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  buildPantsOrderItemPayload,
+  buildShirtOrderItemPayload,
+  getPantsTotalQty,
+  isMissingOrderItemsTableError,
+  parsePantsDraftItems,
+} from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import {
@@ -57,6 +64,7 @@ type DepositRow = {
   production_priority?: "normal" | "urgent" | null;
   urgent_due_date?: string | null;
   production_items?: unknown;
+  pants_items?: unknown;
   transfer_slip_url?: string | null;
   transfer_slip_path?: string | null;
 };
@@ -98,6 +106,11 @@ type ProductionPreviewItem = {
   sizes: Record<ProductionSizeKey, number>;
   player_mode: ProductionPlayerMode;
   player_rows: ProductionPlayerRow[];
+};
+
+type FabricRow = {
+  id: string;
+  name: string;
 };
 
 const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: string }> = [
@@ -232,8 +245,18 @@ function getSecondaryDocumentCode(row: Pick<DepositRow, "quotation_quote_no" | "
   return candidates.join(" / ");
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = String((error as { message?: unknown }).message || "").trim();
+    if (message) return message;
+  }
+  return fallback;
+}
+
 export default function FactoryDepositOrdersPage() {
   const [rows, setRows] = useState<DepositRow[]>([]);
+  const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
@@ -250,17 +273,25 @@ export default function FactoryDepositOrdersPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [{ data: depositData, error: depositError }, { data: usersData, error: usersError }, { data: sessionData }] =
+      const [
+        { data: depositData, error: depositError },
+        { data: usersData, error: usersError },
+        { data: fabricsData, error: fabricsError },
+        { data: sessionData },
+      ] =
         await Promise.all([
           supabase.from("factory_deposit_orders").select("*").order("deposit_date", { ascending: false }).order("created_at", { ascending: false }),
           supabase.from("users").select("id,auth_user_id,role").eq("is_active", true),
+          supabase.from("fabrics").select("id,name").eq("is_active", true).order("name", { ascending: true }),
           supabase.auth.getSession(),
         ]);
 
       if (depositError) throw depositError;
       if (usersError) throw usersError;
+      if (fabricsError) throw fabricsError;
 
       setRows((depositData ?? []) as DepositRow[]);
+      setFabrics((fabricsData ?? []) as FabricRow[]);
       const authUserId = sessionData.session?.user.id ?? null;
       const currentUser = ((usersData ?? []) as UserRow[]).find((item) => item.auth_user_id === authUserId) || null;
       setViewerRole(currentUser?.role ?? null);
@@ -303,6 +334,7 @@ export default function FactoryDepositOrdersPage() {
       { total: 0, amount: 0, submitted: 0, approved: 0, converted: 0 }
     );
   }, [filteredRows]);
+  const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
 
   const previewItems = useMemo(() => parseProductionPreviewItems(previewRow?.production_items), [previewRow]);
   const previewTotalProductionQty = useMemo(
@@ -426,7 +458,19 @@ export default function FactoryDepositOrdersPage() {
     if (!confirmed) return;
 
     setWorkingId(row.id);
+    let createdOrderId: string | null = null;
     try {
+      const pantsItems = parsePantsDraftItems(row.pants_items);
+      const pantsFactoryCostTotal = pantsItems.reduce((sum, item) => sum + Math.max(0, Number(item.factoryCost) || 0), 0);
+      const shirtTotal =
+        (Math.max(0, Number(row.short_qty) || 0) * Math.max(0, Number(row.fabric_short_price) || 0)) +
+        (Math.max(0, Number(row.long_qty) || 0) * Math.max(0, Number(row.fabric_long_price) || 0));
+      const plusSizeTotal =
+        Math.max(0, Number(row.qty_3xl) || 0) * 20000 +
+        Math.max(0, Number(row.qty_4xl) || 0) * 25000 +
+        Math.max(0, Number(row.qty_5xl) || 0) * 35000 +
+        Math.max(0, Number(row.qty_6xl) || 0) * 35000;
+
       const orderPayload = {
         order_code: row.order_code.trim(),
         order_date: row.order_date || row.deposit_date,
@@ -457,24 +501,127 @@ export default function FactoryDepositOrdersPage() {
       };
 
       const { data: orderData, error: insertOrderError } = await supabase.from("orders").insert(orderPayload).select("id").single();
-      if (insertOrderError) throw insertOrderError;
+      if (insertOrderError) throw new Error(`ສ້າງ order ບໍ່ສຳເລັດ: ${insertOrderError.message}`);
+      createdOrderId = orderData.id as string;
+
+      const hasShirtLine =
+        Math.max(0, Number(row.short_qty) || 0) > 0 ||
+        Math.max(0, Number(row.long_qty) || 0) > 0 ||
+        Math.max(0, Number(row.free_qty) || 0) > 0 ||
+        Math.max(0, Number(row.qty_3xl) || 0) > 0 ||
+        Math.max(0, Number(row.qty_4xl) || 0) > 0 ||
+        Math.max(0, Number(row.qty_5xl) || 0) > 0 ||
+        Math.max(0, Number(row.qty_6xl) || 0) > 0;
+      const hasPantsLine = pantsItems.some((item) => getPantsTotalQty(item) > 0);
+
+      const itemPayloads = [
+        ...(hasShirtLine
+          ? [
+              buildShirtOrderItemPayload({
+                orderId: createdOrderId,
+                lineNo: 1,
+                fabric: {
+                  id: row.fabric_id || "",
+                  name: row.fabric_name || "",
+                  shortPrice: Number(row.fabric_short_price) || 0,
+                  longPrice: Number(row.fabric_long_price) || 0,
+                },
+                shortQty: Number(row.short_qty) || 0,
+                longQty: Number(row.long_qty) || 0,
+                freeQty: Number(row.free_qty) || 0,
+                qty3XL: Number(row.qty_3xl) || 0,
+                qty4XL: Number(row.qty_4xl) || 0,
+                qty5XL: Number(row.qty_5xl) || 0,
+                qty6XL: Number(row.qty_6xl) || 0,
+                grossTotal: shirtTotal + plusSizeTotal,
+                netTotal: shirtTotal + plusSizeTotal,
+                factoryCostTotal: Math.max(0, (Math.max(0, Number(row.factory_cost) || 0) - pantsFactoryCostTotal)),
+              }),
+            ]
+          : []),
+        ...pantsItems.map((item, index) =>
+          buildPantsOrderItemPayload({
+            orderId: createdOrderId,
+            lineNo: index + (hasShirtLine ? 2 : 1),
+            item,
+            fabricsById,
+          })
+        ),
+      ];
+
+      if (itemPayloads.length > 0) {
+        const { error: insertItemsError } = await supabase.from("order_items").insert(itemPayloads);
+        if (insertItemsError) {
+          if (isMissingOrderItemsTableError(insertItemsError)) {
+            if (hasPantsLine) {
+              toast("ບັນທຶກອໍເດີແລ້ວ ແຕ່ຂໍ້ມູນໂສ້ງຍັງບໍ່ຖືກເກັບ ເນື່ອງຈາກ `order_items` ຍັງບໍ່ພ້ອມ");
+            }
+          } else {
+            throw new Error(`ບັນທຶກລາຍການເສື້ອ/ໂສ້ງບໍ່ສຳເລັດ: ${insertItemsError.message}`);
+          }
+        }
+      }
 
       const { error: updateDepositError } = await supabase
         .from("factory_deposit_orders")
         .update({
           status: "converted",
-          order_id: orderData.id,
+          order_id: createdOrderId,
           converted_at: new Date().toISOString(),
           converted_by_user_id: viewerUserId,
         })
         .eq("id", row.id);
-      if (updateDepositError) throw updateDepositError;
+      if (updateDepositError) throw new Error(`ອັບເດດສະຖານະໃບມັດຈຳບໍ່ສຳເລັດ: ${updateDepositError.message}`);
 
       await insertHistory(row.id, "convert_to_order", `convert to order ${row.order_code}`, row.status, "converted");
       toast.success("ບັນທຶກເປັນອໍເດີແລ້ວ");
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "ບັນທຶກເປັນອໍເດີບໍ່ສຳເລັດ");
+      if (createdOrderId) {
+        await supabase.from("orders").delete().eq("id", createdOrderId);
+      }
+      toast.error(getErrorMessage(error, "ບັນທຶກເປັນອໍເດີບໍ່ສຳເລັດ"));
+    } finally {
+      setWorkingId(null);
+    }
+  };
+
+  const handleCancelConvert = async (row: DepositRow) => {
+    if (!viewerRole || !canConvertFactoryDepositOrder(viewerRole)) return toast.error("ທ່ານບໍ່ມີສິດຍົກເລີກການບັນທຶກອໍເດີ້");
+    if (row.status !== "converted") return toast.error("ຍົກເລີກໄດ້ສະເພາະລາຍການທີ່ບັນທຶກເປັນອໍເດີແລ້ວ");
+
+    const confirmed = await confirmAction({
+      icon: "warning",
+      title: "ຢືນຢັນຍົກເລີກການບັນທຶກອໍເດີ້?",
+      text: `${row.order_code || row.deposit_no} ຈະຖືກຖອນກັບໄປສະຖານະອະນຸມັດ`,
+      confirmButtonText: "ຍົກເລີກການບັນທຶກອໍເດີ້",
+      cancelToast: "ຍົກເລີກການຖອນອໍເດີ້ແລ້ວ",
+    });
+    if (!confirmed) return;
+
+    setWorkingId(row.id);
+    try {
+      if (row.order_id) {
+        const { error: deleteOrderError } = await supabase.from("orders").delete().eq("id", row.order_id);
+        if (deleteOrderError) throw deleteOrderError;
+      }
+
+      const { error: updateDepositError } = await supabase
+        .from("factory_deposit_orders")
+        .update({
+          status: "approved",
+          order_id: null,
+          converted_at: null,
+          converted_by_user_id: null,
+        })
+        .eq("id", row.id);
+      if (updateDepositError) throw updateDepositError;
+
+      await insertHistory(row.id, "cancel_convert_to_order", `cancel order ${row.order_code || row.deposit_no}`, row.status, "approved");
+      toast.success("ຍົກເລີກການບັນທຶກອໍເດີ້ແລ້ວ");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ຍົກເລີກການບັນທຶກອໍເດີ້ບໍ່ສຳເລັດ");
     } finally {
       setWorkingId(null);
     }
@@ -658,6 +805,11 @@ export default function FactoryDepositOrdersPage() {
                         {viewerRole && canConvertFactoryDepositOrder(viewerRole) && row.status === "approved" && (
                           <button onClick={() => handleConvert(row)} disabled={workingId === row.id} className="rounded-lg bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-700 transition hover:bg-violet-100 disabled:opacity-50">
                             {workingId === row.id ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກເປັນອໍເດີ"}
+                          </button>
+                        )}
+                        {viewerRole && canConvertFactoryDepositOrder(viewerRole) && row.status === "converted" && (
+                          <button onClick={() => handleCancelConvert(row)} disabled={workingId === row.id} className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-700 transition hover:bg-rose-100 disabled:opacity-50">
+                            {workingId === row.id ? "ກຳລັງຖອນ..." : "ຍົກເລີກການບັນທຶກອໍເດີ້"}
                           </button>
                         )}
                         {viewerRole && canDeleteFactoryDepositOrder(viewerRole) && (

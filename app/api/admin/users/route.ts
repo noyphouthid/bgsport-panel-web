@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { buildDefaultPermissionSettings, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
 type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
 
@@ -12,6 +13,7 @@ type CreateUserBody = {
   phone?: string | null;
   notes?: string | null;
   is_active?: boolean;
+  permission_settings?: UserPermissionSettings;
 };
 
 const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "accountant"]);
@@ -37,6 +39,7 @@ export async function POST(req: NextRequest) {
     .toLowerCase();
   const password = String(body.password || "");
   const role = body.role;
+  const permissionSettings = normalizeUserPermissionSettings(body.permission_settings || buildDefaultPermissionSettings());
 
   if (!fullName) {
     return NextResponse.json({ error: "missing_full_name" }, { status: 400 });
@@ -82,9 +85,10 @@ export async function POST(req: NextRequest) {
       phone: body.phone?.trim() || null,
       notes: body.notes?.trim() || null,
       is_active: body.is_active ?? true,
+      permission_settings: permissionSettings,
       auth_user_id: authCreated.user.id,
     })
-    .select("id,full_name,email,role,is_active")
+    .select("id,full_name,email,role,is_active,permission_settings")
     .single();
 
   if (insertErr) {

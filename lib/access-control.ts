@@ -1,3 +1,5 @@
+import { findAccessPermissionKey, getAccessPermissionMode, resolvePermissionMode, type UserPermissionSettings } from "@/lib/user-permissions";
+
 export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
 
 type RouteRule = {
@@ -6,6 +8,7 @@ type RouteRule = {
 };
 
 const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphic", "accountant"];
+const ROLE_LOCKED_PATHS = ["/reports/admin-sales", "/reports/design-phone-status", "/reports/data-export", "/reports/monthly-close"];
 const STAFF_ALLOWED_PATHS = new Set([
   "/search",
   "/inventory-qr",
@@ -35,11 +38,14 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/shipments", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/change-requests", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/reports/graphic-work", roles: ["superadmin", "manager"] },
-  { prefix: "/reports/admin-sales", roles: ["superadmin", "manager"] },
-  { prefix: "/reports/monthly-close", roles: ["superadmin", "admin", "manager", "accountant"] },
+  { prefix: "/reports/admin-sales", roles: ["superadmin", "admin", "manager"] },
+  { prefix: "/reports/design-phone-status", roles: ["superadmin", "admin", "manager"] },
+  { prefix: "/reports/data-export", roles: ["superadmin", "manager", "accountant"] },
+  { prefix: "/reports/monthly-close", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/reports/sales-profit", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/reports/orders", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/reports/factory-payments", roles: ["superadmin", "manager", "accountant"] },
+  { prefix: "/reports/payroll", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/reports/sale-admin", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/reports", roles: ["superadmin", "admin", "manager", "accountant"] },
   { prefix: "/quotations", roles: ["superadmin", "admin", "manager", "staff"] },
@@ -55,16 +61,32 @@ function normalizePathname(pathname: string) {
   return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
 }
 
+function matchesPrefix(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
 export function getDefaultPathForRole(role: AppRole) {
   if (role === "staff") return "/search";
   return "/dashboard";
 }
 
-export function canAccessPath(pathname: string, role: AppRole) {
+export function canAccessPath(pathname: string, role: AppRole, permissionSettings?: UserPermissionSettings | null) {
   const normalizedPath = normalizePathname(pathname);
   if (role === "superadmin") return true;
-  if (role === "staff") return STAFF_ALLOWED_PATHS.has(normalizedPath);
-  const matched = ROUTE_RULES.find((rule) => normalizedPath === rule.prefix || normalizedPath.startsWith(`${rule.prefix}/`));
-  if (!matched) return false;
-  return matched.roles.includes(role);
+  const accessKey = findAccessPermissionKey(normalizedPath);
+
+  let baseAllowed = false;
+  if (role === "staff") {
+    baseAllowed = STAFF_ALLOWED_PATHS.has(normalizedPath);
+  } else {
+    const matched = ROUTE_RULES.find((rule) => matchesPrefix(normalizedPath, rule.prefix));
+    baseAllowed = matched ? matched.roles.includes(role) : false;
+  }
+
+  if (ROLE_LOCKED_PATHS.some((prefix) => matchesPrefix(normalizedPath, prefix))) {
+    return baseAllowed;
+  }
+
+  if (!accessKey) return baseAllowed;
+  return resolvePermissionMode(getAccessPermissionMode(permissionSettings, accessKey), baseAllowed);
 }

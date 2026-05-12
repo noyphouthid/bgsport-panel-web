@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { ORDER_TYPES, normalizeOrderType } from "@/lib/order-code";
+import { CURRENT_ORDER_TYPES, LEGACY_ORDER_TYPES, ORDER_TYPES, normalizeOrderType } from "@/lib/order-code";
 
 export type OrderCodeTypeRow = {
   id: string;
@@ -15,17 +15,54 @@ export type OrderCodeTypeRow = {
   updated_at: string;
 };
 
-function buildFallbackRows() {
+export type OrderCodeTypeSeed = {
+  code: string;
+  label: string | null;
+  sort_order: number;
+  is_active: boolean;
+  is_system: boolean;
+};
+
+export function isMissingOrderCodeTypesTableError(message: string) {
+  const normalized = String(message || "").toLowerCase();
+  return normalized.includes("order_code_types") && (normalized.includes("could not find the table") || normalized.includes("schema cache"));
+}
+
+export function isProtectedOrderCodeType(code: string) {
+  return CURRENT_ORDER_TYPES.includes(normalizeOrderType(code) as (typeof CURRENT_ORDER_TYPES)[number]);
+}
+
+export function isLegacyOrderCodeType(code: string) {
+  return LEGACY_ORDER_TYPES.includes(normalizeOrderType(code) as (typeof LEGACY_ORDER_TYPES)[number]);
+}
+
+export function buildDefaultOrderCodeTypeSeeds() {
   return ORDER_TYPES.map((code, index) => ({
-    id: `fallback-${code}`,
     code,
     label: null,
-    sort_order: index + 1,
+    sort_order: (index + 1) * 10,
     is_active: true,
-    is_system: true,
+    is_system: isProtectedOrderCodeType(code),
+  })) satisfies OrderCodeTypeSeed[];
+}
+
+export function buildFallbackOrderCodeTypeRows() {
+  return buildDefaultOrderCodeTypeSeeds().map((row) => ({
+    id: `fallback-${row.code}`,
+    code: row.code,
+    label: row.label,
+    sort_order: row.sort_order,
+    is_active: row.is_active,
+    is_system: row.is_system,
     created_at: "",
     updated_at: "",
   })) satisfies OrderCodeTypeRow[];
+}
+
+export async function seedDefaultOrderCodeTypes() {
+  const payload = buildDefaultOrderCodeTypeSeeds();
+  const { error } = await supabase.from("order_code_types").upsert(payload, { onConflict: "code" });
+  if (error) throw error;
 }
 
 export function mergeOrderTypeOptions(values: string[]) {
@@ -56,8 +93,8 @@ export async function fetchOrderCodeTypes(activeOnly = false) {
   const { data, error } = await query;
 
   if (error) {
-    if (error.message.includes("Could not find the table")) {
-      return activeOnly ? buildFallbackRows().filter((row) => row.is_active) : buildFallbackRows();
+    if (isMissingOrderCodeTypesTableError(error.message)) {
+      return activeOnly ? buildFallbackOrderCodeTypeRows().filter((row) => row.is_active) : buildFallbackOrderCodeTypeRows();
     }
     throw error;
   }
@@ -68,7 +105,7 @@ export async function fetchOrderCodeTypes(activeOnly = false) {
   }));
 
   if (rows.length === 0) {
-    return activeOnly ? buildFallbackRows().filter((row) => row.is_active) : buildFallbackRows();
+    return activeOnly ? buildFallbackOrderCodeTypeRows().filter((row) => row.is_active) : buildFallbackOrderCodeTypeRows();
   }
 
   return rows;

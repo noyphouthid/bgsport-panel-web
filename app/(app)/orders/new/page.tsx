@@ -16,10 +16,11 @@ import {
   type PantsOrderItemDraft,
 } from "@/lib/order-items";
 import { isAdminRole, isGraphicRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
-import { buildOrderCode, normalizeOrderType, type OrderType } from "@/lib/order-code";
+import { buildOrderCode, normalizeOrderNo, normalizeOrderType, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import { buildSafeStorageFileName, isImageFileName, ORDER_MEDIA_BUCKET } from "@/lib/order-media";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
+import { canEditWithPermissions, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
 type FabricRow = {
   id: string;
@@ -35,6 +36,8 @@ type UserOption = {
   full_name: string;
   role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
   is_active: boolean;
+  auth_user_id?: string | null;
+  permission_settings?: UserPermissionSettings | null;
 };
 
 const SIZE_UPCHARGES = {
@@ -60,6 +63,8 @@ export default function NewOrderPage() {
   const [loadingFabrics, setLoadingFabrics] = useState(true);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [viewerRole, setViewerRole] = useState<UserOption["role"] | null>(null);
+  const [viewerPermissions, setViewerPermissions] = useState<UserPermissionSettings>({});
 
   // ===== 1) ข้อมูลพื้นฐาน =====
   const [orderDate, setOrderDate] = useState(getLocalDateInputValue);
@@ -72,8 +77,8 @@ export default function NewOrderPage() {
   const [adminUserId, setAdminUserId] = useState<string>("");
   const [graphicUserId, setGraphicUserId] = useState<string>("");
   const { options: orderTypeOptions } = useOrderTypeOptions(true);
-  const [orderImageFile, setOrderImageFile] = useState<File | null>(null);
-  const [orderImagePreviewUrl, setOrderImagePreviewUrl] = useState<string | null>(null);
+  const [orderImageFiles, setOrderImageFiles] = useState<File[]>([]);
+  const [orderImagePreviewUrls, setOrderImagePreviewUrls] = useState<string[]>([]);
   const [orderTransferSlipFile, setOrderTransferSlipFile] = useState<File | null>(null);
   const [orderTransferSlipPreviewUrl, setOrderTransferSlipPreviewUrl] = useState<string | null>(null);
   const orderImageFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -126,7 +131,7 @@ export default function NewOrderPage() {
     setLoadingUsers(true);
     const { data, error } = await supabase
       .from("users")
-      .select("id,full_name,role,is_active")
+      .select("id,full_name,role,is_active,auth_user_id,permission_settings")
       .eq("is_active", true)
       .in("role", ORDER_ASSIGNABLE_USER_ROLES)
       .order("full_name", { ascending: true });
@@ -140,6 +145,11 @@ export default function NewOrderPage() {
 
     const rows = (data ?? []) as UserOption[];
     setUsers(rows);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const authUserId = sessionData.session?.user.id ?? null;
+    const currentUser = rows.find((row) => row.auth_user_id === authUserId) || null;
+    setViewerRole(currentUser?.role ?? null);
+    setViewerPermissions(normalizeUserPermissionSettings(currentUser?.permission_settings));
     setLoadingUsers(false);
   };
 
@@ -151,18 +161,21 @@ export default function NewOrderPage() {
 
   useEffect(() => {
     return () => {
-      if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
+      orderImagePreviewUrls.forEach((url) => {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+      });
       if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
       pantsItems.forEach((item) => {
         if (item.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.mockupPreviewUrl);
       });
     };
-  }, [orderImagePreviewUrl, orderTransferSlipPreviewUrl, pantsItems]);
+  }, [orderImagePreviewUrls, orderTransferSlipPreviewUrl, pantsItems]);
 
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
   const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
   const adminOptions = useMemo(() => users.filter((u) => isAdminRole(u.role)), [users]);
   const graphicOptions = useMemo(() => users.filter((u) => isGraphicRole(u.role)), [users]);
+  const canEditOrders = canEditWithPermissions(viewerPermissions, "orders", viewerRole !== "admin");
 
   const totalProductionQty = useMemo(() => shortQty + longQty + freeQty, [shortQty, longQty, freeQty]);
   const billableQty = useMemo(() => shortQty + longQty, [shortQty, longQty]);
@@ -203,9 +216,11 @@ export default function NewOrderPage() {
     setFactoryBillCode("");
     setAdminUserId("");
     setGraphicUserId("");
-    setOrderImageFile(null);
-    if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
-    setOrderImagePreviewUrl(null);
+    setOrderImageFiles([]);
+    orderImagePreviewUrls.forEach((url) => {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    });
+    setOrderImagePreviewUrls([]);
     setOrderTransferSlipFile(null);
     if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
     setOrderTransferSlipPreviewUrl(null);
@@ -305,10 +320,23 @@ export default function NewOrderPage() {
     router.push("/orders");
   };
 
-  const handleOrderImageSelected = (file: File | null) => {
-    setOrderImageFile(file);
-    if (orderImagePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderImagePreviewUrl);
-    setOrderImagePreviewUrl(file && file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
+  const handleOrderImageSelected = (fileList: FileList | null) => {
+    const nextFiles = Array.from(fileList ?? []).filter((file) => file.type.startsWith("image/"));
+    if (nextFiles.length === 0) return;
+
+    const nextPreviewUrls = nextFiles.map((file) => URL.createObjectURL(file));
+    setOrderImageFiles((prev) => [...prev, ...nextFiles]);
+    setOrderImagePreviewUrls((prev) => [...prev, ...nextPreviewUrls]);
+  };
+
+  const removeOrderImageAt = (index: number) => {
+    setOrderImageFiles((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+    setOrderImagePreviewUrls((prev) =>
+      prev.filter((url, itemIndex) => {
+        if (itemIndex === index && url.startsWith("blob:")) URL.revokeObjectURL(url);
+        return itemIndex !== index;
+      })
+    );
   };
 
   const handleOrderTransferSlipSelected = (file: File | null) => {
@@ -337,6 +365,27 @@ export default function NewOrderPage() {
       url: data.publicUrl,
       fileName: file.name,
     };
+  };
+
+  const uploadOrderImages = async (orderCode: string, files: File[]) => {
+    const uploaded: Array<{ path: string; url: string; fileName: string }> = [];
+
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      const safeName = buildSafeStorageFileName(file.name, `order-image-${index + 1}`);
+      const path = `order-image/${orderCode}/${safeName}`;
+      const { error: uploadError } = await supabase.storage.from(ORDER_MEDIA_BUCKET).upload(path, file, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from(ORDER_MEDIA_BUCKET).getPublicUrl(path);
+      uploaded.push({
+        path,
+        url: data.publicUrl,
+        fileName: file.name,
+      });
+    }
+
+    return uploaded;
   };
 
   const uploadPantsMockupsIfNeeded = async (currentOrderCode: string) => {
@@ -372,6 +421,10 @@ export default function NewOrderPage() {
   };
 
   const handleSave = async () => {
+    if (!canEditOrders) {
+      toast.error("ທ່ານບໍ່ມີສິດສ້າງອໍເດີ");
+      return;
+    }
     setErr(null);
 
     if (!orderType) {
@@ -417,7 +470,7 @@ export default function NewOrderPage() {
       }
     }
 
-    const orderCode = buildOrderCode(orderType, Number(orderNo));
+    const orderCode = buildOrderCode(orderType, orderNo);
 
     const payload = {
       order_code: orderCode,
@@ -467,15 +520,16 @@ export default function NewOrderPage() {
     });
     if (!confirm.isConfirmed) return;
 
-    const uploadedOrderImage = await uploadOrderAsset("order-image", orderCode, orderImageFile);
+    const uploadedOrderImages = await uploadOrderImages(orderCode, orderImageFiles);
     const uploadedOrderTransferSlip = await uploadOrderAsset("order-transfer-slip", orderCode, orderTransferSlipFile);
     const uploadedPantsItems = await uploadPantsMockupsIfNeeded(orderCode);
+    const primaryOrderImage = uploadedOrderImages[0] || null;
 
     const finalPayload = {
       ...payload,
-      order_image_path: uploadedOrderImage.path,
-      order_image_url: uploadedOrderImage.url,
-      order_image_file_name: uploadedOrderImage.fileName,
+      order_image_path: primaryOrderImage?.path || null,
+      order_image_url: primaryOrderImage?.url || null,
+      order_image_file_name: primaryOrderImage?.fileName || null,
       order_transfer_slip_path: uploadedOrderTransferSlip.path,
       order_transfer_slip_url: uploadedOrderTransferSlip.url,
       order_transfer_slip_file_name: uploadedOrderTransferSlip.fileName,
@@ -566,7 +620,8 @@ export default function NewOrderPage() {
           </button>
           <button
             onClick={handleSave}
-            className="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-emerald-700 shadow-sm transition-all"
+            disabled={!canEditOrders}
+            className="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-emerald-700 shadow-sm transition-all disabled:opacity-50"
           >
             ບັນທຶກ
           </button>
@@ -623,13 +678,10 @@ export default function NewOrderPage() {
                     <label className="text-xs font-bold text-slate-700 block mb-1">ORDER No.</label>
                     <input
                       value={orderNo}
-                      onChange={(e) => {
-                        const digitsOnly = e.target.value.replace(/\D/g, "");
-                        setOrderNo(digitsOnly);
-                      }}
-                      placeholder="ORDER No."
+                      onChange={(e) => setOrderNo(normalizeOrderNo(e.target.value))}
+                      placeholder="ຕົວຢ່າງ 5001 ຫຼື 5001+1"
                       className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold"
-                      inputMode="numeric"
+                      inputMode="text"
                     />
                   </div>
                 </div>
@@ -718,15 +770,53 @@ export default function NewOrderPage() {
                       <button type="button" onClick={() => orderImageCameraInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700">
                         ຖ່າຍຮູບ
                       </button>
-                      <input ref={orderImageFileInputRef} type="file" accept="image/*" className="sr-only" onChange={(e) => handleOrderImageSelected(e.target.files?.[0] || null)} />
-                      <input ref={orderImageCameraInputRef} type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => handleOrderImageSelected(e.target.files?.[0] || null)} />
+                      <input
+                        ref={orderImageFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="sr-only"
+                        onChange={(e) => {
+                          handleOrderImageSelected(e.target.files);
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                      <input
+                        ref={orderImageCameraInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="sr-only"
+                        onChange={(e) => {
+                          handleOrderImageSelected(e.target.files);
+                          e.currentTarget.value = "";
+                        }}
+                      />
                     </div>
-                    <div className="mt-2 text-xs font-semibold text-slate-500">{orderImageFile?.name || "ຍັງບໍ່ມີຮູບ"}</div>
-                    {orderImagePreviewUrl ? (
-                      <a href={orderImagePreviewUrl} target="_blank" rel="noreferrer" className="block">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={orderImagePreviewUrl} alt="order preview" className="mt-3 h-40 w-full rounded-xl border border-slate-200 object-cover" />
-                      </a>
+                    <div className="mt-2 text-xs font-semibold text-slate-500">
+                      {orderImageFiles.length > 0 ? `ເລືອກແລ້ວ ${orderImageFiles.length} ຮູບ` : "ຍັງບໍ່ມີຮູບ"}
+                    </div>
+                    {orderImagePreviewUrls.length > 0 ? (
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {orderImagePreviewUrls.map((previewUrl, index) => (
+                          <div key={`${previewUrl}-${index}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                            <a href={previewUrl} target="_blank" rel="noreferrer" className="block">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={previewUrl} alt={`order preview ${index + 1}`} className="h-40 w-full object-cover" />
+                            </a>
+                            <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2">
+                              <div className="truncate text-xs font-semibold text-slate-500">{orderImageFiles[index]?.name || `ຮູບ ${index + 1}`}</div>
+                              <button
+                                type="button"
+                                onClick={() => removeOrderImageAt(index)}
+                                className="shrink-0 rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-black text-rose-600"
+                              >
+                                ລຶບ
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     ) : null}
                   </div>
 
@@ -971,7 +1061,7 @@ export default function NewOrderPage() {
           </div>
 
           <div className="flex gap-2">
-            <button onClick={handleSave} className="bg-emerald-600 text-white px-8 py-2.5 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95">
+            <button onClick={handleSave} disabled={!canEditOrders} className="bg-emerald-600 text-white px-8 py-2.5 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95 disabled:opacity-50">
               ບັນທຶກອໍເດີ
             </button>
             <button onClick={handleCancelReset} className="bg-slate-100 text-slate-600 px-6 py-2.5 rounded-lg text-sm font-bold hover:bg-slate-200 border border-slate-200 transition-all">

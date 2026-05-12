@@ -37,63 +37,72 @@ type UserRow = {
   full_name: string;
 };
 
-type PhoneStatusFilter = "all" | "designed" | "pending" | "partial";
-type PhoneSummary = {
-  phone_key: string;
-  customer_phone: string;
-  total_entries: number;
-  designed_entries: number;
-  pending_entries: number;
-  latest_queue_date: string;
-  latest_created_at: string;
-  latest_queue_number: string;
-  latest_order_no: string;
-  latest_type_code: string;
-  latest_style_name: string;
-  latest_designed_at: string | null;
-  latest_updated_at: string;
-  latest_graphic_id: string | null;
-  latest_graphic_name: string;
-  queue_numbers: string[];
-  type_codes: string[];
-  graphic_ids: string[];
+type OrderReferenceRow = {
+  order_code: string;
+  order_date: string;
 };
+
+type QueueDesignFilter = "DESIGNED" | "PENDING" | "DESIGNED_NOT_ORDERED" | "DESIGNED_ORDERED";
+type OrderReferenceInfo = {
+  order_date: string | null;
+};
+
+type QueueReportRow = DesignQueueEntry & {
+  graphic_name: string;
+  has_order_deposit: boolean;
+  order_deposit_date: string | null;
+};
+
+const QUEUE_DESIGN_FILTER_OPTIONS: Array<{ value: QueueDesignFilter; label: string }> = [
+  { value: "DESIGNED", label: "ອອກແບບແລ້ວ" },
+  { value: "PENDING", label: "ຍັງບໍ່ທັນອອກແບບ" },
+  { value: "DESIGNED_NOT_ORDERED", label: "ອອກແບບແລ້ວ ແຕ່ຍັງບໍ່ທັນມັດຈຳສັ່ງຜະລິດ" },
+  { value: "DESIGNED_ORDERED", label: "ອອກແບບແລ້ວ ແລະ ມັດຈຳສັ່ງຜະລິດແລ້ວ" },
+];
 
 function normalizeDigits(value: string | null | undefined) {
   return String(value || "").replace(/\D/g, "");
 }
 
-function normalizePhoneKey(value: string | null | undefined) {
-  const digits = normalizeDigits(value);
-  return digits || String(value || "").trim().toLowerCase();
+function normalizeOrderCode(value: string | null | undefined) {
+  return String(value || "").trim().toUpperCase();
 }
 
 function toComparableDate(value: string) {
   return new Date(`${value}T00:00:00`).toISOString();
 }
 
-function compareEntries(a: DesignQueueEntry, b: DesignQueueEntry) {
-  if (a.queue_date !== b.queue_date) return b.queue_date.localeCompare(a.queue_date);
-  if (a.queue_number !== b.queue_number) return b.queue_number.localeCompare(a.queue_number);
-  return b.created_at.localeCompare(a.created_at);
+function getQueueDesignFilterLabel(value: QueueDesignFilter) {
+  return QUEUE_DESIGN_FILTER_OPTIONS.find((item) => item.value === value)?.label || value;
 }
 
-function getPhoneStatus(row: Pick<PhoneSummary, "designed_entries" | "pending_entries" | "total_entries">): Exclude<PhoneStatusFilter, "all"> {
-  if (row.designed_entries === row.total_entries) return "designed";
-  if (row.pending_entries === row.total_entries) return "pending";
-  return "partial";
+function toggleQueueDesignFilter(current: QueueDesignFilter[], next: QueueDesignFilter) {
+  return current.includes(next) ? current.filter((item) => item !== next) : [...current, next];
 }
 
-function getPhoneStatusLabel(status: Exclude<PhoneStatusFilter, "all">) {
-  if (status === "designed") return "ອອກແບບແລ້ວ";
-  if (status === "pending") return "ຍັງບໍ່ທັນອອກແບບ";
-  return "ອອກແບບບາງສ່ວນ";
+function matchesQueueDesignFilter(row: DesignQueueEntry, hasOrderDeposit: boolean, selectedFilters: QueueDesignFilter[]) {
+  if (selectedFilters.length === 0) return true;
+
+  const matchedStatuses: QueueDesignFilter[] = [];
+
+  if (row.is_designed) {
+    matchedStatuses.push("DESIGNED");
+    matchedStatuses.push(hasOrderDeposit ? "DESIGNED_ORDERED" : "DESIGNED_NOT_ORDERED");
+  } else {
+    matchedStatuses.push("PENDING");
+  }
+
+  return matchedStatuses.some((status) => selectedFilters.includes(status));
 }
 
-function getPhoneStatusClass(status: Exclude<PhoneStatusFilter, "all">) {
-  if (status === "designed") return "border border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "pending") return "border border-amber-200 bg-amber-50 text-amber-700";
-  return "border border-sky-200 bg-sky-50 text-sky-700";
+function getOrderDepositStatusLabel(hasOrderDeposit: boolean) {
+  return hasOrderDeposit ? "ມັດຈຳສັ່ງຜະລິດແລ້ວ" : "ຍັງບໍ່ທັນມັດຈຳສັ່ງຜະລິດ";
+}
+
+function getOrderDepositStatusClass(hasOrderDeposit: boolean) {
+  return hasOrderDeposit
+    ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+    : "border border-amber-200 bg-amber-50 text-amber-700";
 }
 
 function formatDateTime(value: string | null) {
@@ -116,29 +125,35 @@ export default function DesignPhoneStatusReportPage() {
   const [queueDateFrom, setQueueDateFrom] = useState("");
   const [queueDateTo, setQueueDateTo] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<PrefixFilter[]>([]);
-  const [statusFilter, setStatusFilter] = useState<PhoneStatusFilter>("all");
+  const [selectedQueueStatuses, setSelectedQueueStatuses] = useState<QueueDesignFilter[]>(["DESIGNED"]);
   const [graphicFilter, setGraphicFilter] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
 
   const [rows, setRows] = useState<DesignQueueEntry[]>([]);
   const [graphics, setGraphics] = useState<UserRow[]>([]);
+  const [orderInfoByOrderCode, setOrderInfoByOrderCode] = useState<Map<string, OrderReferenceInfo>>(new Map());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const { options: orderTypeOptions } = useOrderTypeOptions(true);
   const typeOptions = useMemo(() => [...orderTypeOptions, "OTHER"] as PrefixFilter[], [orderTypeOptions]);
   const graphicNameMap = useMemo(() => new Map(graphics.map((item) => [item.id, item.full_name])), [graphics]);
+  const queueStatusLabel = useMemo(
+    () => (selectedQueueStatuses.length === 0 ? "ALL" : selectedQueueStatuses.map(getQueueDesignFilterLabel).join(", ")),
+    [selectedQueueStatuses]
+  );
 
   const load = async () => {
     setLoading(true);
     setErr(null);
 
-    const [{ data: queueData, error: queueError }, { data: userData, error: userError }] = await Promise.all([
+    const [{ data: queueData, error: queueError }, { data: userData, error: userError }, { data: orderData, error: orderError }] = await Promise.all([
       supabase
         .from("design_queue_entries")
         .select("id,queue_date,queue_number,order_no,type_code,customer_phone,style_name,notes,is_designed,designed_at,graphic_user_id,updated_at,created_at")
         .order("queue_date", { ascending: false })
         .order("created_at", { ascending: false }),
       supabase.from("users").select("id,full_name").eq("is_active", true).in("role", ["superadmin", "graphic"]).order("full_name", { ascending: true }),
+      supabase.from("orders").select("order_code,order_date").order("created_at", { ascending: false }),
     ]);
 
     if (queueError) {
@@ -156,8 +171,24 @@ export default function DesignPhoneStatusReportPage() {
       return;
     }
 
+    if (orderError) {
+      setErr(orderError.message);
+      setLoading(false);
+      return;
+    }
+
+    const orderInfoMap = new Map<string, OrderReferenceInfo>();
+    ((orderData ?? []) as OrderReferenceRow[]).forEach((row) => {
+      const key = normalizeOrderCode(row.order_code);
+      if (!key || orderInfoMap.has(key)) return;
+      orderInfoMap.set(key, {
+        order_date: row.order_date || null,
+      });
+    });
+
     setRows((queueData ?? []) as DesignQueueEntry[]);
     setGraphics((userData ?? []) as UserRow[]);
+    setOrderInfoByOrderCode(orderInfoMap);
     setLoading(false);
   };
 
@@ -176,146 +207,78 @@ export default function DesignPhoneStatusReportPage() {
       if (queueDateFrom && row.queue_date < queueDateFrom) return false;
       if (queueDateTo && row.queue_date > queueDateTo) return false;
       if (!matchSelectedPrefixes(row.type_code, selectedTypes)) return false;
+      const hasOrderDeposit = Boolean(orderInfoByOrderCode.get(normalizeOrderCode(row.order_no)));
+      if (!matchesQueueDesignFilter(row, hasOrderDeposit, selectedQueueStatuses)) return false;
       return true;
     });
-  }, [month, queueDateFrom, queueDateTo, rows, selectedTypes, year]);
+  }, [month, orderInfoByOrderCode, queueDateFrom, queueDateTo, rows, selectedQueueStatuses, selectedTypes, year]);
 
-  const phoneRows = useMemo(() => {
-    const grouped = new Map<string, PhoneSummary>();
-
-    for (const row of filteredEntries) {
-      const normalizedPhone = String(row.customer_phone || "").trim();
-      if (!normalizedPhone) continue;
-
-      const key = normalizePhoneKey(normalizedPhone);
-      const current =
-        grouped.get(key) ??
-        {
-          phone_key: key,
-          customer_phone: normalizedPhone,
-          total_entries: 0,
-          designed_entries: 0,
-          pending_entries: 0,
-          latest_queue_date: row.queue_date,
-          latest_created_at: row.created_at,
-          latest_queue_number: row.queue_number,
-          latest_order_no: row.order_no,
-          latest_type_code: row.type_code,
-          latest_style_name: row.style_name,
-          latest_designed_at: row.designed_at,
-          latest_updated_at: row.updated_at,
-          latest_graphic_id: row.graphic_user_id,
-          latest_graphic_name: graphicNameMap.get(row.graphic_user_id || "") || "-",
-          queue_numbers: [],
-          type_codes: [],
-          graphic_ids: [],
-        };
-
-      current.total_entries += 1;
-      if (row.is_designed) current.designed_entries += 1;
-      else current.pending_entries += 1;
-
-      current.queue_numbers.push(row.queue_number);
-      current.type_codes.push(row.type_code);
-      if (row.graphic_user_id && !current.graphic_ids.includes(row.graphic_user_id)) {
-        current.graphic_ids.push(row.graphic_user_id);
-      }
-
-      if (
-        compareEntries(row, {
-          id: current.phone_key,
-          queue_date: current.latest_queue_date,
-          queue_number: current.latest_queue_number,
-          order_no: current.latest_order_no,
-          type_code: current.latest_type_code,
-          customer_phone: current.customer_phone,
-          style_name: current.latest_style_name,
-          notes: "",
-          is_designed: false,
-          designed_at: current.latest_designed_at,
-          graphic_user_id: current.latest_graphic_id,
-          updated_at: current.latest_updated_at,
-          created_at: current.latest_created_at,
-        }) < 0
-      ) {
-        current.latest_queue_date = row.queue_date;
-        current.latest_created_at = row.created_at;
-        current.latest_queue_number = row.queue_number;
-        current.latest_order_no = row.order_no;
-        current.latest_type_code = row.type_code;
-        current.latest_style_name = row.style_name;
-        current.latest_designed_at = row.designed_at;
-        current.latest_updated_at = row.updated_at;
-        current.latest_graphic_id = row.graphic_user_id;
-        current.latest_graphic_name = graphicNameMap.get(row.graphic_user_id || "") || "-";
-      }
-
-      grouped.set(key, current);
-    }
-
+  const reportRows = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
     const keywordDigits = normalizeDigits(searchTerm);
 
-    return [...grouped.values()]
+    return filteredEntries
+      .map((row) => {
+        const orderInfo = orderInfoByOrderCode.get(normalizeOrderCode(row.order_no));
+        return {
+          ...row,
+          graphic_name: graphicNameMap.get(row.graphic_user_id || "") || "-",
+          has_order_deposit: Boolean(orderInfo),
+          order_deposit_date: orderInfo?.order_date || null,
+        } satisfies QueueReportRow;
+      })
       .filter((row) => {
-        const phoneStatus = getPhoneStatus(row);
-        if (statusFilter !== "all" && phoneStatus !== statusFilter) return false;
-        if (graphicFilter !== "ALL" && !row.graphic_ids.includes(graphicFilter)) return false;
+        if (graphicFilter !== "ALL" && row.graphic_user_id !== graphicFilter) return false;
 
         if (!keyword) return true;
 
         const textHaystack = [
           row.customer_phone,
-          row.latest_queue_number,
-          row.latest_order_no,
-          row.latest_type_code,
-          row.latest_graphic_name,
-          row.queue_numbers.join(" "),
-          row.type_codes.join(" "),
+          row.queue_number,
+          row.order_no,
+          row.type_code,
+          row.graphic_name,
+          row.style_name,
+          getOrderDepositStatusLabel(row.has_order_deposit),
+          row.order_deposit_date || "",
         ]
           .join(" ")
           .toLowerCase();
 
         if (textHaystack.includes(keyword)) return true;
         if (!keywordDigits) return false;
-        return normalizeDigits(row.customer_phone).includes(keywordDigits);
+        return [row.customer_phone, row.queue_number, row.order_no].map(normalizeDigits).some((value) => value.includes(keywordDigits));
       })
       .sort((a, b) => {
-        const pendingDiff = b.pending_entries - a.pending_entries;
-        if (pendingDiff !== 0) return pendingDiff;
-        return b.latest_queue_date.localeCompare(a.latest_queue_date);
+        if (a.has_order_deposit !== b.has_order_deposit) return Number(a.has_order_deposit) - Number(b.has_order_deposit);
+        if (a.queue_date !== b.queue_date) return b.queue_date.localeCompare(a.queue_date);
+        if (a.queue_number !== b.queue_number) return b.queue_number.localeCompare(a.queue_number);
+        return b.created_at.localeCompare(a.created_at);
       });
-  }, [filteredEntries, graphicFilter, graphicNameMap, searchTerm, statusFilter]);
+  }, [filteredEntries, graphicFilter, graphicNameMap, orderInfoByOrderCode, searchTerm]);
 
   const summary = useMemo(() => {
-    return phoneRows.reduce(
+    return reportRows.reduce(
       (acc, row) => {
-        const status = getPhoneStatus(row);
-        acc.phones_total += 1;
-        acc.queue_total += row.total_entries;
-        acc.designed_queue_total += row.designed_entries;
-        acc.pending_queue_total += row.pending_entries;
-
-        if (status === "designed") acc.designed_phones += 1;
-        else if (status === "pending") acc.pending_phones += 1;
-        else acc.partial_phones += 1;
-
+        acc.total_queues += 1;
+        if (row.is_designed) acc.designed_queues += 1;
+        else acc.pending_queues += 1;
+        if (row.is_designed && row.has_order_deposit) acc.designed_ordered += 1;
+        if (row.is_designed && !row.has_order_deposit) acc.designed_not_ordered += 1;
         return acc;
       },
       {
-        phones_total: 0,
-        queue_total: 0,
-        designed_queue_total: 0,
-        pending_queue_total: 0,
-        designed_phones: 0,
-        pending_phones: 0,
-        partial_phones: 0,
+        total_queues: 0,
+        designed_queues: 0,
+        pending_queues: 0,
+        designed_ordered: 0,
+        designed_not_ordered: 0,
       }
     );
-  }, [phoneRows]);
+  }, [reportRows]);
 
   const exportExcel = () => {
-    if (phoneRows.length === 0) {
+    if (reportRows.length === 0) {
       toast.error("ບໍ່ມີຂໍ້ມູນສຳລັບ export");
       return;
     }
@@ -323,39 +286,36 @@ export default function DesignPhoneStatusReportPage() {
     const periodLabel = month === "ALL" ? `${year}-ALL` : `${year}-${String(month).padStart(2, "0")}`;
     const selectedTypeLabel = selectedTypes.length === 0 ? "ALL" : selectedTypes.join(", ");
     const queueDateLabel = queueDateFrom || queueDateTo ? `${queueDateFrom || "..."} -> ${queueDateTo || "..."}` : "ALL";
-    const out = phoneRows.map((row) => {
-      const status = getPhoneStatus(row);
+    const out = reportRows.map((row) => {
       return {
+        "ວັນທີຄິວ": row.queue_date,
+        "ເລກຄິວ": row.queue_number,
+        "ເລກອໍເດີ": row.order_no,
         "ເບີລູກຄ້າ": row.customer_phone,
-        "ສະຖານະ": getPhoneStatusLabel(status),
-        "ຈຳນວນຄິວລວມ": row.total_entries,
-        "ອອກແບບແລ້ວ": row.designed_entries,
-        "ຍັງບໍ່ທັນອອກແບບ": row.pending_entries,
-        "ຄິວລ່າສຸດ": row.latest_queue_number,
-        "ເລກອໍເດີລ່າສຸດ": row.latest_order_no,
-        "TYPE ລ່າສຸດ": row.latest_type_code,
-        Graphic: row.latest_graphic_name,
-        "ຮູບແບບວຽກ": row.latest_style_name || "-",
-        "ວັນທີຄິວລ່າສຸດ": row.latest_queue_date,
-        "ອັບເດດລ່າສຸດ": formatDateTime(row.latest_updated_at),
-        "ລາຍການຄິວທັງໝົດ": row.queue_numbers.join(", "),
+        TYPE: row.type_code,
+        Graphic: row.graphic_name,
+        "ຮູບແບບວຽກ": row.style_name || "-",
+        "ອອກແບບແລ້ວບໍ່": row.is_designed ? "ອອກແບບແລ້ວ" : "ຍັງບໍ່ທັນອອກແບບ",
+        "ວັນທີອອກແບບ": row.designed_at ? formatDateTime(row.designed_at) : "-",
+        "ສະຖານະມັດຈຳສັ່ງຜະລິດ": getOrderDepositStatusLabel(row.has_order_deposit),
+        "ວັນທີມັດຈຳສັ່ງຜະລິດ": row.order_deposit_date || "-",
+        "ອັບເດດລ່າສຸດ": formatDateTime(row.updated_at),
       };
     });
 
     out.push({
-      "ເບີລູກຄ້າ": "ລວມ",
-      "ສະຖານະ": statusFilter,
-      "ຈຳນວນຄິວລວມ": summary.queue_total,
-      "ອອກແບບແລ້ວ": summary.designed_queue_total,
-      "ຍັງບໍ່ທັນອອກແບບ": summary.pending_queue_total,
-      "ຄິວລ່າສຸດ": `${summary.phones_total} ເບີ`,
-      "ເລກອໍເດີລ່າສຸດ": `designed=${summary.designed_phones}`,
-      "TYPE ລ່າສຸດ": `pending=${summary.pending_phones}`,
+      "ວັນທີຄິວ": periodLabel,
+      "ເລກຄິວ": `queues=${summary.total_queues}`,
+      "ເລກອໍເດີ": `designed=${summary.designed_queues}`,
+      "ເບີລູກຄ້າ": `pending=${summary.pending_queues}`,
+      TYPE: `types=${selectedTypeLabel}`,
       Graphic: graphicFilter === "ALL" ? "Graphic ທັງໝົດ" : graphicNameMap.get(graphicFilter) || "-",
-      "ຮູບແບບວຽກ": `partial=${summary.partial_phones}`,
-      "ວັນທີຄິວລ່າສຸດ": periodLabel,
-      "ອັບເດດລ່າສຸດ": `search=${searchTerm || "-"} | queue_date=${queueDateLabel}`,
-      "ລາຍການຄິວທັງໝົດ": selectedTypeLabel,
+      "ຮູບແບບວຽກ": `ordered=${summary.designed_ordered}`,
+      "ອອກແບບແລ້ວບໍ່": `not_ordered=${summary.designed_not_ordered}`,
+      "ວັນທີອອກແບບ": `queue_filter=${queueStatusLabel}`,
+      "ສະຖານະມັດຈຳສັ່ງຜະລິດ": `search=${searchTerm || "-"}`,
+      "ວັນທີມັດຈຳສັ່ງຜະລິດ": `queue_date=${queueDateLabel}`,
+      "ອັບເດດລ່າສຸດ": "-",
     });
 
     const ws = XLSX.utils.json_to_sheet(out);
@@ -369,9 +329,9 @@ export default function DesignPhoneStatusReportPage() {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">ລາຍງານເບີລູກຄ້າຄິວອອກແບບ</h1>
+          <h1 className="text-2xl font-black text-slate-900">ລາຍງານຄິວອອກແບບ ແລະ ການມັດຈຳສັ່ງຜະລິດ</h1>
           <p className="text-sm font-medium text-slate-500">
-            ສະຫຼຸບຕາມເບີລູກຄ້າວ່າອອກແບບແລ້ວ, ຍັງບໍ່ທັນ ຫຼື ອອກແບບບາງສ່ວນ
+            ຕິດຕາມລາຍການຄິວທີ່ອອກແບບແລ້ວ ວ່າໄດ້ມັດຈຳສັ່ງຜະລິດແລ້ວບໍ່ ແລະ ມັດຈຳໃນມື້ໃດ
           </p>
         </div>
         <button
@@ -387,7 +347,7 @@ export default function DesignPhoneStatusReportPage() {
       {err ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">{err}</div> : null}
 
       <div className="space-y-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <select
             value={month}
             onChange={(event) => setMonth(event.target.value === "ALL" ? "ALL" : Number(event.target.value))}
@@ -406,12 +366,6 @@ export default function DesignPhoneStatusReportPage() {
               </option>
             ))}
           </select>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as PhoneStatusFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
-            <option value="all">ສະຖານະທັງໝົດ</option>
-            <option value="designed">ອອກແບບແລ້ວ</option>
-            <option value="pending">ຍັງບໍ່ທັນອອກແບບ</option>
-            <option value="partial">ອອກແບບບາງສ່ວນ</option>
-          </select>
           <select value={graphicFilter} onChange={(event) => setGraphicFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
             <option value="ALL">Graphic ທັງໝົດ</option>
             {graphics.map((item) => (
@@ -420,6 +374,40 @@ export default function DesignPhoneStatusReportPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-xs font-black uppercase tracking-wide text-slate-500">ຕົວກອງສະຖານະຄິວອອກແບບ</div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedQueueStatuses([])}
+              className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${
+                selectedQueueStatuses.length === 0
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              ສະຖານະຄິວທັງໝົດ
+            </button>
+            {QUEUE_DESIGN_FILTER_OPTIONS.map((item) => {
+              const active = selectedQueueStatuses.includes(item.value);
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setSelectedQueueStatuses((prev) => toggleQueueDesignFilter(prev, item.value))}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${
+                    active
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -481,13 +469,13 @@ export default function DesignPhoneStatusReportPage() {
           <input
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="ຄົ້ນຫາເບີໂທ, ເລກຄິວ, ເລກອໍເດີ, TYPE, Graphic"
+            placeholder="ຄົ້ນຫາເລກຄິວ, ເລກອໍເດີ, ເບີໂທ, TYPE, Graphic"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none"
           />
           <button
             type="button"
             onClick={exportExcel}
-            disabled={phoneRows.length === 0}
+            disabled={reportRows.length === 0}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-black text-white transition hover:bg-emerald-700 disabled:opacity-50"
           >
             <Download size={16} />
@@ -497,94 +485,97 @@ export default function DesignPhoneStatusReportPage() {
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-            <div className="text-xs font-black uppercase text-slate-600">ເບີລູກຄ້າທັງໝົດ</div>
-            <div className="mt-2 text-2xl font-black text-slate-900">{summary.phones_total.toLocaleString()}</div>
+            <div className="text-xs font-black uppercase text-slate-600">ຄິວທັງໝົດ</div>
+            <div className="mt-2 text-2xl font-black text-slate-900">{summary.total_queues.toLocaleString()}</div>
           </div>
           <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
-            <div className="text-xs font-black uppercase text-emerald-700">ເບີທີ່ອອກແບບແລ້ວ</div>
-            <div className="mt-2 text-2xl font-black text-emerald-700">{summary.designed_phones.toLocaleString()}</div>
+            <div className="text-xs font-black uppercase text-emerald-700">ອອກແບບແລ້ວ ແລະ ມັດຈຳແລ້ວ</div>
+            <div className="mt-2 text-2xl font-black text-emerald-700">{summary.designed_ordered.toLocaleString()}</div>
           </div>
           <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
-            <div className="text-xs font-black uppercase text-amber-700">ເບີທີ່ຍັງຄ້າງ</div>
-            <div className="mt-2 text-2xl font-black text-amber-700">{summary.pending_phones.toLocaleString()}</div>
+            <div className="text-xs font-black uppercase text-amber-700">ອອກແບບແລ້ວ ແຕ່ຍັງບໍ່ທັນມັດຈຳ</div>
+            <div className="mt-2 text-2xl font-black text-amber-700">{summary.designed_not_ordered.toLocaleString()}</div>
           </div>
           <div className="rounded-xl border border-sky-100 bg-sky-50 p-3">
-            <div className="text-xs font-black uppercase text-sky-700">ເບີທີ່ອອກແບບບາງສ່ວນ</div>
-            <div className="mt-2 text-2xl font-black text-sky-700">{summary.partial_phones.toLocaleString()}</div>
+            <div className="text-xs font-black uppercase text-sky-700">ຄິວຍັງບໍ່ທັນອອກແບບ</div>
+            <div className="mt-2 text-2xl font-black text-sky-700">{summary.pending_queues.toLocaleString()}</div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="rounded-xl border border-slate-100 bg-white p-3">
-            <div className="text-xs font-black uppercase text-slate-500">ຈຳນວນຄິວລວມ</div>
-            <div className="mt-2 text-xl font-black text-slate-900">{summary.queue_total.toLocaleString()}</div>
-          </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div className="rounded-xl border border-slate-100 bg-white p-3">
             <div className="text-xs font-black uppercase text-slate-500">ຄິວທີ່ອອກແບບແລ້ວ</div>
-            <div className="mt-2 text-xl font-black text-emerald-600">{summary.designed_queue_total.toLocaleString()}</div>
+            <div className="mt-2 text-xl font-black text-slate-900">{summary.designed_queues.toLocaleString()}</div>
           </div>
           <div className="rounded-xl border border-slate-100 bg-white p-3">
-            <div className="text-xs font-black uppercase text-slate-500">ຄິວທີ່ຍັງບໍ່ທັນ</div>
-            <div className="mt-2 text-xl font-black text-amber-600">{summary.pending_queue_total.toLocaleString()}</div>
+            <div className="text-xs font-black uppercase text-slate-500">ຄິວທີ່ກຳລັງສະແດງ</div>
+            <div className="mt-2 text-xl font-black text-emerald-600">{reportRows.length.toLocaleString()}</div>
           </div>
         </div>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="border-b bg-slate-50 p-4 text-sm font-black uppercase text-slate-800">ຕາຕະລາງເບີລູກຄ້າ ({phoneRows.length})</div>
+        <div className="border-b bg-slate-50 p-4 text-sm font-black uppercase text-slate-800">ຕາຕະລາງລາຍການຄິວ ({reportRows.length})</div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-slate-100 bg-slate-50/70 text-slate-700">
               <tr>
-                <th className="p-3 text-left text-xs font-black uppercase">ເບີລູກຄ້າ</th>
-                <th className="p-3 text-left text-xs font-black uppercase">ສະຖານະ</th>
-                <th className="p-3 text-right text-xs font-black uppercase">ຄິວລວມ</th>
-                <th className="p-3 text-right text-xs font-black uppercase">ອອກແບບແລ້ວ</th>
-                <th className="p-3 text-right text-xs font-black uppercase">ຍັງບໍ່ທັນ</th>
-                <th className="p-3 text-left text-xs font-black uppercase">ຄິວລ່າສຸດ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ວັນທີ / ເລກຄິວ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ອໍເດີ / ເບີໂທ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">TYPE / Graphic</th>
-                <th className="p-3 text-left text-xs font-black uppercase">ອັບເດດລ່າສຸດ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ສະຖານະອອກແບບ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ສະຖານະມັດຈຳສັ່ງຜະລິດ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ວັນທີມັດຈຳ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ອັບເດດ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {!loading && phoneRows.length === 0 ? (
+              {!loading && reportRows.length === 0 ? (
                 <tr>
-                  <td className="p-8 text-center font-bold text-slate-500" colSpan={8}>
+                  <td className="p-8 text-center font-bold text-slate-500" colSpan={7}>
                     ບໍ່ມີຂໍ້ມູນ
                   </td>
                 </tr>
               ) : (
-                phoneRows.map((row) => {
-                  const status = getPhoneStatus(row);
+                reportRows.map((row) => {
                   return (
-                    <tr key={row.phone_key}>
+                    <tr key={row.id}>
                       <td className="p-3">
-                        <div className="font-black text-slate-900">{row.customer_phone}</div>
-                        <div className="text-xs font-medium text-slate-500">ລາຍການຄິວ: {row.queue_numbers.join(", ")}</div>
+                        <div className="font-black text-slate-900">{row.queue_number}</div>
+                        <div className="text-xs font-medium text-slate-500">{row.queue_date}</div>
                       </td>
                       <td className="p-3">
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${getPhoneStatusClass(status)}`}>
-                          {getPhoneStatusLabel(status)}
+                        <div className="font-black text-slate-900">{row.order_no}</div>
+                        <div className="text-xs font-medium text-slate-500">{row.customer_phone || "-"}</div>
+                      </td>
+                      <td className="p-3 text-slate-800">
+                        <div className="font-black text-slate-900">{row.type_code}</div>
+                        <div className="text-xs font-medium text-slate-500">
+                          {row.graphic_name} • {row.style_name || "-"}
+                        </div>
+                      </td>
+                      <td className="p-3 text-slate-800">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${
+                            row.is_designed ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : "border border-amber-200 bg-amber-50 text-amber-700"
+                          }`}
+                        >
+                          {row.is_designed ? "ອອກແບບແລ້ວ" : "ຍັງບໍ່ທັນອອກແບບ"}
+                        </span>
+                        <div className="mt-1 text-xs font-medium text-slate-500">ວັນທີອອກແບບ: {formatDateTime(row.designed_at)}</div>
+                      </td>
+                      <td className="p-3">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${getOrderDepositStatusClass(row.has_order_deposit)}`}>
+                          {getOrderDepositStatusLabel(row.has_order_deposit)}
                         </span>
                       </td>
-                      <td className="p-3 text-right font-black text-slate-900">{row.total_entries.toLocaleString()}</td>
-                      <td className="p-3 text-right font-black text-emerald-600">{row.designed_entries.toLocaleString()}</td>
-                      <td className="p-3 text-right font-black text-amber-600">{row.pending_entries.toLocaleString()}</td>
                       <td className="p-3 text-slate-800">
-                        <div className="font-black text-slate-900">{row.latest_queue_number}</div>
-                        <div className="text-xs font-medium text-slate-500">
-                          Order {row.latest_order_no} • {row.latest_queue_date}
-                        </div>
+                        <div className="font-black text-slate-900">{row.order_deposit_date || "-"}</div>
+                        <div className="text-xs font-medium text-slate-500">ດຶງຈາກວັນທີອໍເດີ້</div>
                       </td>
                       <td className="p-3 text-slate-800">
-                        <div className="font-black text-slate-900">{row.latest_type_code}</div>
-                        <div className="text-xs font-medium text-slate-500">
-                          {row.latest_graphic_name} • {row.latest_style_name || "-"}
-                        </div>
-                      </td>
-                      <td className="p-3 text-slate-800">
-                        <div className="font-medium">{formatDateTime(row.latest_updated_at)}</div>
-                        <div className="text-xs font-medium text-slate-500">ອອກແບບລ່າສຸດ: {formatDateTime(row.latest_designed_at)}</div>
+                        <div className="font-medium">{formatDateTime(row.updated_at)}</div>
+                        <div className="text-xs font-medium text-slate-500">ອອກແບບລ່າສຸດ: {formatDateTime(row.designed_at)}</div>
                       </td>
                     </tr>
                   );

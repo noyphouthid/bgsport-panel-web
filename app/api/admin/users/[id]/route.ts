@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
 type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
 
@@ -12,6 +13,7 @@ type UpdateUserBody = {
   notes?: string | null;
   is_active?: boolean;
   password?: string;
+  permission_settings?: UserPermissionSettings;
 };
 
 const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "accountant"]);
@@ -52,7 +54,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const { data: existing, error: existingErr } = await supabaseAdmin
     .from("users")
-    .select("id,full_name,email,role,is_active,auth_user_id")
+    .select("id,full_name,email,role,is_active,auth_user_id,permission_settings")
     .eq("id", id)
     .single();
 
@@ -67,6 +69,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const role = (body.role ?? existing.role) as Role;
   const isActive = body.is_active ?? existing.is_active;
   const password = String(body.password || "").trim();
+  const permissionSettings = normalizeUserPermissionSettings(body.permission_settings ?? existing.permission_settings);
 
   if (!fullName) return NextResponse.json({ error: "missing_full_name" }, { status: 400 });
   if (!ALLOWED_ROLES.has(role)) return NextResponse.json({ error: "invalid_role" }, { status: 400 });
@@ -98,10 +101,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       is_active: isActive,
       phone: body.phone?.trim() || null,
       notes: body.notes?.trim() || null,
+      permission_settings: permissionSettings,
       auth_user_id: authUserId,
     })
     .eq("id", id)
-    .select("id,full_name,email,role,is_active")
+    .select("id,full_name,email,role,is_active,permission_settings")
     .single();
 
   if (updateErr) {
@@ -175,4 +179,3 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }
-

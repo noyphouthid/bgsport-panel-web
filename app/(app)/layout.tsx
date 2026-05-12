@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AppRole, canAccessPath, getDefaultPathForRole } from "@/lib/access-control";
+import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
 type UserProfile = {
   id: string;
@@ -38,6 +39,7 @@ type UserProfile = {
   email: string | null;
   role: AppRole;
   is_active: boolean;
+  permission_settings?: UserPermissionSettings | null;
 };
 
 type NavLinkItem = {
@@ -74,6 +76,7 @@ const nav: NavItem[] = [
       { type: "link", href: "/reports/monthly-close", label: "ປິດຍອດຂາຍ-ກຳໄລປະຈໍາເດືອນ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/orders", label: "ລາຍງານອໍເດີ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/factory-payments", label: "ລາຍງານຈ່າຍໂຮງງານ", icon: FileSpreadsheet },
+      { type: "link", href: "/reports/payroll", label: "ລາຍງານເງິນເດືອນພະນັກງານ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/data-export", label: "ລາຍງານດຶງຂໍ້ມູນ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/admin-sales", label: "ລາຍງານຍອດຂາຍແອັດມິນ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/graphic-work", label: "ລາຍງານກຣາຟິກ", icon: FileSpreadsheet },
@@ -148,7 +151,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
       const { data: byAuthId, error: byAuthIdErr } = await supabase
         .from("users")
-        .select("id,full_name,email,role,is_active,auth_user_id")
+        .select("id,full_name,email,role,is_active,auth_user_id,permission_settings")
         .eq("auth_user_id", authUserId)
         .maybeSingle();
 
@@ -167,7 +170,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       if (!userRow) {
         const { data: byEmail, error: byEmailErr } = await supabase
           .from("users")
-          .select("id,full_name,email,role,is_active,auth_user_id")
+          .select("id,full_name,email,role,is_active,auth_user_id,permission_settings")
           .ilike("email", email)
           .maybeSingle();
         if (byEmailErr) {
@@ -195,7 +198,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       }
 
       if (active) {
-        setProfile(userRow as UserProfile);
+        setProfile({
+          ...(userRow as UserProfile),
+          permission_settings: normalizeUserPermissionSettings((userRow as UserProfile).permission_settings),
+        });
         setAuthChecking(false);
       }
     };
@@ -217,7 +223,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!profile) return;
-    if (!canAccessPath(pathname, profile.role)) {
+    if (!canAccessPath(pathname, profile.role, profile.permission_settings)) {
       toast.error("ທ່ານບໍ່ມີສິດເຂົ້າເບິ່ງໜ້ານີ້");
       router.replace(getDefaultPathForRole(profile.role));
     }
@@ -228,10 +234,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     return nav
       .map((item) => {
         if (item.type === "link") {
-          return canAccessPath(item.href, profile.role) ? item : null;
+          return canAccessPath(item.href, profile.role, profile.permission_settings) ? item : null;
         }
 
-        const availableItems = item.items.filter((subItem) => canAccessPath(subItem.href, profile.role));
+        const availableItems = item.items.filter((subItem) => canAccessPath(subItem.href, profile.role, profile.permission_settings));
         if (availableItems.length === 0) return null;
 
         return {

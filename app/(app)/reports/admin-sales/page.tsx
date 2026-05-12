@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { Download } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { isAdminRole } from "@/lib/role-groups";
+import type { AppRole } from "@/lib/access-control";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import { MonthFilter, PrefixFilter, buildMonthOptions, buildYearOptions, matchPrefix, periodRange } from "../_lib";
 
@@ -33,6 +34,11 @@ type AdminSummary = {
   sales_total: number;
 };
 
+type ViewerProfile = {
+  id: string;
+  role: AppRole;
+};
+
 export default function AdminSalesReportPage() {
   const now = new Date();
   const [month, setMonth] = useState<MonthFilter>(now.getMonth() + 1);
@@ -42,6 +48,7 @@ export default function AdminSalesReportPage() {
 
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [admins, setAdmins] = useState<UserRow[]>([]);
+  const [viewer, setViewer] = useState<ViewerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const { options: orderTypeOptions } = useOrderTypeOptions(true);
@@ -50,12 +57,24 @@ export default function AdminSalesReportPage() {
   const load = async () => {
     setLoading(true);
     setErr(null);
-    const [{ data: orderData, error: orderError }, { data: userData, error: userError }] = await Promise.all([
+    const { data: sessionData } = await supabase.auth.getSession();
+    const authUserId = sessionData.session?.user.id;
+
+    const viewerPromise = authUserId
+      ? supabase.from("users").select("id,role").eq("auth_user_id", authUserId).maybeSingle()
+      : Promise.resolve({ data: null, error: null });
+
+    const [
+      { data: orderData, error: orderError },
+      { data: userData, error: userError },
+      { data: viewerData, error: viewerError },
+    ] = await Promise.all([
       supabase
         .from("orders")
         .select("id,order_code,order_date,admin_user_id,short_qty,long_qty,net_total")
         .order("order_date", { ascending: false }),
       supabase.from("users").select("id,full_name,role,is_active").order("full_name", { ascending: true }),
+      viewerPromise,
     ]);
 
     if (orderError) {
@@ -65,6 +84,17 @@ export default function AdminSalesReportPage() {
       setLoading(false);
       return;
     }
+
+    if (viewerError) {
+      setErr(viewerError.message);
+      setViewer(null);
+      setLoading(false);
+      return;
+    }
+
+    const currentViewer = viewerData ? ({ id: viewerData.id, role: viewerData.role as AppRole } satisfies ViewerProfile) : null;
+    setViewer(currentViewer);
+
     if (userError) {
       setErr(userError.message);
       setAdmins([]);
@@ -84,6 +114,13 @@ export default function AdminSalesReportPage() {
     return () => clearTimeout(timer);
   }, []);
 
+  const lockedAdminId = viewer?.role === "admin" ? viewer.id : null;
+  const visibleAdmins = useMemo(() => {
+    if (!lockedAdminId) return admins;
+    return admins.filter((admin) => admin.id === lockedAdminId);
+  }, [admins, lockedAdminId]);
+  const effectiveAdminFilter = lockedAdminId || adminFilter;
+
   const summaryRows = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
     const adminMap = new Map(admins.map((u) => [u.id, u.full_name]));
@@ -94,7 +131,7 @@ export default function AdminSalesReportPage() {
       if (!(date >= start && date < endExclusive)) continue;
       if (!matchPrefix(row.order_code, prefix)) continue;
       if (!row.admin_user_id) continue;
-      if (adminFilter !== "ALL" && row.admin_user_id !== adminFilter) continue;
+      if (effectiveAdminFilter !== "ALL" && row.admin_user_id !== effectiveAdminFilter) continue;
 
       const key = row.admin_user_id;
       const current = grouped.get(key) ?? {
@@ -111,7 +148,7 @@ export default function AdminSalesReportPage() {
     }
 
     return [...grouped.values()].sort((a, b) => b.sales_total - a.sales_total);
-  }, [orders, admins, month, year, prefix, adminFilter]);
+  }, [orders, admins, month, year, prefix, effectiveAdminFilter]);
 
   const totals = useMemo(() => {
     return summaryRows.reduce(
@@ -166,13 +203,24 @@ export default function AdminSalesReportPage() {
           <select value={prefix} onChange={(e) => setPrefix(e.target.value as PrefixFilter)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-800">
             {prefixOptions.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
-          <select value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-800">
+          <select
+            value={effectiveAdminFilter}
+            onChange={(e) => setAdminFilter(e.target.value)}
+            disabled={Boolean(lockedAdminId)}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-800 disabled:bg-slate-50 disabled:text-slate-500"
+          >
             <option value="ALL">ແອັດມິນທັງໝົດ</option>
-            {admins.map((a) => (
+            {visibleAdmins.map((a) => (
               <option key={a.id} value={a.id}>{a.full_name}</option>
             ))}
           </select>
         </div>
+
+        {lockedAdminId ? (
+          <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-700">
+            ບັນຊີ admin ຈະເຫັນສະເພາະຍອດຂາຍຂອງໂຕເອງ
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">

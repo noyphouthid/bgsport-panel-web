@@ -13,6 +13,7 @@ import {
   getPantsItemsSummary,
   getPantsLineGross,
   getPantsTotalQty,
+  isMissingOrderItemsTableError,
   type PantsOrderItemDraft,
 } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
@@ -33,6 +34,7 @@ import {
   type QuotationDraft,
   type QuotationDraftStatus,
 } from "@/lib/quotation-drafts";
+import { canEditWithPermissions, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
 type DepositSlipRow = {
   id: string;
@@ -58,6 +60,7 @@ type UserOption = {
   role: AppRole;
   is_active: boolean;
   auth_user_id: string | null;
+  permission_settings?: UserPermissionSettings | null;
 };
 
 type DepositOrderRow = {
@@ -69,6 +72,7 @@ type DepositOrderRow = {
   order_code: string | null;
   order_date: string | null;
   status: FactoryDepositOrderStatus;
+  order_id?: string | null;
   customer_name: string;
   customer_phone: string;
   customer_whatsapp: string;
@@ -445,6 +449,15 @@ function isMissingPantsItemsColumnError(error: { message?: string } | null | und
   return message.includes("pants_items") && (message.includes("column") || message.includes("schema cache"));
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = String((error as { message?: unknown }).message || "").trim();
+    if (message) return message;
+  }
+  return fallback;
+}
+
 function buildEmptyPantsProductionItem(overrides?: Partial<PantsProductionItem>): PantsProductionItem {
   const base = buildEmptyPantsOrderItem(overrides);
   return {
@@ -575,6 +588,7 @@ export default function FactoryDepositOrderFormPage() {
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
+  const [viewerPermissions, setViewerPermissions] = useState<UserPermissionSettings>({});
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -585,6 +599,7 @@ export default function FactoryDepositOrderFormPage() {
   const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
 
   const [recordId, setRecordId] = useState<string | null>(null);
+  const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
   const [createdByUserId, setCreatedByUserId] = useState<string | null>(null);
   const [status, setStatus] = useState<FactoryDepositOrderStatus>("draft");
   const [depositNo, setDepositNo] = useState(buildDepositNo());
@@ -640,7 +655,7 @@ export default function FactoryDepositOrderFormPage() {
         const [{ data: fabricsData, error: fabricsError }, { data: usersData, error: usersError }, { data: sessionData }] =
           await Promise.all([
             supabase.from("fabrics").select("id,name,short_price,long_price,is_active").eq("is_active", true).order("name", { ascending: true }),
-            supabase.from("users").select("id,full_name,role,is_active,auth_user_id").eq("is_active", true).order("full_name", { ascending: true }),
+            supabase.from("users").select("id,full_name,role,is_active,auth_user_id,permission_settings").eq("is_active", true).order("full_name", { ascending: true }),
             supabase.auth.getSession(),
           ]);
 
@@ -656,6 +671,7 @@ export default function FactoryDepositOrderFormPage() {
         const authUserId = sessionData.session?.user.id ?? null;
         const currentUser = userRows.find((item) => item.auth_user_id === authUserId) || null;
         setViewerRole(currentUser?.role ?? null);
+        setViewerPermissions(normalizeUserPermissionSettings(currentUser?.permission_settings));
         setViewerUserId(currentUser?.id ?? null);
         setCreatedByUserId(currentUser?.id ?? null);
 
@@ -677,6 +693,7 @@ export default function FactoryDepositOrderFormPage() {
           }
 
           setRecordId(row.id);
+          setLinkedOrderId(row.order_id || null);
           setCreatedByUserId(row.created_by_user_id || currentUser?.id || null);
           setStatus(row.status);
           setDepositNo(row.deposit_no);
@@ -792,7 +809,7 @@ export default function FactoryDepositOrderFormPage() {
   const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
   const adminOptions = useMemo(() => users.filter((item) => isFactoryDepositAdminRole(item.role)), [users]);
   const plannerOptions = useMemo(() => users.filter((item) => isGraphicRole(item.role)), [users]);
-  const canEdit = viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false;
+  const canEdit = canEditWithPermissions(viewerPermissions, "factory_deposit_orders", viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false);
   const isSuperAdmin = viewerRole === "superadmin";
   const canApproveHere = !!recordId && !!viewerRole && isSuperAdmin && canApproveFactoryDepositOrder(viewerRole) && status === "submitted";
   const canConvertHere = !!recordId && !!viewerRole && isSuperAdmin && canConvertFactoryDepositOrder(viewerRole) && status === "approved";
@@ -1614,7 +1631,11 @@ export default function FactoryDepositOrderFormPage() {
         allowNextNavigation();
         router.push("/factory-deposit-orders");
       }
-      return { depositOrderId, nextStatus };
+      return {
+        depositOrderId,
+        nextStatus,
+        uploadedPantsItems,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : "ບັນທຶກບໍ່ສຳເລັດ";
       setErr(message);
@@ -1686,12 +1707,14 @@ export default function FactoryDepositOrderFormPage() {
 
     setWorkingAction("convert");
     setErr(null);
+    let createdOrderId: string | null = null;
     try {
       const saved = await persistDepositOrder({
         nextStatus: "approved",
         successMessage: "ບັນທຶກຂໍ້ມູນກ່ອນແປງເປັນອໍເດີແລ້ວ",
       });
       if (!saved?.depositOrderId) return;
+      const convertedPantsItems = saved.uploadedPantsItems ?? pantsItems;
 
       const orderPayload = {
         order_code: orderCode.trim(),
@@ -1724,7 +1747,8 @@ export default function FactoryDepositOrderFormPage() {
       };
 
       const { data: orderData, error: insertOrderError } = await supabase.from("orders").insert(orderPayload).select("id").single();
-      if (insertOrderError) throw insertOrderError;
+      if (insertOrderError) throw new Error(`ສ້າງ order ບໍ່ສຳເລັດ: ${insertOrderError.message}`);
+      createdOrderId = orderData.id as string;
 
       const hasShirtLine =
         Math.max(0, shortQty) > 0 ||
@@ -1734,11 +1758,12 @@ export default function FactoryDepositOrderFormPage() {
         Math.max(0, qty4XL) > 0 ||
         Math.max(0, qty5XL) > 0 ||
         Math.max(0, qty6XL) > 0;
+      const hasPantsLine = convertedPantsItems.some((item) => getPantsTotalQty(item) > 0);
       const itemPayloads = [
         ...(hasShirtLine
           ? [
               buildShirtOrderItemPayload({
-                orderId: orderData.id as string,
+                orderId: createdOrderId,
                 lineNo: 1,
                 fabric: {
                   id: selectedFabric.id,
@@ -1759,9 +1784,9 @@ export default function FactoryDepositOrderFormPage() {
               }),
             ]
           : []),
-        ...pantsItems.map((item, index) =>
+        ...convertedPantsItems.map((item, index) =>
           buildPantsOrderItemPayload({
-            orderId: orderData.id as string,
+            orderId: createdOrderId,
             lineNo: index + (hasShirtLine ? 2 : 1),
             item,
             fabricsById,
@@ -1771,28 +1796,86 @@ export default function FactoryDepositOrderFormPage() {
 
       if (itemPayloads.length > 0) {
         const { error: insertItemsError } = await supabase.from("order_items").insert(itemPayloads);
-        if (insertItemsError) throw insertItemsError;
+        if (insertItemsError) {
+          if (isMissingOrderItemsTableError(insertItemsError)) {
+            if (hasPantsLine) {
+              toast("ບັນທຶກອໍເດີແລ້ວ ແຕ່ຂໍ້ມູນໂສ້ງຍັງບໍ່ຖືກເກັບ ເນື່ອງຈາກ `order_items` ຍັງບໍ່ພ້ອມ");
+            }
+          } else {
+            throw new Error(`ບັນທຶກລາຍການເສື້ອ/ໂສ້ງບໍ່ສຳເລັດ: ${insertItemsError.message}`);
+          }
+        }
       }
 
       const { error: updateDepositError } = await supabase
         .from("factory_deposit_orders")
         .update({
           status: "converted",
-          order_id: orderData.id,
+          order_id: createdOrderId,
           converted_at: new Date().toISOString(),
           converted_by_user_id: viewerUserId,
         })
         .eq("id", saved.depositOrderId);
-      if (updateDepositError) throw updateDepositError;
+      if (updateDepositError) throw new Error(`ອັບເດດສະຖານະໃບມັດຈຳບໍ່ສຳເລັດ: ${updateDepositError.message}`);
 
       await insertHistory(saved.depositOrderId, "convert_to_order", `convert to order ${orderCode.trim()}`, "approved", "converted");
+      setLinkedOrderId(orderData.id as string);
       setStatus("converted");
       markClean();
       toast.success("ບັນທຶກເປັນອໍເດີແລ້ວ");
       allowNextNavigation();
       router.push("/factory-deposit-orders");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "ບັນທຶກເປັນອໍເດີບໍ່ສຳເລັດ";
+      if (createdOrderId) {
+        await supabase.from("orders").delete().eq("id", createdOrderId);
+      }
+      const message = getErrorMessage(error, "ບັນທຶກເປັນອໍເດີບໍ່ສຳເລັດ");
+      setErr(message);
+      toast.error(message);
+    } finally {
+      setWorkingAction(null);
+    }
+  };
+
+  const handleCancelConvert = async () => {
+    if (!recordId) return toast.error("ບໍ່ພົບໃບມັດຈຳ");
+    if (!viewerRole || !canConvertFactoryDepositOrder(viewerRole) || !isSuperAdmin) return toast.error("ທ່ານບໍ່ມີສິດຍົກເລີກການບັນທຶກອໍເດີ້");
+    if (status !== "converted") return toast.error("ຍົກເລີກໄດ້ສະເພາະລາຍການທີ່ບັນທຶກເປັນອໍເດີແລ້ວ");
+
+    const confirmed = await confirmAction({
+      title: "ຢືນຢັນຍົກເລີກການບັນທຶກອໍເດີ້?",
+      text: `${depositNo} -> ${orderCode || "-"}`,
+      confirmButtonText: "ຍົກເລີກການບັນທຶກອໍເດີ້",
+      cancelToast: "ຍົກເລີກການຖອນອໍເດີ້ແລ້ວ",
+    });
+    if (!confirmed) return;
+
+    setWorkingAction("convert");
+    setErr(null);
+    try {
+      if (linkedOrderId) {
+        const { error: deleteOrderError } = await supabase.from("orders").delete().eq("id", linkedOrderId);
+        if (deleteOrderError) throw deleteOrderError;
+      }
+
+      const { error: updateDepositError } = await supabase
+        .from("factory_deposit_orders")
+        .update({
+          status: "approved",
+          order_id: null,
+          converted_at: null,
+          converted_by_user_id: null,
+        })
+        .eq("id", recordId);
+      if (updateDepositError) throw updateDepositError;
+
+      await insertHistory(recordId, "cancel_convert_to_order", `cancel order ${orderCode.trim() || depositNo}`, "converted", "approved");
+      setLinkedOrderId(null);
+      setStatus("approved");
+      markClean();
+      toast.success("ຍົກເລີກການບັນທຶກອໍເດີ້ແລ້ວ");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ຍົກເລີກການບັນທຶກອໍເດີ້ບໍ່ສຳເລັດ";
       setErr(message);
       toast.error(message);
     } finally {
@@ -1870,6 +1953,17 @@ export default function FactoryDepositOrderFormPage() {
             >
               <Save size={16} />
               {workingAction === "convert" ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກເປັນອໍເດີ"}
+            </button>
+          )}
+          {status === "converted" && viewerRole && canConvertFactoryDepositOrder(viewerRole) && isSuperAdmin && (
+            <button
+              type="button"
+              onClick={handleCancelConvert}
+              disabled={saving || uploadingSlip || workingAction !== null}
+              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-rose-700 disabled:opacity-50"
+            >
+              <Save size={16} />
+              {workingAction === "convert" ? "ກຳລັງຖອນ..." : "ຍົກເລີກການບັນທຶກອໍເດີ້"}
             </button>
           )}
         </div>
@@ -1982,6 +2076,11 @@ export default function FactoryDepositOrderFormPage() {
                 <div className="text-xs font-black uppercase tracking-wide text-emerald-700">ຈຳນວນເສື້ອທັງໝົດ</div>
                 <div className="mt-2 text-2xl font-black text-emerald-900">{totalProductionQty.toLocaleString()}</div>
                 <div className="mt-1 text-xs font-medium text-emerald-700">ລວມແຖມແລ້ວ</div>
+              </div>
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+                <div className="text-xs font-black uppercase tracking-wide text-indigo-700">ຈຳນວນໂສ້ງທັງໝົດ</div>
+                <div className="mt-2 text-2xl font-black text-indigo-900">{pantsTotalQty.toLocaleString()}</div>
+                <div className="mt-1 text-xs font-medium text-indigo-700">ລວມທຸກລາຍການໂສ້ງ</div>
               </div>
             </div>
           </section>
@@ -2514,7 +2613,6 @@ export default function FactoryDepositOrderFormPage() {
               {activeProductionItems.map((item, index) => {
                 const itemTotal = getProductionItemTotal(item);
                 const filledPlayerRows = getFilledPlayerRows(item);
-                const itemSizeMap = getProductionItemSizeMap(item);
                 const imageUrl = item.mockup_preview_url || item.mockup_url;
                 const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
                 const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
@@ -2614,37 +2712,45 @@ export default function FactoryDepositOrderFormPage() {
                       <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-4">
                         <div className="mb-4 flex items-center justify-between">
                           <div>
-                            <div className="text-xs font-black uppercase tracking-wide text-slate-500">ຈຳນວນໄຊສ໌ທີ່ລູກຄ້າສັ່ງ</div>
-                            <div className="mt-1 text-sm font-medium text-slate-500">ລວມຈຳນວນແບບນີ້ {itemTotal.toLocaleString()} ຕົວ</div>
+                            <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                              {item.player_mode === "none" ? "ຈຳນວນໄຊສ໌ທີ່ລູກຄ້າສັ່ງ" : "Player / ເບີເສື້ອ"}
+                            </div>
+                            <div className="mt-1 text-sm font-medium text-slate-500">
+                              {item.player_mode === "none"
+                                ? `ລວມຈຳນວນແບບນີ້ ${itemTotal.toLocaleString()} ຕົວ`
+                                : `ປ້ອນ ${getPlayerModeInstruction(item.player_mode)} ໃຫ້ຄົບ ${itemTotal.toLocaleString()} ລາຍການ`}
+                            </div>
                           </div>
                           <div className="rounded-2xl bg-slate-100 px-4 py-3 text-center">
                             <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Total</div>
                             <div className="mt-1 text-2xl font-black text-slate-900">{itemTotal.toLocaleString()}</div>
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                          {PRODUCTION_SIZE_FIELDS.map((field) => (
-                            <div key={field.key} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                              <label className="mb-2 block text-center text-sm font-black uppercase tracking-wide text-slate-700">{field.label}</label>
-                              <input
-                                type="number"
-                                min={0}
-                                value={item.player_mode !== "none" && filledPlayerRows.length > 0 ? itemSizeMap[field.key] : item.sizes[field.key]}
-                                onChange={(e) =>
-                                  updateProductionItem(index, (current) => ({
-                                    ...current,
-                                    sizes: {
-                                      ...current.sizes,
-                                      [field.key]: Math.max(0, Number(e.target.value) || 0),
-                                    },
-                                  }))
-                                }
-                                disabled={!canEdit}
-                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
-                              />
-                            </div>
-                          ))}
-                        </div>
+                        {item.player_mode === "none" ? (
+                          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                            {PRODUCTION_SIZE_FIELDS.map((field) => (
+                              <div key={field.key} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                                <label className="mb-2 block text-center text-sm font-black uppercase tracking-wide text-slate-700">{field.label}</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={item.sizes[field.key]}
+                                  onChange={(e) =>
+                                    updateProductionItem(index, (current) => ({
+                                      ...current,
+                                      sizes: {
+                                        ...current.sizes,
+                                        [field.key]: Math.max(0, Number(e.target.value) || 0),
+                                      },
+                                    }))
+                                  }
+                                  disabled={!canEdit}
+                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
 
                         {item.player_mode !== "none" ? (
                           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -2843,23 +2949,27 @@ export default function FactoryDepositOrderFormPage() {
                           )}
                         </div>
                         <div className="mt-3 flex-1 rounded-md border border-slate-700 p-3">
-                          <div className="mb-2 text-center text-[17px] font-black text-sky-700">ຈຳນວນໄຊສ໌</div>
-                          <div className="space-y-2 text-[18px]">
-                            {PRODUCTION_SIZE_FIELDS.filter((field) => Number(itemSizeMap[field.key]) > 0).map((field) => (
-                              <div key={field.key} className="flex items-center justify-between gap-3">
-                                <span className="font-black text-slate-900">{field.label}:</span>
-                                <span className={`font-black ${itemSizeMap[field.key] > 0 ? "text-rose-600" : "text-slate-500"}`}>
-                                  {itemSizeMap[field.key] > 0 ? itemSizeMap[field.key].toLocaleString() : ""}
-                                </span>
+                          {item.player_mode === "none" ? (
+                            <>
+                              <div className="mb-2 text-center text-[17px] font-black text-sky-700">ຈຳນວນໄຊສ໌</div>
+                              <div className="space-y-2 text-[18px]">
+                                {PRODUCTION_SIZE_FIELDS.filter((field) => Number(itemSizeMap[field.key]) > 0).map((field) => (
+                                  <div key={field.key} className="flex items-center justify-between gap-3">
+                                    <span className="font-black text-slate-900">{field.label}:</span>
+                                    <span className={`font-black ${itemSizeMap[field.key] > 0 ? "text-rose-600" : "text-slate-500"}`}>
+                                      {itemSizeMap[field.key] > 0 ? itemSizeMap[field.key].toLocaleString() : ""}
+                                    </span>
+                                  </div>
+                                ))}
+                                {PRODUCTION_SIZE_FIELDS.every((field) => Number(itemSizeMap[field.key]) <= 0) ? (
+                                  <div className="text-center text-[13px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
+                                ) : null}
                               </div>
-                            ))}
-                            {item.player_mode === "none" && PRODUCTION_SIZE_FIELDS.every((field) => Number(itemSizeMap[field.key]) <= 0) ? (
-                              <div className="text-center text-[13px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
-                            ) : null}
-                          </div>
+                            </>
+                          ) : null}
 
                           {item.player_mode !== "none" && filledPlayerRows.length > 0 ? (
-                            <div className="mt-4 border-t border-slate-200 pt-3">
+                            <div className={item.player_mode === "none" ? "mt-4 border-t border-slate-200 pt-3" : ""}>
                               <div className="mb-2 text-center text-[14px] font-black text-slate-700">
                                 {getPlayerModePreviewTitle(item.player_mode)}
                               </div>

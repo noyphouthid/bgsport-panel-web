@@ -10,6 +10,7 @@ import { mergeOrderTypeOptions, useOrderTypeOptions } from "@/lib/order-code-opt
 import type { AppRole } from "@/lib/access-control";
 import { GRAPHIC_ASSIGNABLE_ROLES } from "@/lib/role-groups";
 import { buildYearOptions, type MonthFilter } from "../reports/_lib";
+import { canEditWithPermissions, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
 type DesignQueueRow = {
   id: string;
@@ -43,6 +44,7 @@ type ViewerProfile = {
   id: string;
   role: AppRole;
   full_name: string;
+  permission_settings?: UserPermissionSettings | null;
 };
 
 const URGENT_WORK_TYPE = "ງານດ່ວນ";
@@ -124,6 +126,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const [err, setErr] = useState<string | null>(null);
   const [creatorUserId, setCreatorUserId] = useState<string | null>(null);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
+  const [viewerPermissions, setViewerPermissions] = useState<UserPermissionSettings>({});
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
 
   const [queueDate, setQueueDate] = useState(getLocalDateInputValue);
@@ -146,13 +149,14 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     [orderTypeOptions, typeTemplate]
   );
   const selectedTypeTemplate = typeTemplate || availableTypeOptions[0] || "";
+  const canEditQueue = canEditWithPermissions(viewerPermissions, "design_queue", true);
   const isGraphicViewer = viewerRole === "graphic";
-  const canDeleteRows = viewerRole !== "graphic";
-  const canAssignGraphic = viewerRole !== "graphic";
+  const canDeleteRows = canEditQueue && viewerRole !== "graphic";
+  const canAssignGraphic = canEditQueue && viewerRole !== "graphic";
   const isEditing = editingRowId !== null;
   const selectedGraphicUserId = canAssignGraphic ? graphicUserId : creatorUserId || "";
   const isCompletedView = statusView === "completed";
-  const showFormPanel = !isCompletedView || isEditing;
+  const showFormPanel = canEditQueue && (!isCompletedView || isEditing);
 
   const load = async () => {
     setLoading(true);
@@ -217,7 +221,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
 
       const { data, error } = await supabase
         .from("users")
-        .select("id,role,full_name")
+        .select("id,role,full_name,permission_settings")
         .eq("auth_user_id", authUserId)
         .maybeSingle();
 
@@ -225,6 +229,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       const profile = (data ?? null) as ViewerProfile | null;
       setCreatorUserId(profile?.id ?? null);
       setViewerRole(profile?.role ?? null);
+      setViewerPermissions(normalizeUserPermissionSettings(profile?.permission_settings));
     };
 
     void loadCreator();
@@ -304,6 +309,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   };
 
   const startEdit = (row: DesignQueueRow) => {
+    if (!canEditQueue) return;
     setEditingRowId(row.id);
     setQueueDate(row.queue_date);
     setTypeTemplate(row.type_code);
@@ -314,6 +320,10 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   };
 
   const handleSubmit = async () => {
+    if (!canEditQueue) {
+      toast.error("ທ່ານບໍ່ມີສິດແກ້ໄຂຄິວອອກແບບ");
+      return;
+    }
     setErr(null);
 
     if (!resolvedTypeCode) {
@@ -378,6 +388,10 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   };
 
   const toggleDesigned = async (row: DesignQueueRow) => {
+    if (!canEditQueue) {
+      toast.error("ທ່ານບໍ່ມີສິດອັບເດດສະຖານະຄິວ");
+      return;
+    }
     const nextDesigned = !row.is_designed;
     const { error } = await supabase
       .from("design_queue_entries")
@@ -398,6 +412,10 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   };
 
   const deleteRow = async (row: DesignQueueRow) => {
+    if (!canDeleteRows) {
+      toast.error("ທ່ານບໍ່ມີສິດລົບຄິວ");
+      return;
+    }
     const confirmed = window.confirm(`ຕ້ອງການລົບຄິວ ${row.order_no} ແທ້ບໍ?`);
     if (!confirmed) return;
 
@@ -458,6 +476,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       </div>
 
       {err ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">{err}</div> : null}
+      {!canEditQueue ? <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">user ນີ້ມີສິດເບິ່ງຂໍ້ມູນໄດ້ ແຕ່ບໍ່ສາມາດແກ້ໄຂຄິວອອກແບບ</div> : null}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -533,6 +552,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                 value={customerPhone}
                 onChange={(event) => setCustomerPhone(event.target.value)}
                 placeholder="20 99 999 999"
+                disabled={!canEditQueue}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400"
               />
             </div>
@@ -559,6 +579,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
               <select
                 value={styleName}
                 onChange={(event) => setStyleName(event.target.value)}
+                disabled={!canEditQueue}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400"
               >
                 {WORK_TYPE_OPTIONS.map((option) => (
@@ -576,6 +597,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 placeholder="ລາຍລະອຽດເພີ່ມເຕີມ"
+                disabled={!canEditQueue}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400"
               />
             </div>
@@ -584,7 +606,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
               <button
                 type="button"
                 onClick={() => void handleSubmit()}
-                disabled={saving || loadingTypes}
+                disabled={saving || loadingTypes || !canEditQueue}
                 className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
               >
                 {saving ? <Loader2 size={16} className="animate-spin" /> : isEditing ? <Pencil size={16} /> : <Plus size={16} />}
@@ -746,23 +768,25 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => startEdit(row)}
-                              className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 transition hover:bg-sky-100"
-                            >
+                              <button
+                                type="button"
+                                onClick={() => startEdit(row)}
+                                disabled={!canEditQueue}
+                                className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 transition hover:bg-sky-100"
+                              >
                               <Pencil size={14} />
                               ແກ້ໄຂ
                             </button>
                             <button
                               type="button"
                               onClick={() => void toggleDesigned(row)}
+                              disabled={!canEditQueue}
                               className={`inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-black transition ${
                                 row.is_designed
                                   ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                                   : "bg-emerald-600 text-white hover:bg-emerald-700"
-                              }`}
-                              >
+                              } disabled:opacity-50`}
+                            >
                               <Check size={14} />
                               {row.is_designed ? "ຍົກເລີກສຳເລັດ" : "ຕິກສຳເລັດ"}
                             </button>

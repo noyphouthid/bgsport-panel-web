@@ -1,7 +1,16 @@
 ﻿"use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2, Database, Wallet, Phone } from "lucide-react";
+import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2, Database, Wallet, Phone, HandCoins } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { canAccessPath, type AppRole } from "@/lib/access-control";
+import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
+
+type ViewerProfile = {
+  role: AppRole;
+  permission_settings?: UserPermissionSettings | null;
+};
 
 const cards = [
   {
@@ -24,6 +33,13 @@ const cards = [
     desc: "ສະຫຼຸບຍອດຈ່າຍໂຮງງານ, batch ການຈ່າຍ ແລະ ຍອດຄ້າງຕາມອໍເດີ",
     icon: Wallet,
     iconBg: "bg-emerald-100 text-emerald-700",
+  },
+  {
+    href: "/reports/payroll",
+    title: "ລາຍງານເງິນເດືອນພະນັກງານ",
+    desc: "ສະຫຼຸບລາຍຮັບ, ລາຍການຫັກ, ເງິນສຸດທິ ແລະ ສະຖານະການຈ່າຍຂອງພະນັກງານ",
+    icon: HandCoins,
+    iconBg: "bg-orange-100 text-orange-700",
   },
   {
     href: "/reports/admin-sales",
@@ -63,6 +79,44 @@ const cards = [
 ];
 
 export default function ReportsHomePage() {
+  const [profile, setProfile] = useState<ViewerProfile | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadProfile = async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUserId = sessionData.session?.user.id;
+      if (!authUserId || !mounted) return;
+
+      const { data, error } = await supabase
+        .from("users")
+        .select("role,permission_settings")
+        .eq("auth_user_id", authUserId)
+        .maybeSingle();
+
+      if (!mounted || error || !data?.role) return;
+
+      setProfile({
+        role: data.role as AppRole,
+        permission_settings: normalizeUserPermissionSettings(
+          (data as { permission_settings?: UserPermissionSettings | null }).permission_settings
+        ),
+      });
+    };
+
+    void loadProfile();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const visibleCards = useMemo(() => {
+    if (!profile) return [];
+    return cards.filter((card) => canAccessPath(card.href, profile.role, profile.permission_settings));
+  }, [profile]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -71,7 +125,7 @@ export default function ReportsHomePage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {cards.map((card) => (
+        {visibleCards.map((card) => (
           <Link
             key={card.href}
             href={card.href}
@@ -85,6 +139,12 @@ export default function ReportsHomePage() {
           </Link>
         ))}
       </div>
+
+      {profile && visibleCards.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center text-sm font-bold text-slate-400">
+          ບໍ່ມີລາຍງານທີ່ທ່ານມີສິດເຂົ້າເບິ່ງ
+        </div>
+      ) : null}
     </div>
   );
 }

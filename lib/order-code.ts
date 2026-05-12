@@ -19,15 +19,24 @@ export function isKnownOrderType(orderType: string): orderType is KnownOrderType
 
 export function parseOrderCode(orderCode: string): { orderType: OrderType; orderNo: string } {
   const normalized = String(orderCode || "").trim().toUpperCase();
-  const match = normalized.match(/^([A-Z0-9]+)-(\d+)$/);
+  const match = normalized.match(/^([A-Z0-9]+)-([A-Z0-9+]+)$/);
   if (!match) return { orderType: "", orderNo: normalized };
 
   const [, prefix, orderNo] = match;
   return { orderType: prefix, orderNo };
 }
 
-export function buildOrderCode(orderType: OrderType, orderNo: number) {
-  return `${normalizeOrderType(orderType)}-${String(orderNo).padStart(3, "0")}`;
+export function normalizeOrderNo(orderNo: string) {
+  return String(orderNo || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9+]/g, "");
+}
+
+export function buildOrderCode(orderType: OrderType, orderNo: string) {
+  const normalizedOrderNo = normalizeOrderNo(orderNo);
+  const formattedOrderNo = /^\d+$/.test(normalizedOrderNo) ? normalizedOrderNo.padStart(3, "0") : normalizedOrderNo;
+  return `${normalizeOrderType(orderType)}-${formattedOrderNo}`;
 }
 
 export function matchOrderPrefix(orderCode: string, prefix: OrderPrefixFilter) {
