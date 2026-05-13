@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Download, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
+import { FACTORY_DEPOSIT_ORDER_STATUS_LABELS, type FactoryDepositOrderStatus } from "@/lib/factory-deposit-orders";
+import { buildOrderCode } from "@/lib/order-code";
 import { supabase } from "@/lib/supabase";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import {
@@ -42,15 +44,30 @@ type OrderReferenceRow = {
   order_date: string;
 };
 
+type FactoryDepositReferenceRow = {
+  order_code: string | null;
+  deposit_date: string;
+  deposit_no: string;
+  status: FactoryDepositOrderStatus;
+  updated_at: string;
+};
+
 type QueueDesignFilter = "DESIGNED" | "PENDING" | "DESIGNED_NOT_ORDERED" | "DESIGNED_ORDERED";
 type OrderReferenceInfo = {
-  order_date: string | null;
+  date: string | null;
+  source: "factory_deposit" | "order";
+  deposit_no: string | null;
+  deposit_status: FactoryDepositOrderStatus | null;
 };
 
 type QueueReportRow = DesignQueueEntry & {
+  queue_order_code: string;
   graphic_name: string;
   has_order_deposit: boolean;
   order_deposit_date: string | null;
+  order_deposit_no: string | null;
+  order_deposit_status: FactoryDepositOrderStatus | null;
+  order_deposit_source: "factory_deposit" | "order";
 };
 
 const QUEUE_DESIGN_FILTER_OPTIONS: Array<{ value: QueueDesignFilter; label: string }> = [
@@ -66,6 +83,11 @@ function normalizeDigits(value: string | null | undefined) {
 
 function normalizeOrderCode(value: string | null | undefined) {
   return String(value || "").trim().toUpperCase();
+}
+
+function buildQueueOrderCode(row: Pick<DesignQueueEntry, "type_code" | "order_no">) {
+  if (!row.type_code?.trim()) return normalizeOrderCode(row.order_no);
+  return normalizeOrderCode(buildOrderCode(row.type_code, row.order_no));
 }
 
 function toComparableDate(value: string) {
@@ -103,6 +125,11 @@ function getOrderDepositStatusClass(hasOrderDeposit: boolean) {
   return hasOrderDeposit
     ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
     : "border border-amber-200 bg-amber-50 text-amber-700";
+}
+
+function getOrderDepositDateHint(hasOrderDeposit: boolean, source: "factory_deposit" | "order") {
+  if (!hasOrderDeposit) return "ຍັງບໍ່ພົບໃບມັດຈຳ";
+  return source === "factory_deposit" ? "ດຶງຈາກວັນທີມັດຈຳ" : "ດຶງຈາກວັນທີອໍເດີ້";
 }
 
 function formatDateTime(value: string | null) {
@@ -146,13 +173,24 @@ export default function DesignPhoneStatusReportPage() {
     setLoading(true);
     setErr(null);
 
-    const [{ data: queueData, error: queueError }, { data: userData, error: userError }, { data: orderData, error: orderError }] = await Promise.all([
+    const [
+      { data: queueData, error: queueError },
+      { data: userData, error: userError },
+      { data: depositData, error: depositError },
+      { data: orderData, error: orderError },
+    ] = await Promise.all([
       supabase
         .from("design_queue_entries")
         .select("id,queue_date,queue_number,order_no,type_code,customer_phone,style_name,notes,is_designed,designed_at,graphic_user_id,updated_at,created_at")
         .order("queue_date", { ascending: false })
         .order("created_at", { ascending: false }),
       supabase.from("users").select("id,full_name").eq("is_active", true).in("role", ["superadmin", "graphic"]).order("full_name", { ascending: true }),
+      supabase
+        .from("factory_deposit_orders")
+        .select("order_code,deposit_date,deposit_no,status,updated_at")
+        .not("order_code", "is", null)
+        .neq("status", "cancelled")
+        .order("updated_at", { ascending: false }),
       supabase.from("orders").select("order_code,order_date").order("created_at", { ascending: false }),
     ]);
 
@@ -171,6 +209,12 @@ export default function DesignPhoneStatusReportPage() {
       return;
     }
 
+    if (depositError) {
+      setErr(depositError.message);
+      setLoading(false);
+      return;
+    }
+
     if (orderError) {
       setErr(orderError.message);
       setLoading(false);
@@ -178,11 +222,24 @@ export default function DesignPhoneStatusReportPage() {
     }
 
     const orderInfoMap = new Map<string, OrderReferenceInfo>();
+    ((depositData ?? []) as FactoryDepositReferenceRow[]).forEach((row) => {
+      const key = normalizeOrderCode(row.order_code);
+      if (!key || orderInfoMap.has(key)) return;
+      orderInfoMap.set(key, {
+        date: row.deposit_date || null,
+        source: "factory_deposit",
+        deposit_no: row.deposit_no || null,
+        deposit_status: row.status || null,
+      });
+    });
     ((orderData ?? []) as OrderReferenceRow[]).forEach((row) => {
       const key = normalizeOrderCode(row.order_code);
       if (!key || orderInfoMap.has(key)) return;
       orderInfoMap.set(key, {
-        order_date: row.order_date || null,
+        date: row.order_date || null,
+        source: "order",
+        deposit_no: null,
+        deposit_status: null,
       });
     });
 
@@ -207,7 +264,7 @@ export default function DesignPhoneStatusReportPage() {
       if (queueDateFrom && row.queue_date < queueDateFrom) return false;
       if (queueDateTo && row.queue_date > queueDateTo) return false;
       if (!matchSelectedPrefixes(row.type_code, selectedTypes)) return false;
-      const hasOrderDeposit = Boolean(orderInfoByOrderCode.get(normalizeOrderCode(row.order_no)));
+      const hasOrderDeposit = Boolean(orderInfoByOrderCode.get(buildQueueOrderCode(row)));
       if (!matchesQueueDesignFilter(row, hasOrderDeposit, selectedQueueStatuses)) return false;
       return true;
     });
@@ -219,12 +276,17 @@ export default function DesignPhoneStatusReportPage() {
 
     return filteredEntries
       .map((row) => {
-        const orderInfo = orderInfoByOrderCode.get(normalizeOrderCode(row.order_no));
+        const queueOrderCode = buildQueueOrderCode(row);
+        const orderInfo = orderInfoByOrderCode.get(queueOrderCode);
         return {
           ...row,
+          queue_order_code: queueOrderCode,
           graphic_name: graphicNameMap.get(row.graphic_user_id || "") || "-",
           has_order_deposit: Boolean(orderInfo),
-          order_deposit_date: orderInfo?.order_date || null,
+          order_deposit_date: orderInfo?.date || null,
+          order_deposit_no: orderInfo?.deposit_no || null,
+          order_deposit_status: orderInfo?.deposit_status || null,
+          order_deposit_source: orderInfo?.source || "order",
         } satisfies QueueReportRow;
       })
       .filter((row) => {
@@ -236,18 +298,21 @@ export default function DesignPhoneStatusReportPage() {
           row.customer_phone,
           row.queue_number,
           row.order_no,
+          row.queue_order_code,
           row.type_code,
           row.graphic_name,
           row.style_name,
           getOrderDepositStatusLabel(row.has_order_deposit),
           row.order_deposit_date || "",
+          row.order_deposit_no || "",
+          row.order_deposit_status ? FACTORY_DEPOSIT_ORDER_STATUS_LABELS[row.order_deposit_status] : "",
         ]
           .join(" ")
           .toLowerCase();
 
         if (textHaystack.includes(keyword)) return true;
         if (!keywordDigits) return false;
-        return [row.customer_phone, row.queue_number, row.order_no].map(normalizeDigits).some((value) => value.includes(keywordDigits));
+        return [row.customer_phone, row.queue_number, row.order_no, row.queue_order_code].map(normalizeDigits).some((value) => value.includes(keywordDigits));
       })
       .sort((a, b) => {
         if (a.has_order_deposit !== b.has_order_deposit) return Number(a.has_order_deposit) - Number(b.has_order_deposit);
@@ -290,7 +355,7 @@ export default function DesignPhoneStatusReportPage() {
       return {
         "ວັນທີຄິວ": row.queue_date,
         "ເລກຄິວ": row.queue_number,
-        "ເລກອໍເດີ": row.order_no,
+        "ເລກອໍເດີ": row.queue_order_code,
         "ເບີລູກຄ້າ": row.customer_phone,
         TYPE: row.type_code,
         Graphic: row.graphic_name,
@@ -299,6 +364,8 @@ export default function DesignPhoneStatusReportPage() {
         "ວັນທີອອກແບບ": row.designed_at ? formatDateTime(row.designed_at) : "-",
         "ສະຖານະມັດຈຳສັ່ງຜະລິດ": getOrderDepositStatusLabel(row.has_order_deposit),
         "ວັນທີມັດຈຳສັ່ງຜະລິດ": row.order_deposit_date || "-",
+        "ເລກທີໃບມັດຈຳ": row.order_deposit_no || "-",
+        "ສະຖານະໃບມັດຈຳ": row.order_deposit_status ? FACTORY_DEPOSIT_ORDER_STATUS_LABELS[row.order_deposit_status] : "-",
         "ອັບເດດລ່າສຸດ": formatDateTime(row.updated_at),
       };
     });
@@ -315,6 +382,8 @@ export default function DesignPhoneStatusReportPage() {
       "ວັນທີອອກແບບ": `queue_filter=${queueStatusLabel}`,
       "ສະຖານະມັດຈຳສັ່ງຜະລິດ": `search=${searchTerm || "-"}`,
       "ວັນທີມັດຈຳສັ່ງຜະລິດ": `queue_date=${queueDateLabel}`,
+      "ເລກທີໃບມັດຈຳ": "-",
+      "ສະຖານະໃບມັດຈຳ": "-",
       "ອັບເດດລ່າສຸດ": "-",
     });
 
@@ -469,7 +538,7 @@ export default function DesignPhoneStatusReportPage() {
           <input
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="ຄົ້ນຫາເລກຄິວ, ເລກອໍເດີ, ເບີໂທ, TYPE, Graphic"
+            placeholder="ຄົ້ນຫາເລກຄິວ, ລະຫັດອໍເດີ, ເບີໂທ, TYPE, Graphic, ເລກໃບມັດຈຳ"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none"
           />
           <button
@@ -545,8 +614,10 @@ export default function DesignPhoneStatusReportPage() {
                         <div className="text-xs font-medium text-slate-500">{row.queue_date}</div>
                       </td>
                       <td className="p-3">
-                        <div className="font-black text-slate-900">{row.order_no}</div>
-                        <div className="text-xs font-medium text-slate-500">{row.customer_phone || "-"}</div>
+                        <div className="font-black text-slate-900">{row.queue_order_code}</div>
+                        <div className="text-xs font-medium text-slate-500">
+                          No: {row.order_no} • {row.customer_phone || "-"}
+                        </div>
                       </td>
                       <td className="p-3 text-slate-800">
                         <div className="font-black text-slate-900">{row.type_code}</div>
@@ -568,10 +639,14 @@ export default function DesignPhoneStatusReportPage() {
                         <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${getOrderDepositStatusClass(row.has_order_deposit)}`}>
                           {getOrderDepositStatusLabel(row.has_order_deposit)}
                         </span>
+                        <div className="mt-1 text-xs font-medium text-slate-500">
+                          {row.order_deposit_status ? FACTORY_DEPOSIT_ORDER_STATUS_LABELS[row.order_deposit_status] : "-"}
+                          {row.order_deposit_no ? ` • ${row.order_deposit_no}` : ""}
+                        </div>
                       </td>
                       <td className="p-3 text-slate-800">
                         <div className="font-black text-slate-900">{row.order_deposit_date || "-"}</div>
-                        <div className="text-xs font-medium text-slate-500">ດຶງຈາກວັນທີອໍເດີ້</div>
+                        <div className="text-xs font-medium text-slate-500">{getOrderDepositDateHint(row.has_order_deposit, row.order_deposit_source)}</div>
                       </td>
                       <td className="p-3 text-slate-800">
                         <div className="font-medium">{formatDateTime(row.updated_at)}</div>

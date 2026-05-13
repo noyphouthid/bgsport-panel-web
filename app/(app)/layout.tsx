@@ -73,6 +73,7 @@ const nav: NavItem[] = [
     icon: FileSpreadsheet,
     items: [
       { type: "link", href: "/reports/sales-profit", label: "ລາຍງານຍອດຂາຍ-ກຳໄລ", icon: FileSpreadsheet },
+      { type: "link", href: "/reports/income-expense", label: "ບັນຊີລາຍຮັບ-ລາຍຈ່າຍ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/monthly-close", label: "ປິດຍອດຂາຍ-ກຳໄລປະຈໍາເດືອນ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/orders", label: "ລາຍງານອໍເດີ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/factory-payments", label: "ລາຍງານຈ່າຍໂຮງງານ", icon: FileSpreadsheet },

@@ -117,7 +117,11 @@ export default function OrderCodeTypesPage() {
   };
 
   useEffect(() => {
-    void load();
+    const timer = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const closeEdit = () => {

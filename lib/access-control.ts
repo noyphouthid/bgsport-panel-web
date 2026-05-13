@@ -8,7 +8,13 @@ type RouteRule = {
 };
 
 const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphic", "accountant"];
-const ROLE_LOCKED_PATHS = ["/reports/admin-sales", "/reports/design-phone-status", "/reports/data-export", "/reports/monthly-close"];
+const ROLE_LOCKED_PATHS = [
+  "/reports/admin-sales",
+  "/reports/design-phone-status",
+  "/reports/data-export",
+  "/reports/monthly-close",
+  "/reports/income-expense",
+];
 const STAFF_ALLOWED_PATHS = new Set([
   "/search",
   "/inventory-qr",
@@ -42,6 +48,7 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/reports/design-phone-status", roles: ["superadmin", "admin", "manager"] },
   { prefix: "/reports/data-export", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/reports/monthly-close", roles: ["superadmin", "manager", "accountant"] },
+  { prefix: "/reports/income-expense", roles: ["superadmin"] },
   { prefix: "/reports/sales-profit", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/reports/orders", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/reports/factory-payments", roles: ["superadmin", "manager", "accountant"] },

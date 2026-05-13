@@ -28,6 +28,13 @@ const cards = [
     iconBg: "bg-blue-100 text-blue-700",
   },
   {
+    href: "/reports/income-expense",
+    title: "ບັນຊີລາຍຮັບ-ລາຍຈ່າຍ",
+    desc: "ສະຫຼຸບລາຍຮັບຈາກລູກຄ້າ, ລາຍຈ່າຍໂຮງງານ ແລະ ບັນທຶກລາຍການເພີ່ມເອງ",
+    icon: Wallet,
+    iconBg: "bg-amber-100 text-amber-700",
+  },
+  {
     href: "/reports/factory-payments",
     title: "ລາຍງານຈ່າຍໂຮງງານ",
     desc: "ສະຫຼຸບຍອດຈ່າຍໂຮງງານ, batch ການຈ່າຍ ແລະ ຍອດຄ້າງຕາມອໍເດີ",
