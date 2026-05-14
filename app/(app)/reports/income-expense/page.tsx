@@ -235,6 +235,11 @@ function getPaymentMethodLabel(value: LedgerRow["paymentMethod"] | FormState["pa
   return "ບໍ່ລະບຸ";
 }
 
+function normalizeLedgerPaymentMethod(value: string | null | undefined): LedgerRow["paymentMethod"] {
+  if (value === "cash" || value === "transfer" || value === "other") return value;
+  return "unknown";
+}
+
 function sourceBadgeClass(source: LedgerSource) {
   if (source === "customer_payment") return "bg-emerald-50 text-emerald-700 border-emerald-200";
   if (source === "payroll") return "bg-blue-50 text-blue-700 border-blue-200";
@@ -442,7 +447,7 @@ export default function IncomeExpenseReportPage() {
       } satisfies LedgerRow;
     });
 
-    const manualRows = manualLedgerReady
+    const manualRows: LedgerRow[] = manualLedgerReady
       ? ((manualResult.data ?? []) as ManualEntryRow[]).map((row) => ({
           id: `manual-${row.id}`,
           entryType: row.entry_type,
@@ -451,7 +456,7 @@ export default function IncomeExpenseReportPage() {
           category: row.category,
           title: row.title,
           amount: Number(row.amount) || 0,
-          paymentMethod: row.payment_method || "unknown",
+          paymentMethod: normalizeLedgerPaymentMethod(row.payment_method),
           referenceCode: row.reference_code,
           note: row.note,
           orderCode: null,
@@ -1179,7 +1184,10 @@ export default function IncomeExpenseReportPage() {
                 <XAxis dataKey="day" tick={{ fill: "#64748b", fontSize: 12 }} />
                 <YAxis tick={{ fill: "#64748b", fontSize: 12 }} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`} />
                 <Tooltip
-                  formatter={(value: number, name: string) => [formatMoney(Number(value) || 0), name === "income" ? "ລາຍຮັບ" : "ລາຍຈ່າຍ"]}
+                  formatter={(value: number | undefined, name: string | undefined) => [
+                    formatMoney(Number(value) || 0),
+                    name === "income" ? "ລາຍຮັບ" : "ລາຍຈ່າຍ",
+                  ]}
                   labelFormatter={(label) => `ວັນທີ ${label}`}
                 />
                 <Area type="monotone" dataKey="income" stroke="#10b981" strokeWidth={3} fill="url(#incomeFill)" />
@@ -1206,7 +1214,7 @@ export default function IncomeExpenseReportPage() {
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" tick={{ fill: "#64748b", fontSize: 12 }} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`} />
                 <YAxis dataKey="name" type="category" width={110} tick={{ fill: "#475569", fontSize: 12, fontWeight: 700 }} />
-                <Tooltip formatter={(value: number) => [formatMoney(Number(value) || 0), "ລາຍຈ່າຍ"]} />
+                <Tooltip formatter={(value: number | undefined) => [formatMoney(Number(value) || 0), "ລາຍຈ່າຍ"]} />
                 <Bar dataKey="amount" fill="#f97316" radius={[0, 10, 10, 0]} />
               </BarChart>
             </ResponsiveContainer>
