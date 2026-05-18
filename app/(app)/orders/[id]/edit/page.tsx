@@ -152,7 +152,7 @@ type LinkedDepositMediaInfo = {
 
 const SIZE_UPCHARGES = {
   "3XL": 20000,
-  "4XL": 30000,
+  "4XL": 25000,
   "5XL": 35000,
 } as const;
 
@@ -1452,7 +1452,7 @@ export default function EditOrderPage() {
                 <input type="number" min={0} value={qty3XL} onChange={(e) => setQty3XL(Number(e.target.value))} className={inputClassName} />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-slate-700">4XL (+30,000)</label>
+                <label className="mb-1 block text-xs font-bold text-slate-700">4XL (+25,000)</label>
                 <input type="number" min={0} value={qty4XL} onChange={(e) => setQty4XL(Number(e.target.value))} className={inputClassName} />
               </div>
               <div>

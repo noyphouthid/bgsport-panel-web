@@ -109,18 +109,18 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
   };
 
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <div className="text-sm font-black text-slate-900">ສະແກນ QR ຜ່ານມືຖື</div>
-          <div className="text-xs font-medium text-slate-500">
+          <div className="break-words text-xs font-medium text-slate-500">
             {supported ? "ອອກແບບສຳລັບການຮັບສິນຄ້າ ແລະ ຈັດສົ່ງຜ່ານໂທລະສັບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງໃນອຸປະກອນນີ້"}
           </div>
         </div>
         <button
           type="button"
           onClick={active ? () => stopScanner(true) : () => void startScanner()}
-          className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-black shadow-sm transition ${
+          className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-black shadow-sm transition sm:w-auto ${
             active ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-emerald-600 text-white hover:bg-emerald-700"
           }`}
         >
@@ -144,13 +144,13 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
           {active && <div className="pointer-events-none absolute inset-6 rounded-[2rem] border-2 border-emerald-400/90" />}
         </div>
       ) : (
-        <div className="mt-4 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm font-medium text-slate-500">
+        <div className="mt-4 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm font-medium text-slate-500 break-words">
           ໜ້າ monitor ຖືກຊ່ອນໄວ້ ກົດ `ສະແກນ` ເມື່ອຕ້ອງການເປີດກ້ອງ.
         </div>
       )}
 
       {!supported && (
-        <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
+        <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600 break-words">
           ຖ້າກ້ອງບໍ່ເປີດ ຫຼື ອຸປະກອນບໍ່ຮອງຮັບ, ທ່ານຍັງສາມາດວາງ ຫຼື ພິມຄ່າ QR ດ້ານລຸ່ມໄດ້.
         </div>
       )}

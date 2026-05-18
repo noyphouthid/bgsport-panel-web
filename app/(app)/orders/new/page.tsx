@@ -42,7 +42,7 @@ type UserOption = {
 
 const SIZE_UPCHARGES = {
   "3XL": 20000,
-  "4XL": 30000,
+  "4XL": 25000,
   "5XL": 35000,
 } as const;
 
@@ -871,7 +871,7 @@ export default function NewOrderPage() {
                 <input type="number" value={qty3XL} onChange={(e) => setQty3XL(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-medium" min={0} />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">4XL (+30,000)</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">4XL (+25,000)</label>
                 <input type="number" value={qty4XL} onChange={(e) => setQty4XL(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-medium" min={0} />
               </div>
               <div>

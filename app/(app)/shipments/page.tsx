@@ -858,7 +858,7 @@ export default function ShipmentsPage() {
   };
 
   return (
-    <div ref={pageRef} className="space-y-6 text-slate-900">
+    <div ref={pageRef} className="space-y-6 overflow-x-hidden text-slate-900">
       <section className="rounded-[2rem] bg-gradient-to-br from-orange-950 via-orange-900 to-amber-900 p-6 text-white shadow-xl">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -925,12 +925,12 @@ export default function ShipmentsPage() {
                   if (e.key === "Enter") void openShipmentByCode(scanValue);
                 }}
                 placeholder="ວາງ QR ໂຮງງານ, QR ຂອງຮ້ານ, ລະຫັດບິນໂຮງງານ ຫຼື ລະຫັດອໍເດີ"
-                className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
+                className="min-w-0 w-full flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
               />
               <button
                 type="button"
                 onClick={() => void openShipmentByCode(scanValue)}
-                className="rounded-2xl bg-orange-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-orange-700"
+                className="w-full rounded-2xl bg-orange-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-orange-700 sm:w-auto"
               >
                 ເປີດອໍເດີ
               </button>
@@ -938,18 +938,18 @@ export default function ShipmentsPage() {
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="overflow-hidden rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
           {active ? (
             <>
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{active.label.label_status}</div>
-                  <div className="mt-2 text-3xl font-black tracking-tight text-slate-900">{active.order.order_code}</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-500">ລະຫັດບິນໂຮງງານ: {active.order.factory_bill_code?.trim() || "-"}</div>
+                  <div className="mt-2 break-words text-3xl font-black tracking-tight text-slate-900">{active.order.order_code}</div>
+                  <div className="mt-1 break-words text-sm font-semibold text-slate-500">ລະຫັດບິນໂຮງງານ: {active.order.factory_bill_code?.trim() || "-"}</div>
                 </div>
-                <div className="rounded-3xl border border-amber-100 bg-amber-50 px-4 py-3 text-right">
+                <div className="w-full rounded-3xl border border-amber-100 bg-amber-50 px-4 py-3 text-left sm:w-auto sm:text-right">
                   <div className="text-xs font-black uppercase tracking-[0.2em] text-amber-700">ຍອດຄ້າງຊຳລະ</div>
-                  <div className="mt-1 text-2xl font-black text-amber-900">{formatCurrency(active.order.balance)}</div>
+                  <div className="mt-1 break-words text-2xl font-black text-amber-900">{formatCurrency(active.order.balance)}</div>
                 </div>
               </div>
 
@@ -1366,7 +1366,7 @@ export default function ShipmentsPage() {
                     type="button"
                     onClick={() => void saveDeliveryRequest("draft")}
                     disabled={saving || shipmentLocked || requestSubmitted}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50 sm:w-auto"
                   >
                     <PackageCheck size={18} />
                     {saving
@@ -1385,7 +1385,7 @@ export default function ShipmentsPage() {
                       type="button"
                       onClick={() => void saveDeliveryRequest("submitted")}
                       disabled={saving || requestSubmitted}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm font-black text-amber-800 shadow-sm transition hover:bg-amber-100 disabled:opacity-50"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm font-black text-amber-800 shadow-sm transition hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
                     >
                       <PackageCheck size={18} />
                       {requestSubmitted ? "ລໍຖ້າອະນຸມັດ" : "ສົ່ງຂໍອະນຸມັດ"}
@@ -1397,7 +1397,7 @@ export default function ShipmentsPage() {
                       type="button"
                       onClick={() => void cancelShipment()}
                       disabled={saving || !canCancelShipment || !cancelReason.trim()}
-                      className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-white px-5 py-3 text-sm font-black text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:opacity-50"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-5 py-3 text-sm font-black text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:opacity-50 sm:w-auto"
                     >
                       <RotateCcw size={18} />
                       ຍົກເລີກຈັດສົ່ງ

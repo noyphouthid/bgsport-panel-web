@@ -76,6 +76,8 @@ const nav: NavItem[] = [
       { type: "link", href: "/reports/income-expense", label: "ບັນຊີລາຍຮັບ-ລາຍຈ່າຍ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/monthly-close", label: "ປິດຍອດຂາຍ-ກຳໄລປະຈໍາເດືອນ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/orders", label: "ລາຍງານອໍເດີ", icon: FileSpreadsheet },
+      { type: "link", href: "/reports/customer-delivery", label: "ລາຍງານຈັດສົ່ງລູກຄ້າ", icon: FileSpreadsheet },
+      { type: "link", href: "/reports/transport-bills", label: "ລາຍງານໃບບິນຂົນສົ່ງ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/factory-payments", label: "ລາຍງານຈ່າຍໂຮງງານ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/payroll", label: "ລາຍງານເງິນເດືອນພະນັກງານ", icon: FileSpreadsheet },
       { type: "link", href: "/reports/data-export", label: "ລາຍງານດຶງຂໍ້ມູນ", icon: FileSpreadsheet },
@@ -450,7 +452,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="app-main flex-1 p-4 md:p-6 overflow-visible md:overflow-auto">{children}</main>
+        <main className="app-main min-w-0 flex-1 overflow-x-hidden p-4 md:overflow-auto md:p-6">{children}</main>
       </div>
       <Toaster
         position="top-right"

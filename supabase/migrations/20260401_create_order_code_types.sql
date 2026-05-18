@@ -23,7 +23,7 @@ values
   ('PMF26', null, 90, true, true),
   ('PMLF26', null, 100, true, true),
   ('MMF26', null, 110, true, true),
-  ('MMLF26', null, 120, true, true)
+  ('MMLF26', null, 120, true, true)ບໍ່ມີຂໍ້ມູນໃນລະບົບ
 on conflict (code) do update
 set
   sort_order = excluded.sort_order,
