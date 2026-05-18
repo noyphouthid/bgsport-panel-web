@@ -23,6 +23,7 @@ import {
   FACTORY_DEPOSIT_ORDER_STATUS_STYLES,
   type FactoryDepositOrderStatus,
 } from "@/lib/factory-deposit-orders";
+import { getMissingOrderCollarFieldsMessage, isMissingOrderCollarFieldsError } from "@/lib/order-collar-fields";
 
 type DepositRow = {
   id: string;
@@ -49,6 +50,8 @@ type DepositRow = {
   fabric_id: string | null;
   fabric_short_price: number;
   fabric_long_price: number;
+  collar_type?: "none" | "polo" | "mandarin" | null;
+  collar_qty?: number;
   extra_charge: number;
   design_deposit: number;
   initial_deposit: number;
@@ -489,6 +492,9 @@ export default function FactoryDepositOrdersPage() {
         qty_3xl: Number(row.qty_3xl) || 0,
         qty_4xl: Number(row.qty_4xl) || 0,
         qty_5xl: Number(row.qty_5xl) || 0,
+        qty_6xl: Number(row.qty_6xl) || 0,
+        collar_type: row.collar_type || "none",
+        collar_qty: Math.max(0, Number(row.collar_qty) || 0),
         size_upcharge: 20000,
         extra_charge: Number(row.extra_charge) || 0,
         design_deposit: Number(row.design_deposit) || 0,
@@ -501,7 +507,10 @@ export default function FactoryDepositOrdersPage() {
       };
 
       const { data: orderData, error: insertOrderError } = await supabase.from("orders").insert(orderPayload).select("id").single();
-      if (insertOrderError) throw new Error(`ສ້າງ order ບໍ່ສຳເລັດ: ${insertOrderError.message}`);
+      if (insertOrderError) {
+        if (isMissingOrderCollarFieldsError(insertOrderError)) throw new Error(getMissingOrderCollarFieldsMessage());
+        throw new Error(`ສ້າງ order ບໍ່ສຳເລັດ: ${insertOrderError.message}`);
+      }
       const orderId = orderData.id as string;
       createdOrderId = orderId;
 

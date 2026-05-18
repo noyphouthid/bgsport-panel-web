@@ -34,6 +34,7 @@ import {
   type QuotationDraft,
   type QuotationDraftStatus,
 } from "@/lib/quotation-drafts";
+import { getMissingOrderCollarFieldsMessage, isMissingOrderCollarFieldsError } from "@/lib/order-collar-fields";
 import { canEditWithPermissions, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
 type DepositSlipRow = {
@@ -1735,6 +1736,8 @@ export default function FactoryDepositOrderFormPage() {
         qty_4xl: Math.max(0, qty4XL),
         qty_5xl: Math.max(0, qty5XL),
         qty_6xl: Math.max(0, qty6XL),
+        collar_type: collarType,
+        collar_qty: Math.max(0, collarQty),
         size_upcharge: 20000,
         extra_charge: Math.max(0, extraCharge),
         design_deposit: Math.max(0, designDeposit),
@@ -1747,7 +1750,10 @@ export default function FactoryDepositOrderFormPage() {
       };
 
       const { data: orderData, error: insertOrderError } = await supabase.from("orders").insert(orderPayload).select("id").single();
-      if (insertOrderError) throw new Error(`ສ້າງ order ບໍ່ສຳເລັດ: ${insertOrderError.message}`);
+      if (insertOrderError) {
+        if (isMissingOrderCollarFieldsError(insertOrderError)) throw new Error(getMissingOrderCollarFieldsMessage());
+        throw new Error(`ສ້າງ order ບໍ່ສຳເລັດ: ${insertOrderError.message}`);
+      }
       const orderId = orderData.id as string;
       createdOrderId = orderId;
 

@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { MessageCircleMore } from "lucide-react";
+import { Eye, MessageCircleMore } from "lucide-react";
 import { isMissingOrderItemsTableError, type OrderItemRow } from "@/lib/order-items";
+import { extractProductionMockupUrls, isImageFileName, ORDER_MEDIA_BUCKET, toDisplayMediaUrl } from "@/lib/order-media";
+import { getQuotationDraftById, type QuotationDraft } from "@/lib/quotation-drafts";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
+import { OrderPreviewModal } from "../_components/order-preview-modal";
 import { WhatsappMessageModal } from "../_components/whatsapp-message-modal";
 import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
 
@@ -19,6 +22,7 @@ type OrderRow = {
   customer_phone: string | null;
   customer_whatsapp: string | null;
   factory_bill_code: string | null;
+  order_image_url: string | null;
   fabric_name: string;
   net_total: number;
   initial_deposit: number;
@@ -46,6 +50,11 @@ type UserOption = {
   auth_user_id: string | null;
 };
 
+type PreviewGalleryImage = {
+  url: string;
+  label: string;
+};
+
 function getDisplayShirtTotal(row: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
   return (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0);
 }
@@ -61,6 +70,11 @@ export default function OrdersPage() {
   const [completing, setCompleting] = useState(false);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [activeWhatsappOrder, setActiveWhatsappOrder] = useState<OrderRow | null>(null);
+  const [activePreviewOrder, setActivePreviewOrder] = useState<OrderRow | null>(null);
+  const [previewGalleryImages, setPreviewGalleryImages] = useState<PreviewGalleryImage[]>([]);
+  const [previewQuotationDraft, setPreviewQuotationDraft] = useState<QuotationDraft | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [adminOptions, setAdminOptions] = useState<UserOption[]>([]);
 
   const [fromDate, setFromDate] = useState<string>("");
@@ -79,7 +93,7 @@ export default function OrdersPage() {
     let q = supabase
       .from("orders")
       .select(
-        "id,order_code,order_date,customer_phone,customer_whatsapp,factory_bill_code,fabric_name,net_total,initial_deposit,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,updated_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,admin_user_id",
+        "id,order_code,order_date,customer_phone,customer_whatsapp,factory_bill_code,order_image_url,fabric_name,net_total,initial_deposit,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,updated_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,admin_user_id",
         { count: "exact" }
       )
       .order("order_date", { ascending: false })
@@ -183,6 +197,7 @@ export default function OrdersPage() {
   }, []);
 
   const isAdminLimited = viewerRole === "admin";
+  const canViewOrderPreview = viewerRole === "superadmin" || viewerRole === "admin" || viewerRole === "staff";
 
   const allSelectedOnPage = useMemo(() => {
     if (rows.length === 0) return false;
@@ -316,6 +331,72 @@ export default function OrdersPage() {
         balance: Number(activeWhatsappOrder.balance) || 0,
       })
     : "";
+
+  const handleOpenPreview = async (row: OrderRow) => {
+    setActivePreviewOrder(row);
+    setPreviewGalleryImages([]);
+    setPreviewQuotationDraft(null);
+    setPreviewError(null);
+    setPreviewLoading(true);
+
+    try {
+      const imageFolderPath = `order-image/${row.order_code}`;
+      const fallbackOrderImageUrl = toDisplayMediaUrl(row.order_image_url) || null;
+
+      const [{ data: imageEntries, error: imageListError }, { data: depositData, error: depositError }] = await Promise.all([
+        supabase.storage.from(ORDER_MEDIA_BUCKET).list(imageFolderPath, { limit: 100 }),
+        supabase
+          .from("factory_deposit_orders")
+          .select("quotation_draft_id,production_items")
+          .eq("order_id", row.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      if (depositError) throw depositError;
+
+      const orderImages: PreviewGalleryImage[] = imageListError
+        ? fallbackOrderImageUrl
+          ? [{ url: fallbackOrderImageUrl, label: "ຮູບອໍເດີ #1" }]
+          : []
+        : ((imageEntries ?? [])
+            .filter((entry) => isImageFileName(entry.name))
+            .sort((left, right) => {
+              const leftTime = Date.parse(left.created_at || left.updated_at || "");
+              const rightTime = Date.parse(right.created_at || right.updated_at || "");
+              return (Number.isNaN(leftTime) ? 0 : leftTime) - (Number.isNaN(rightTime) ? 0 : rightTime);
+            })
+            .map((entry, index) => ({
+              url: supabase.storage.from(ORDER_MEDIA_BUCKET).getPublicUrl(`${imageFolderPath}/${entry.name}`).data.publicUrl,
+              label: `ຮູບອໍເດີ #${index + 1}`,
+            })) as PreviewGalleryImage[]);
+
+      if (!imageListError && orderImages.length === 0 && fallbackOrderImageUrl) {
+        orderImages.push({ url: fallbackOrderImageUrl, label: "ຮູບອໍເດີ #1" });
+      }
+
+      const productionImages = extractProductionMockupUrls((depositData as { production_items?: unknown } | null)?.production_items).map((url, index) => ({
+        url,
+        label: `ຮູບແບບຜະລິດ #${index + 1}`,
+      }));
+
+      const mergedImages = Array.from(
+        new Map([...orderImages, ...productionImages].filter((item) => Boolean(item.url)).map((item) => [item.url, item])).values()
+      );
+      setPreviewGalleryImages(mergedImages);
+
+      const quotationDraftId = (depositData as { quotation_draft_id?: string | null } | null)?.quotation_draft_id;
+      if (quotationDraftId?.trim()) {
+        const draft = await getQuotationDraftById(quotationDraftId);
+        setPreviewQuotationDraft(draft);
+      }
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : "ໂຫຼດ preview ບໍ່ສຳເລັດ");
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   return (
     <div className="text-slate-900 antialiased">
@@ -536,6 +617,16 @@ export default function OrdersPage() {
                     <td className="p-4 text-center">{displayStatusBadge(r)}</td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-4">
+                        {canViewOrderPreview ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleOpenPreview(r)}
+                            className="inline-flex items-center gap-1 text-slate-600 font-bold transition hover:text-slate-900"
+                          >
+                            <Eye size={15} />
+                            ເບິ່ງ
+                          </button>
+                        ) : null}
                         <Link href={`/orders/${r.id}/edit`} className="text-blue-600 font-bold hover:text-blue-800 underline-offset-4 hover:underline transition-all">
                           ແກ້ໄຂ
                         </Link>
@@ -578,13 +669,33 @@ export default function OrdersPage() {
       </div>
 
       <WhatsappMessageModal
-        key={activeWhatsappOrder ? `${activeWhatsappOrder.id}-${activeWhatsappOrder.balance}` : "closed"}
+        key={activeWhatsappOrder ? `whatsapp-${activeWhatsappOrder.id}-${activeWhatsappOrder.balance}` : "whatsapp-closed"}
         open={Boolean(activeWhatsappOrder)}
         title={activeWhatsappOrder ? `ແຈ້ງລູກຄ້າອໍເດີ ${activeWhatsappOrder.order_code}` : undefined}
         message={activeWhatsappMessage}
         phoneOptions={activeWhatsappOptions}
         initialPhone={activeWhatsappOptions[0]?.value}
         onClose={() => setActiveWhatsappOrder(null)}
+      />
+
+      <OrderPreviewModal
+        key={activePreviewOrder ? `preview-${activePreviewOrder.id}` : "preview-closed"}
+        open={Boolean(activePreviewOrder) && canViewOrderPreview}
+        loading={previewLoading}
+        error={previewError}
+        order={activePreviewOrder}
+        galleryImages={previewGalleryImages}
+        quotationDraft={previewQuotationDraft}
+        shirtQty={activePreviewOrder ? getDisplayShirtTotal(activePreviewOrder) : 0}
+        pantsQty={activePreviewOrder ? Number(pantsQtyByOrder[activePreviewOrder.id] || 0) : 0}
+        statusBadge={activePreviewOrder ? displayStatusBadge(activePreviewOrder) : null}
+        onClose={() => {
+          setActivePreviewOrder(null);
+          setPreviewGalleryImages([]);
+          setPreviewQuotationDraft(null);
+          setPreviewError(null);
+          setPreviewLoading(false);
+        }}
       />
     </div>
   );

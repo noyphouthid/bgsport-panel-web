@@ -15,6 +15,7 @@ import {
   isMissingOrderItemsTableError,
   type PantsOrderItemDraft,
 } from "@/lib/order-items";
+import { getMissingOrderCollarFieldsMessage, isMissingOrderCollarFieldsError } from "@/lib/order-collar-fields";
 import { isAdminRole, isGraphicRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
 import { buildOrderCode, normalizeOrderNo, normalizeOrderType, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
@@ -45,6 +46,17 @@ const SIZE_UPCHARGES = {
   "4XL": 25000,
   "5XL": 35000,
 } as const;
+const COLLAR_PRICE = 20000;
+const QUOTATION_COLLAR_OPTIONS = [
+  { value: "none", label: "ບໍ່ບວກ" },
+  { value: "polo", label: "ໂປໂລ" },
+  { value: "mandarin", label: "ຄໍຈີນ" },
+] as const;
+const QUOTATION_SLEEVE_OPTIONS = [
+  { value: "short", label: "ແຂນສັ້ນ" },
+  { value: "long", label: "ແຂນຍາວ" },
+  { value: "mixed", label: "ແຂນສັ້ນ/ແຂນຍາວ" },
+] as const;
 
 const CUSTOM_ORDER_TYPE_VALUE = "__custom__";
 
@@ -94,6 +106,8 @@ export default function NewOrderPage() {
   const [qty4XL, setQty4XL] = useState<number>(0);
   const [qty5XL, setQty5XL] = useState<number>(0);
   const [qty6XL, setQty6XL] = useState<number>(0);
+  const [collarType, setCollarType] = useState<"none" | "polo" | "mandarin">("none");
+  const [collarQty, setCollarQty] = useState<number>(0);
   const [pantsItems, setPantsItems] = useState<PantsOrderItemDraft[]>([]);
 
   // ===== 3) การเงิน & ค่าธรรมเนียม =====
@@ -192,10 +206,11 @@ export default function NewOrderPage() {
       qty6XL * SIZE_UPCHARGES["5XL"],
     [qty3XL, qty4XL, qty5XL, qty6XL]
   );
+  const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * COLLAR_PRICE), [collarQty, collarType]);
   const pantsSummary = useMemo(() => getPantsItemsSummary(pantsItems), [pantsItems]);
   const grossTotal = useMemo(
-    () => shirtsTotal + plusSizeTotal + pantsSummary.grossTotal + extraCharge,
-    [shirtsTotal, plusSizeTotal, pantsSummary.grossTotal, extraCharge]
+    () => shirtsTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + extraCharge,
+    [shirtsTotal, plusSizeTotal, pantsSummary.grossTotal, collarTotal, extraCharge]
   );
   const netTotal = useMemo(() => Math.max(0, grossTotal - designDeposit), [grossTotal, designDeposit]);
   const balance = useMemo(() => Math.max(0, netTotal - initialDeposit), [netTotal, initialDeposit]);
@@ -204,6 +219,10 @@ export default function NewOrderPage() {
   const totalOrderBillableQty = useMemo(() => billableQty + pantsSummary.billableQty, [billableQty, pantsSummary.billableQty]);
   const totalOrderFreeQty = useMemo(() => freeQty + pantsSummary.freeQty, [freeQty, pantsSummary.freeQty]);
   const totalOrderQty = useMemo(() => totalProductionQty + pantsSummary.billableQty + pantsSummary.freeQty, [totalProductionQty, pantsSummary.billableQty, pantsSummary.freeQty]);
+  const sleeveType = useMemo<"short" | "long" | "mixed">(
+    () => (shortQty > 0 && longQty > 0 ? "mixed" : longQty > 0 ? "long" : "short"),
+    [shortQty, longQty]
+  );
   const isCustomOrderType = useMemo(() => Boolean(orderType) && !orderTypeOptions.includes(orderType), [orderType, orderTypeOptions]);
   const orderTypeSelectValue = isCustomOrderType ? CUSTOM_ORDER_TYPE_VALUE : orderType;
 
@@ -232,6 +251,8 @@ export default function NewOrderPage() {
     setQty4XL(0);
     setQty5XL(0);
     setQty6XL(0);
+    setCollarType("none");
+    setCollarQty(0);
     pantsItems.forEach((item) => {
       if (item.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.mockupPreviewUrl);
     });
@@ -494,6 +515,8 @@ export default function NewOrderPage() {
       qty_4xl: Math.max(0, qty4XL),
       qty_5xl: Math.max(0, qty5XL),
       qty_6xl: Math.max(0, qty6XL),
+      collar_type: collarType,
+      collar_qty: Math.max(0, collarQty),
 
       size_upcharge: SIZE_UPCHARGES["3XL"],
 
@@ -538,7 +561,7 @@ export default function NewOrderPage() {
     const { data: insertedOrder, error } = await supabase.from("orders").insert(finalPayload).select("id").single();
     if (error || !insertedOrder?.id) {
       setErr(error?.message || "insert_order_failed");
-      toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error?.message || "insert_order_failed"}`);
+      toast.error(isMissingOrderCollarFieldsError(error) ? getMissingOrderCollarFieldsMessage() : `ບັນທຶກບໍ່ສຳເລັດ: ${error?.message || "insert_order_failed"}`);
       return;
     }
 
@@ -1038,6 +1061,41 @@ export default function NewOrderPage() {
             <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">4) ຮູບແບບມັດຈຳ & ລາຍການບວກເພີ່ມ</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ຄໍເສື້ອ/ແຂນເສື້ອ</label>
+                <select
+                  value={collarType}
+                  onChange={(e) => {
+                    const nextValue = e.target.value as "none" | "polo" | "mandarin";
+                    setCollarType(nextValue);
+                    if (nextValue === "none") setCollarQty(0);
+                  }}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold bg-white"
+                >
+                  {QUOTATION_COLLAR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-1 text-[11px] font-bold text-slate-500">
+                  ແຂນເສື້ອ: {QUOTATION_SLEEVE_OPTIONS.find((option) => option.value === sleeveType)?.label || "-"}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">ຈຳນວນຄໍທີ່ບວກເພີ່ມ</label>
+                <input
+                  type="number"
+                  value={collarQty}
+                  onChange={(e) => setCollarQty(Number(e.target.value))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold"
+                  min={0}
+                  disabled={collarType === "none"}
+                />
+                <div className="mt-1 text-[11px] font-bold text-slate-500">ລວມຄ່າບວກ: {collarTotal.toLocaleString()} ກີບ</div>
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ)</label>
                 <input type="number" value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold" min={0} />
