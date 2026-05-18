@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
+import { OrderSummaryPanel } from "../_components/order-summary-panel";
 import {
   buildEmptyPantsOrderItem,
   buildPantsOrderItemPayload,
@@ -1129,102 +1130,33 @@ export default function NewOrderPage() {
         </div>
 
         <div className="space-y-4">
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 sticky top-4">
-            <div className="font-bold text-slate-800 mb-4 uppercase text-xs tracking-widest border-b pb-3 border-slate-50">5) ສະຫຼຸບອໍເດີ</div>
-
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຈຳນວນສັ່ງທັງໝົດ:</span>
-                <span className="font-bold text-slate-900">{totalOrderBillableQty.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຈຳນວນເສື້ອ:</span>
-                <span className="font-bold text-slate-900">{billableQty.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຈຳນວນໂສ້ງ:</span>
-                <span className="font-bold text-slate-900">{pantsSummary.billableQty.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຈຳນວນແຖມ:</span>
-                <span className="font-bold text-orange-600">{totalOrderFreeQty.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ແຖມເສື້ອ:</span>
-                <span className="font-bold text-orange-600">{freeQty.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ແຖມໂສ້ງ:</span>
-                <span className="font-bold text-orange-600">{pantsSummary.freeQty.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ປະເພດຜ້າ:</span>
-                <span className="font-bold text-slate-900">{selectedFabric?.name ?? "—"}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຄ່າເສື້ອທັງໝົດ:</span>
-                <span className="font-bold text-slate-800">{shirtsTotal.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຄ່າໂສ້ງທັງໝົດ:</span>
-                <span className="font-bold text-slate-800">{pantsSummary.grossTotal.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ບວກໄຊສ໌ໃຫຍ່:</span>
-                <span className="font-bold text-slate-800">{plusSizeTotal.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ):</span>
-                <span className="font-bold text-slate-800">{extraCharge.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center bg-red-50/50 p-2 rounded-lg">
-                <span className="text-red-600 font-bold">ຫັກຄ່າແບບ-ສ່ວນຫຼຸດ:</span>
-                <span className="font-bold text-red-600">-{designDeposit.toLocaleString()}</span>
-              </div>
-
-              <div className="border-t border-dashed pt-3 flex justify-between items-center">
-                <span className="text-slate-800 font-extrabold uppercase text-xs">ຍອດສຸດທິ:</span>
-                <span className="text-xl font-black text-slate-900">{netTotal.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-bold">ມັດຈຳສັ່ງຜະລິດກ່ອນ:</span>
-                <span className="font-bold text-emerald-600">+{initialDeposit.toLocaleString()}</span>
-              </div>
-
-              <div className="border-t-2 border-slate-100 pt-3 flex justify-between items-center">
-                <span className="text-slate-800 font-extrabold uppercase text-xs">ຍອດຄ້າງຈ່າຍ:</span>
-                <span className="text-xl font-black text-rose-600">{balance.toLocaleString()}</span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ຕົ້ນທຶນລວມ:</span>
-                <span className="font-bold text-slate-800">{totalFactoryCost.toLocaleString()}</span>
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-slate-50 flex justify-between items-center">
-                <span className="text-slate-500 font-medium">ກຳໄລ (ຕົວຢ່າງ):</span>
-                <span className={`text-lg font-black ${profitPreview >= 0 ? "text-blue-600" : "text-red-600"}`}>
-                  {profitPreview.toLocaleString()}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-6 p-3 bg-amber-50 rounded-xl text-[10px] text-amber-700 font-bold leading-relaxed border border-amber-100">
-              ລາຍການລວມ: {totalOrderQty.toLocaleString()} ຊິ້ນ | ກຳໄລຈະນັບເມື່ອປິດງານ (Completed) ແລະ ຈ່າຍຄົບ 100%
-            </div>
-          </div>
+          <OrderSummaryPanel
+            title="5) ສະຫຼຸບອໍເດີ"
+            className="sticky top-4"
+            fabricName={selectedFabric?.name ?? "—"}
+            totalOrderBillableQty={totalOrderBillableQty}
+            totalOrderQty={totalOrderQty}
+            shirtBillableQty={billableQty}
+            pantsBillableQty={pantsSummary.billableQty}
+            totalOrderFreeQty={totalOrderFreeQty}
+            shirtFreeQty={freeQty}
+            pantsFreeQty={pantsSummary.freeQty}
+            shirtsTotal={shirtsTotal}
+            pantsTotal={pantsSummary.grossTotal}
+            plusSizeTotal={plusSizeTotal}
+            collarTotal={collarTotal}
+            extraCharge={extraCharge}
+            designDiscount={designDeposit}
+            primaryPaidLabel="ມັດຈຳສັ່ງຜະລິດ"
+            primaryPaidValue={initialDeposit}
+            outstandingLabel="ຍອດຄ້າງຈ່າຍ"
+            outstandingValue={balance}
+            netTotal={netTotal}
+            totalFactoryCost={totalFactoryCost}
+            profitPreview={profitPreview}
+            showProfitDetails
+            footerNote={`ກຳໄລຈະນັບເມື່ອປິດງານ (Completed) ແລະ ຈ່າຍຄົບ 100%`}
+          />
         </div>
       </div>
     </div>

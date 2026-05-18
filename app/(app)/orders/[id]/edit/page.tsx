@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { ArrowLeft, CheckCheck, RefreshCcw, Save, Trash2, Undo2 } from "lucide-react";
+import { OrderSummaryPanel } from "../../_components/order-summary-panel";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import {
@@ -1821,26 +1822,34 @@ export default function EditOrderPage() {
         </div>
 
         <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-            <div className="font-black text-slate-900 border-b pb-2 border-slate-100 mb-2">ສະຫຼຸບອໍເດີ</div>
-            <div className="mt-2 flex justify-between text-slate-800 font-bold"><span>ຈຳນວນສັ່ງທັງໝົດ</span><span className="font-black text-slate-900">{totalOrderBillableQty.toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ຈຳນວນແຖມ</span><span className="font-black text-orange-600">{totalOrderFreeQty.toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ຄ່າເສື້ອລວມ</span><span className="font-black text-slate-900">{(shirtsTotal + plusSizeTotal).toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ຄ່າໂສ້ງລວມ</span><span className="font-black text-slate-900">{pantsSummary.grossTotal.toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ)</span><span className="font-black text-slate-900">{extraCharge.toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ຫັກຄ່າແບບ-ສ່ວນຫຼຸດ</span><span className="font-black text-red-600">-{designDeposit.toLocaleString()}</span></div>
-            <div className="mt-2 flex justify-between text-slate-800 font-bold"><span>ຍອດສຸດທິ</span><span className="font-black text-slate-900">{netTotal.toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ເງິນມັດຈຳສັ່ງຜະລິດ</span><span className="font-black text-emerald-700">{initialDeposit.toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ຮັບແແລ້ວ</span><span className="font-black text-emerald-700">{customerReceived.toLocaleString()}</span></div>
-            <div className="flex justify-between text-slate-800 font-bold"><span>ຄ້າງຊຳລະ</span><span className="font-black text-rose-700">{customerOutstanding.toLocaleString()}</span></div>
-            {canViewProfitDetails ? (
-              <div className="flex justify-between text-slate-800 font-bold"><span>ຕົ້ນທຶນ</span><span className="font-black text-slate-900">{totalFactoryCost.toLocaleString()}</span></div>
-            ) : null}
-            <div className="flex justify-between text-slate-800 font-bold"><span>ລາຍການລວມ</span><span className="font-black text-slate-900">{totalOrderQty.toLocaleString()}</span></div>
-            {canViewProfitDetails ? (
-              <div className="flex justify-between border-t pt-2 border-slate-100 mt-2 text-slate-800 font-bold"><span>ກຳໄລເບື້ອງຕົ້ນ</span><span className={`font-black ${profitPreview >= 0 ? "text-blue-700" : "text-red-700"}`}>{profitPreview.toLocaleString()}</span></div>
-            ) : null}
-          </div>
+          <OrderSummaryPanel
+            title="ສະຫຼຸບອໍເດີ"
+            fabricName={selectedFabric?.name ?? order.fabric_name ?? "—"}
+            totalOrderBillableQty={totalOrderBillableQty}
+            totalOrderQty={totalOrderQty}
+            shirtBillableQty={shortQty + longQty}
+            pantsBillableQty={pantsSummary.billableQty}
+            totalOrderFreeQty={totalOrderFreeQty}
+            shirtFreeQty={freeQty}
+            pantsFreeQty={pantsSummary.freeQty}
+            shirtsTotal={shirtsTotal}
+            pantsTotal={pantsSummary.grossTotal}
+            plusSizeTotal={plusSizeTotal}
+            collarTotal={collarTotal}
+            extraCharge={extraCharge}
+            designDiscount={designDeposit}
+            primaryPaidLabel="ຮັບແລ້ວ"
+            primaryPaidValue={customerReceived}
+            secondaryPaidLabel="ເງິນມັດຈຳສັ່ງຜະລິດ"
+            secondaryPaidValue={initialDeposit}
+            outstandingLabel="ຄ້າງຊຳລະ"
+            outstandingValue={customerOutstanding}
+            netTotal={netTotal}
+            totalFactoryCost={totalFactoryCost}
+            profitPreview={profitPreview}
+            showProfitDetails={canViewProfitDetails}
+            footerNote={`ລາຍການລວມ ${totalOrderQty.toLocaleString()} ຊິ້ນ`}
+          />
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-900 shadow-sm space-y-1">
             <div><span className="font-black">ສະຖານະຜະລິດ:</span> <span className="font-bold">{productionStatusLabel}</span></div>
             <div><span className="font-black">ສະຖານະປິດງານ:</span> <span className="font-bold">{closeStatusLabel}</span></div>
