@@ -33,7 +33,7 @@ function formatMoney(value: number) {
 }
 
 function formatCount(value: number) {
-  return `${(Number(value) || 0).toLocaleString()} ຊິ້ນ`;
+  return `${(Number(value) || 0).toLocaleString()} ໂຕ`;
 }
 
 function joinClassNames(...classNames: Array<string | undefined | false>) {

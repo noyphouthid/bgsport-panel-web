@@ -1848,7 +1848,7 @@ export default function EditOrderPage() {
             totalFactoryCost={totalFactoryCost}
             profitPreview={profitPreview}
             showProfitDetails={canViewProfitDetails}
-            footerNote={`ລາຍການລວມ ${totalOrderQty.toLocaleString()} ຊິ້ນ`}
+            footerNote={`ລາຍການລວມ ${totalOrderQty.toLocaleString()} ໂຕ`}
           />
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-900 shadow-sm space-y-1">
             <div><span className="font-black">ສະຖານະຜະລິດ:</span> <span className="font-bold">{productionStatusLabel}</span></div>
