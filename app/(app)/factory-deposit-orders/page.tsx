@@ -24,9 +24,12 @@ import {
   type FactoryDepositOrderStatus,
 } from "@/lib/factory-deposit-orders";
 import { getMissingOrderCollarFieldsMessage, isMissingOrderCollarFieldsError } from "@/lib/order-collar-fields";
+import { QuotationA5Preview } from "../_components/quotation-a5-preview";
+import { getQuotationDraftById, type QuotationDraft } from "@/lib/quotation-drafts";
 
 type DepositRow = {
   id: string;
+  quotation_draft_id?: string | null;
   deposit_no: string;
   deposit_date: string;
   order_code: string | null;
@@ -268,6 +271,10 @@ export default function FactoryDepositOrdersPage() {
   const [statusFilter, setStatusFilter] = useState<FactoryDepositOrderStatus | "all">("all");
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [previewRow, setPreviewRow] = useState<DepositRow | null>(null);
+  const [quotationPreviewRow, setQuotationPreviewRow] = useState<DepositRow | null>(null);
+  const [quotationPreviewDraft, setQuotationPreviewDraft] = useState<QuotationDraft | null>(null);
+  const [quotationPreviewLoading, setQuotationPreviewLoading] = useState(false);
+  const [quotationPreviewError, setQuotationPreviewError] = useState<string | null>(null);
   const [slipPreviewRow, setSlipPreviewRow] = useState<DepositRow | null>(null);
   const [slipPreviewRows, setSlipPreviewRows] = useState<DepositSlipRow[]>([]);
   const [slipPreviewLoading, setSlipPreviewLoading] = useState(false);
@@ -676,6 +683,29 @@ export default function FactoryDepositOrdersPage() {
     }
   };
 
+  const handleOpenQuotationPreview = async (row: DepositRow) => {
+    const quotationDraftId = row.quotation_draft_id?.trim();
+    if (!quotationDraftId) {
+      toast.error("ບໍ່ພົບໃບປະເມີນລາຄາ");
+      return;
+    }
+
+    setQuotationPreviewRow(row);
+    setQuotationPreviewDraft(null);
+    setQuotationPreviewError(null);
+    setQuotationPreviewLoading(true);
+
+    try {
+      const draft = await getQuotationDraftById(quotationDraftId);
+      if (!draft) throw new Error("ບໍ່ພົບໃບປະເມີນລາຄາ");
+      setQuotationPreviewDraft(draft);
+    } catch (error) {
+      setQuotationPreviewError(getErrorMessage(error, "ໂຫຼດໃບປະເມີນລາຄາບໍ່ສຳເລັດ"));
+    } finally {
+      setQuotationPreviewLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -787,6 +817,19 @@ export default function FactoryDepositOrdersPage() {
                     </td>
                     <td className="p-3">
                       <div className="flex flex-wrap items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenQuotationPreview(row)}
+                          disabled={!row.quotation_draft_id?.trim()}
+                          className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-black transition ${
+                            row.quotation_draft_id?.trim()
+                              ? "text-sky-700 hover:bg-sky-50"
+                              : "cursor-not-allowed text-slate-300"
+                          }`}
+                        >
+                          <FileText size={14} />
+                          ເບິ່ງໃບປະເມີນລາຄາ
+                        </button>
                         <button
                           type="button"
                           onClick={() => setPreviewRow(row)}
@@ -1025,6 +1068,57 @@ export default function FactoryDepositOrdersPage() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {quotationPreviewRow ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+          onClick={() => {
+            setQuotationPreviewRow(null);
+            setQuotationPreviewDraft(null);
+            setQuotationPreviewError(null);
+          }}
+        >
+          <div
+            className="relative max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setQuotationPreviewRow(null);
+                setQuotationPreviewDraft(null);
+                setQuotationPreviewError(null);
+              }}
+              className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="mb-4 pr-12">
+              <div className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">Quotation Preview A5</div>
+              <div className="mt-2 text-lg font-black text-slate-900">
+                {quotationPreviewDraft?.quoteNo || quotationPreviewRow.quotation_quote_no || quotationPreviewRow.order_code || quotationPreviewRow.deposit_no}
+              </div>
+            </div>
+
+            {quotationPreviewLoading ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">
+                ກຳລັງໂຫຼດໃບປະເມີນລາຄາ...
+              </div>
+            ) : quotationPreviewError ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center text-sm font-bold text-rose-700">
+                {quotationPreviewError}
+              </div>
+            ) : quotationPreviewDraft ? (
+              <QuotationA5Preview draft={quotationPreviewDraft} />
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-10 text-center text-sm font-bold text-slate-400">
+                ບໍ່ພົບໃບປະເມີນລາຄາ
               </div>
             )}
           </div>
