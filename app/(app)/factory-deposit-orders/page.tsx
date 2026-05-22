@@ -55,6 +55,7 @@ type DepositRow = {
   fabric_long_price: number;
   collar_type?: "none" | "polo" | "mandarin" | null;
   collar_qty?: number;
+  sleeve_charge_qty?: number;
   extra_charge: number;
   design_deposit: number;
   initial_deposit: number;
@@ -502,6 +503,7 @@ export default function FactoryDepositOrdersPage() {
         qty_6xl: Number(row.qty_6xl) || 0,
         collar_type: row.collar_type || "none",
         collar_qty: Math.max(0, Number(row.collar_qty) || 0),
+        sleeve_charge_qty: Math.max(0, Number(row.sleeve_charge_qty) || 0),
         size_upcharge: 20000,
         extra_charge: Number(row.extra_charge) || 0,
         design_deposit: Number(row.design_deposit) || 0,
@@ -804,7 +806,10 @@ export default function FactoryDepositOrdersPage() {
                     <td className="p-3 text-right">
                       <div className="font-black text-emerald-700">{Number(row.net_total).toLocaleString()}</div>
                       <div className="mt-1 text-xs font-bold text-slate-500">
-                        ມັດຈຳຈາກລູກຄ້າ: <span className="text-slate-700">{Number(row.initial_deposit).toLocaleString()}</span>
+                        ຫັກຄ່າແບບ: <span className="text-slate-700">{Number(row.design_deposit).toLocaleString()}</span>
+                      </div>
+                      <div className="mt-1 text-xs font-bold text-slate-500">
+                        ມັດຈຳສັ່ງຜະລິດ: <span className="text-slate-700">{Number(row.initial_deposit).toLocaleString()}</span>
                       </div>
                       <div className="mt-1 text-xs font-bold text-amber-700">
                         ຍອດຄ້າງຈາກລູກຄ້າ: <span>{Number(row.balance).toLocaleString()}</span>

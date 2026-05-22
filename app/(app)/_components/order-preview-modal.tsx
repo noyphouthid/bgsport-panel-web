@@ -24,6 +24,7 @@ type OrderPreviewModalProps = {
     factory_bill_code: string | null;
     fabric_name: string;
     net_total: number;
+    design_deposit: number;
     initial_deposit: number;
     balance: number;
   } | null;
@@ -159,7 +160,8 @@ export function OrderPreviewModal({
                 <PreviewField label="ເບີຕິດຕໍ່" value={primaryContact} />
                 <PreviewField label="WhatsApp" value={order.customer_whatsapp?.trim() || "-"} />
                 <PreviewField label="ຜ້າ" value={order.fabric_name || "-"} />
-                <PreviewField label="ມັດຈຳ" value={`${formatMoney(order.initial_deposit)} ກີບ`} />
+                <PreviewField label="ຫັກຄ່າແບບ" value={`${formatMoney(order.design_deposit)} ກີບ`} />
+                <PreviewField label="ມັດຈຳສັ່ງຜະລິດ" value={`${formatMoney(order.initial_deposit)} ກີບ`} />
               </div>
 
               <div className="rounded-[24px] border border-slate-200 bg-slate-50/50 p-4">

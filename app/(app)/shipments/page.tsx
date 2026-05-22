@@ -989,7 +989,11 @@ export default function ShipmentsPage() {
                   <div className="mt-2 text-lg font-black text-slate-900">{formatCurrency(active.order.net_total)}</div>
                 </div>
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">ເງິນມັດຈຳທີ່ຮັບແລ້ວ</div>
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">ຫັກຄ່າແບບ</div>
+                  <div className="mt-2 text-lg font-black text-slate-900">{formatCurrency(active.order.design_deposit || 0)}</div>
+                </div>
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">ມັດຈຳສັ່ງຜະລິດ</div>
                   <div className="mt-2 text-lg font-black text-slate-900">{formatCurrency(active.order.initial_deposit)}</div>
                 </div>
               </div>

@@ -60,6 +60,7 @@ export type FactoryDepositOrder = {
   sleeve_type: "short" | "long" | "mixed";
   collar_type: "none" | "polo" | "mandarin";
   collar_qty: number;
+  sleeve_charge_qty: number;
   short_qty: number;
   long_qty: number;
   free_qty: number;

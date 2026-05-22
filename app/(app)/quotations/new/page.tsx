@@ -45,6 +45,7 @@ const SIZE_UPCHARGES = {
   "5XL": 35000,
   "6XL": 35000,
 } as const;
+const SLEEVE_PRICE = 20000;
 const DEFAULT_TERMS = "ມັດຈຳເຂົ້າຄິວກ່ອນຜະລິດ ແລະ ຊຳລະຍອດທີ່ເຫຼືອຕາມວັນນັດ.";
 
 const formatMoney = (value: number) => `${Math.max(0, value || 0).toLocaleString()} ກີບ`;
@@ -142,7 +143,9 @@ export default function NewQuotationPage() {
   const [pantsItems, setPantsItems] = useState<PantsOrderItemDraft[]>([]);
   const [collarType, setCollarType] = useState<"none" | "polo" | "mandarin">("none");
   const [collarQty, setCollarQty] = useState(0);
+  const [sleeveChargeQty, setSleeveChargeQty] = useState(0);
   const [extraCharge, setExtraCharge] = useState(0);
+  const [designDeposit, setDesignDeposit] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [deposit, setDeposit] = useState(0);
   const [paymentDueDate, setPaymentDueDate] = useState("");
@@ -205,7 +208,9 @@ export default function NewQuotationPage() {
           setPantsItems(draft.pantsItems || []);
           setCollarType(draft.collarType);
           setCollarQty(draft.collarQty);
+          setSleeveChargeQty(draft.sleeveChargeQty);
           setExtraCharge(draft.extraCharge);
+          setDesignDeposit(draft.designDeposit);
           setDiscount(draft.discount);
           setDeposit(draft.deposit);
           setPaymentDueDate(draft.paymentDueDate);
@@ -225,6 +230,7 @@ export default function NewQuotationPage() {
   const billableQty = useMemo(() => Math.max(0, shortQty) + Math.max(0, longQty), [shortQty, longQty]);
   const totalQty = useMemo(() => billableQty + Math.max(0, freeQty), [billableQty, freeQty]);
   const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * COLLAR_PRICE), [collarType, collarQty]);
+  const sleeveChargeTotal = useMemo(() => Math.max(0, sleeveChargeQty) * SLEEVE_PRICE, [sleeveChargeQty]);
   const shirtTotal = useMemo(() => {
     if (!selectedFabric) return 0;
     return Math.max(0, shortQty) * selectedFabric.short_price + Math.max(0, longQty) * selectedFabric.long_price;
@@ -239,11 +245,26 @@ export default function NewQuotationPage() {
   );
   const pantsSummary = useMemo(() => getPantsItemsSummary(pantsItems), [pantsItems]);
   const grossTotal = useMemo(
-    () => shirtTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + Math.max(0, extraCharge),
-    [shirtTotal, plusSizeTotal, pantsSummary.grossTotal, collarTotal, extraCharge]
+    () => shirtTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + sleeveChargeTotal + Math.max(0, extraCharge),
+    [shirtTotal, plusSizeTotal, pantsSummary.grossTotal, collarTotal, sleeveChargeTotal, extraCharge]
   );
   const netTotal = useMemo(() => Math.max(0, grossTotal - Math.max(0, discount)), [grossTotal, discount]);
-  const outstanding = useMemo(() => Math.max(0, netTotal - Math.max(0, deposit)), [netTotal, deposit]);
+  const customerBillTotal = useMemo(
+    () => Math.max(0, netTotal - Math.max(0, designDeposit)),
+    [netTotal, designDeposit]
+  );
+  const outstanding = useMemo(
+    () => Math.max(0, customerBillTotal - Math.max(0, deposit)),
+    [customerBillTotal, deposit]
+  );
+  const depositPercent = useMemo(
+    () => (customerBillTotal > 0 ? (Math.max(0, deposit) / customerBillTotal) * 100 : 0),
+    [customerBillTotal, deposit]
+  );
+  const formattedDepositPercent = useMemo(
+    () => (Number.isInteger(depositPercent) ? depositPercent.toFixed(0) : depositPercent.toFixed(1)),
+    [depositPercent]
+  );
 
   const resetForm = () => {
     setQuoteNo(buildQuoteNo());
@@ -265,7 +286,9 @@ export default function NewQuotationPage() {
     setPantsItems([]);
     setCollarType("none");
     setCollarQty(0);
+    setSleeveChargeQty(0);
     setExtraCharge(0);
+    setDesignDeposit(0);
     setDiscount(0);
     setDeposit(0);
     setPaymentDueDate("");
@@ -315,7 +338,9 @@ export default function NewQuotationPage() {
     qty6XL,
     collarType,
     collarQty,
+    sleeveChargeQty,
     extraCharge,
+    designDeposit,
     discount,
     deposit,
     paymentDueDate,
@@ -442,7 +467,10 @@ export default function NewQuotationPage() {
       ? { key: "6xl", label: "ເພີ່ມ 6XL", qty: qty6XL, price: SIZE_UPCHARGES["6XL"], total: qty6XL * SIZE_UPCHARGES["6XL"] }
       : null,
     collarTotal > 0
-      ? { key: "collar", label: "ບວກຄໍເສື້ອ/ແຂນເສື້ອ", qty: collarQty, price: COLLAR_PRICE, total: collarTotal }
+      ? { key: "collar", label: "ບວກຄໍເສື້ອ", qty: collarQty, price: COLLAR_PRICE, total: collarTotal }
+      : null,
+    sleeveChargeTotal > 0
+      ? { key: "sleeve", label: "ບວກແຂນເສື້ອ", qty: sleeveChargeQty, price: SLEEVE_PRICE, total: sleeveChargeTotal }
       : null,
     ...pantsItems.map((item, index) => ({
       key: `pants-${item.clientId}`,
@@ -457,7 +485,8 @@ export default function NewQuotationPage() {
     { label: "ຄ່າເສື້ອລວມ", value: shirtTotal, color: "text-slate-900" },
     { label: "ບວກໄຊສ໌ໃຫຍ່", value: plusSizeTotal, color: "text-amber-700" },
     { label: "ຄ່າໂສ້ງລວມ", value: pantsSummary.grossTotal, color: "text-indigo-700" },
-    { label: "ບວກຄໍເສື້ອ/ແຂນເສື້ອ", value: collarTotal, color: "text-sky-700" },
+    { label: "ບວກຄໍເສື້ອ", value: collarTotal, color: "text-sky-700" },
+    { label: "ບວກແຂນເສື້ອ", value: sleeveChargeTotal, color: "text-cyan-700" },
     { label: "ບວກເພີ່ມອື່ນໆ", value: extraCharge, color: "text-violet-700" },
   ];
 
@@ -579,16 +608,20 @@ export default function NewQuotationPage() {
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
-                <FieldLabel>ຄໍເສື້ອ/ແຂນເສື້ອ</FieldLabel>
+                <FieldLabel>ຄໍເສື້ອ</FieldLabel>
                 <select value={collarType} onChange={(e) => setCollarType(e.target.value as "none" | "polo" | "mandarin")} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100">
                   <option value="none">ຄໍປົກກະຕິ</option>
                   <option value="polo">ຄໍໂປໂລ +20,000</option>
-                  <option value="mandarin">ແຂນຍາວ +20,000</option>
+                  <option value="mandarin">ຄໍຈີນ +20,000</option>
                 </select>
               </div>
               <div>
-                <FieldLabel>ຈຳນວນຄໍທີ່ບວກເພີ່ມ</FieldLabel>
+                <FieldLabel>ຈຳນວນຄໍເສື້ອທີ່ບວກເພີ່ມ</FieldLabel>
                 <NumberField value={collarQty} onChange={setCollarQty} />
+              </div>
+              <div>
+                <FieldLabel>ຈຳນວນແຂນເສື້ອທີ່ບວກເພີ່ມ</FieldLabel>
+                <NumberField value={sleeveChargeQty} onChange={setSleeveChargeQty} />
               </div>
               <div>
                 <FieldLabel>ຄ່າບວກເພີ່ມອື່ນໆ</FieldLabel>
@@ -698,10 +731,11 @@ export default function NewQuotationPage() {
           </section>
 
           <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-            <CardTitle icon={ReceiptText} title="ສະຫຼຸບ" subtitle="ສ່ວນຫຼຸດ ແລະ ມັດຈຳ" />
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <CardTitle icon={ReceiptText} title="ສະຫຼຸບ" subtitle="ຫັກຄ່າແບບ, ສ່ວນຫຼຸດ ແລະ ມັດຈຳ" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div><FieldLabel>ຫັກຄ່າແບບ</FieldLabel><NumberField value={designDeposit} onChange={setDesignDeposit} /></div>
               <div><FieldLabel>ສ່ວນຫຼຸດ</FieldLabel><NumberField value={discount} onChange={setDiscount} /></div>
-              <div><FieldLabel>ມັດຈຳ</FieldLabel><NumberField value={deposit} onChange={setDeposit} /></div>
+              <div><FieldLabel>ມັດຈຳກ່ອນ</FieldLabel><NumberField value={deposit} onChange={setDeposit} /></div>
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -713,14 +747,25 @@ export default function NewQuotationPage() {
               ))}
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-amber-700">ຫັກຄ່າແບບ</div>
+                <div className="mt-2 text-2xl font-black text-amber-900">{formatMoney(designDeposit)}</div>
+              </div>
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-rose-700">ສ່ວນຫຼຸດ</div>
+                <div className="mt-2 text-2xl font-black text-rose-900">{formatMoney(discount)}</div>
+              </div>
               <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-sky-700">ຍອດລວມ</div>
-                <div className="mt-2 text-2xl font-black text-sky-900">{formatMoney(netTotal)}</div>
+                <div className="text-xs font-bold uppercase tracking-wide text-sky-700">ຄົງເຫຼືອຫຼັງຫັກ</div>
+                <div className="mt-2 text-2xl font-black text-sky-900">{formatMoney(customerBillTotal)}</div>
               </div>
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-emerald-700">ມັດຈຳສັ່ງຜະລິດກ່ອນ</div>
-                <div className="mt-2 text-2xl font-black text-emerald-900">{formatMoney(deposit)}</div>
+                <div className="text-xs font-bold uppercase tracking-wide text-emerald-700">ມັດຈຳກ່ອນ</div>
+                <div className="mt-2 text-2xl font-black text-emerald-900">
+                  {formatMoney(deposit)}
+                  {deposit > 0 && customerBillTotal > 0 ? <span className="ml-2 text-sm font-bold">({formattedDepositPercent}%)</span> : null}
+                </div>
               </div>
               <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
                 <div className="text-xs font-bold uppercase tracking-wide text-rose-700">ຍອດຄ້າງຊຳລະ</div>
@@ -857,11 +902,12 @@ export default function NewQuotationPage() {
                   </div>
                   <div className="space-y-1.5 rounded-3xl bg-slate-50 p-2 text-[10px]">
                     <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ຍອດລວມ</span><span className="font-bold text-slate-900">{grossTotal.toLocaleString()}</span></div>
-                    <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ສ່ວນຫຼຸດ/ຄ່າແບບ</span><span className="font-bold text-rose-600">- {discount.toLocaleString()}</span></div>
-                    <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ມັດຈຳກ່ອນ</span><span className="font-bold text-emerald-600">{deposit.toLocaleString()}</span></div>
+                    <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ຫັກຄ່າແບບ</span><span className="font-bold text-amber-700">{designDeposit.toLocaleString()}</span></div>
+                    <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ສ່ວນຫຼຸດ</span><span className="font-bold text-rose-600">- {discount.toLocaleString()}</span></div>
                     <div className="border-t border-slate-200 pt-2">
-                        <div className="flex items-center justify-between"><span className="font-black text-slate-800">ຍອດສຸດທິ</span><span className="text-[13px] font-black text-slate-950">{netTotal.toLocaleString()}</span></div>
-                      </div>
+                      <div className="flex items-center justify-between"><span className="font-black text-slate-800">ຄົງເຫຼືອ</span><span className="text-[13px] font-black text-slate-950">{customerBillTotal.toLocaleString()}</span></div>
+                    </div>
+                    <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ມັດຈຳກ່ອນ</span><span className="font-bold text-emerald-600">{deposit.toLocaleString()} {deposit > 0 && customerBillTotal > 0 ? `(${formattedDepositPercent}%)` : ""}</span></div>
                     <div className="flex items-center justify-between"><span className="font-black text-slate-800">ຍອດຄ້າງຊຳລະ</span><span className="text-[13px] font-black text-sky-700">{outstanding.toLocaleString()}</span></div>
 
                   </div>

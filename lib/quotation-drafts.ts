@@ -29,7 +29,9 @@ export type QuotationDraft = {
   qty6XL: number;
   collarType: "none" | "polo" | "mandarin";
   collarQty: number;
+  sleeveChargeQty: number;
   extraCharge: number;
+  designDeposit: number;
   discount: number;
   deposit: number;
   paymentDueDate: string;
@@ -70,7 +72,9 @@ type QuotationDraftDbRow = {
   qty_6xl: number;
   collar_type: "none" | "polo" | "mandarin";
   collar_qty: number;
+  sleeve_charge_qty?: number;
   extra_charge: number;
+  design_deposit?: number;
   discount: number;
   deposit: number;
   payment_due_date: string;
@@ -110,7 +114,9 @@ const QUOTATION_DRAFT_BASE_FIELDS = [
   "qty_6xl",
   "collar_type",
   "collar_qty",
+  "sleeve_charge_qty",
   "extra_charge",
+  "design_deposit",
   "discount",
   "deposit",
   "payment_due_date",
@@ -153,7 +159,9 @@ function mapRowToDraft(row: QuotationDraftDbRow): QuotationDraft {
     qty6XL: Number(row.qty_6xl) || 0,
     collarType: row.collar_type || "none",
     collarQty: Number(row.collar_qty) || 0,
+    sleeveChargeQty: Number(row.sleeve_charge_qty) || 0,
     extraCharge: Number(row.extra_charge) || 0,
+    designDeposit: Number(row.design_deposit) || 0,
     discount: Number(row.discount) || 0,
     deposit: Number(row.deposit) || 0,
     paymentDueDate: row.payment_due_date || "",
@@ -297,7 +305,9 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     qty_6xl: Number(draft.qty6XL) || 0,
     collar_type: draft.collarType,
     collar_qty: Number(draft.collarQty) || 0,
+    sleeve_charge_qty: Number(draft.sleeveChargeQty) || 0,
     extra_charge: Number(draft.extraCharge) || 0,
+    design_deposit: Number(draft.designDeposit) || 0,
     discount: Number(draft.discount) || 0,
     deposit: Number(draft.deposit) || 0,
     payment_due_date: draft.paymentDueDate || "",

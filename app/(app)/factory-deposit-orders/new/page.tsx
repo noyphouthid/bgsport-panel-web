@@ -91,6 +91,7 @@ type DepositOrderRow = {
   qty_6xl: number;
   collar_type: "none" | "polo" | "mandarin";
   collar_qty: number;
+  sleeve_charge_qty?: number;
   extra_charge: number;
   discount: number;
   design_deposit: number;
@@ -160,6 +161,7 @@ type PantsProductionItem = PantsOrderItemDraft & {
 };
 
 const COLLAR_PRICE = 20000;
+const SLEEVE_PRICE = 20000;
 const SIZE_UPCHARGES = {
   "3XL": 20000,
   "4XL": 25000,
@@ -633,9 +635,11 @@ export default function FactoryDepositOrderFormPage() {
   const [pantsItems, setPantsItems] = useState<PantsProductionItem[]>([]);
   const [collarType, setCollarType] = useState<"none" | "polo" | "mandarin">("none");
   const [collarQty, setCollarQty] = useState(0);
+  const [sleeveChargeQty, setSleeveChargeQty] = useState(0);
 
   const [extraCharge, setExtraCharge] = useState(0);
   const [designDeposit, setDesignDeposit] = useState(0);
+  const [discount, setDiscount] = useState(0);
   const [initialDeposit, setInitialDeposit] = useState(0);
   const [factoryCost, setFactoryCost] = useState(0);
   const [factoryBillCode, setFactoryBillCode] = useState("");
@@ -724,8 +728,10 @@ export default function FactoryDepositOrderFormPage() {
           setPantsItems(parsedPantsItems);
           setCollarType(row.collar_type || "none");
           setCollarQty(Number(row.collar_qty) || 0);
+          setSleeveChargeQty(Number(row.sleeve_charge_qty) || 0);
           setExtraCharge(Number(row.extra_charge) || 0);
-          setDesignDeposit((Number(row.design_deposit) || 0) + (Number(row.discount) || 0));
+          setDesignDeposit(Number(row.design_deposit) || 0);
+          setDiscount(Number(row.discount) || 0);
           setInitialDeposit(Number(row.initial_deposit) || 0);
           setFactoryCost(Math.max(0, (Number(row.factory_cost) || 0) - parsedPantsSummary.factoryCostTotal));
           setFactoryBillCode(row.factory_bill_code || "");
@@ -774,8 +780,10 @@ export default function FactoryDepositOrderFormPage() {
             setPantsItems((draft.pantsItems || []).map((item) => buildEmptyPantsProductionItem(item)));
             setCollarType(draft.collarType);
             setCollarQty(draft.collarQty);
+            setSleeveChargeQty(draft.sleeveChargeQty);
             setExtraCharge(draft.extraCharge);
-            setDesignDeposit(Number(draft.discount) || 0);
+            setDesignDeposit(Number(draft.designDeposit) || 0);
+            setDiscount(Number(draft.discount) || 0);
             setInitialDeposit(draft.deposit);
             setCustomerDeliveryDate(draft.deliveryDate || "");
           }
@@ -834,13 +842,37 @@ export default function FactoryDepositOrderFormPage() {
     if (collarType === "none") return 0;
     return (Number(collarQty) || 0) * COLLAR_PRICE;
   }, [collarQty, collarType]);
+  const sleeveChargeTotal = useMemo(() => (Number(sleeveChargeQty) || 0) * SLEEVE_PRICE, [sleeveChargeQty]);
 
   const grossTotal = useMemo(
-    () => shirtTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + (Number(extraCharge) || 0),
-    [shirtTotal, plusSizeTotal, pantsSummary.grossTotal, collarTotal, extraCharge]
+    () => shirtTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + sleeveChargeTotal + (Number(extraCharge) || 0),
+    [shirtTotal, plusSizeTotal, pantsSummary.grossTotal, collarTotal, sleeveChargeTotal, extraCharge]
   );
-  const netTotal = useMemo(() => Math.max(0, grossTotal - (Number(designDeposit) || 0)), [grossTotal, designDeposit]);
-  const balance = useMemo(() => Math.max(0, netTotal - (Number(initialDeposit) || 0)), [netTotal, initialDeposit]);
+  const netTotal = useMemo(() => Math.max(0, grossTotal - (Number(discount) || 0)), [grossTotal, discount]);
+  const customerBillTotal = useMemo(
+    () => Math.max(0, netTotal - (Number(designDeposit) || 0)),
+    [netTotal, designDeposit]
+  );
+  const balance = useMemo(
+    () => Math.max(0, customerBillTotal - (Number(initialDeposit) || 0)),
+    [customerBillTotal, initialDeposit]
+  );
+  const depositPercent = useMemo(
+    () => (customerBillTotal > 0 ? (Math.max(0, Number(initialDeposit) || 0) / customerBillTotal) * 100 : 0),
+    [customerBillTotal, initialDeposit]
+  );
+  const formattedDepositPercent = useMemo(
+    () => (Number.isInteger(depositPercent) ? depositPercent.toFixed(0) : depositPercent.toFixed(1)),
+    [depositPercent]
+  );
+  const summaryItems = [
+    { label: "ຄ່າເສື້ອລວມ", value: shirtTotal, color: "text-slate-900" },
+    { label: "ບວກໄຊສ໌ໃຫຍ່", value: plusSizeTotal, color: "text-amber-700" },
+    { label: "ຄ່າໂສ້ງລວມ", value: pantsSummary.grossTotal, color: "text-indigo-700" },
+    { label: "ບວກຄໍເສື້ອ", value: collarTotal, color: "text-sky-700" },
+    { label: "ບວກແຂນເສື້ອ", value: sleeveChargeTotal, color: "text-cyan-700" },
+    { label: "ບວກເພີ່ມອື່ນໆ", value: extraCharge, color: "text-violet-700" },
+  ];
   const totalProductionQty = useMemo(() => Math.max(0, shortQty) + Math.max(0, longQty) + Math.max(0, freeQty), [shortQty, longQty, freeQty]);
   const pantsTotalQty = useMemo(() => pantsSummary.billableQty + pantsSummary.freeQty, [pantsSummary.billableQty, pantsSummary.freeQty]);
   const assignedPantsQty = useMemo(
@@ -927,8 +959,10 @@ export default function FactoryDepositOrderFormPage() {
     qty6XL,
     collarType,
     collarQty,
+    sleeveChargeQty,
     extraCharge,
-    discount: designDeposit,
+    designDeposit,
+    discount,
     deposit: initialDeposit,
     paymentDueDate: "",
     deliveryDate: customerDeliveryDate,
@@ -1526,6 +1560,7 @@ export default function FactoryDepositOrderFormPage() {
         sleeve_type: shortQty > 0 && longQty > 0 ? "mixed" : longQty > 0 ? "long" : "short",
         collar_type: collarType,
         collar_qty: Math.max(0, collarQty),
+        sleeve_charge_qty: Math.max(0, sleeveChargeQty),
         short_qty: Math.max(0, shortQty),
         long_qty: Math.max(0, longQty),
         free_qty: Math.max(0, freeQty),
@@ -1535,7 +1570,7 @@ export default function FactoryDepositOrderFormPage() {
         qty_6xl: Math.max(0, qty6XL),
         pants_items: serializePantsItems(pantsItems),
         extra_charge: Math.max(0, extraCharge),
-        discount: 0,
+        discount: Math.max(0, discount),
         design_deposit: Math.max(0, designDeposit),
         initial_deposit: Math.max(0, initialDeposit),
         factory_deposit_amount: 0,
@@ -1738,9 +1773,11 @@ export default function FactoryDepositOrderFormPage() {
         qty_6xl: Math.max(0, qty6XL),
         collar_type: collarType,
         collar_qty: Math.max(0, collarQty),
+        sleeve_charge_qty: Math.max(0, sleeveChargeQty),
         size_upcharge: 20000,
         extra_charge: Math.max(0, extraCharge),
         design_deposit: Math.max(0, designDeposit),
+        discount: Math.max(0, discount),
         initial_deposit: Math.max(0, initialDeposit),
         factory_cost: totalFactoryCost,
         gross_total: grossTotal,
@@ -2463,12 +2500,38 @@ export default function FactoryDepositOrderFormPage() {
             <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ການເງິນ ແລະ ສະລິບ</div>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ປະເພດຄໍເສື້ອ</label>
+                <select value={collarType} onChange={(e) => {
+                  const nextValue = e.target.value as "none" | "polo" | "mandarin";
+                  setCollarType(nextValue);
+                  if (nextValue === "none") setCollarQty(0);
+                }} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
+                  <option value="none">ບໍ່ບວກ</option>
+                  <option value="polo">ໂປໂລ</option>
+                  <option value="mandarin">ຄໍຈີນ</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນຄໍເສື້ອທີ່ບວກເພີ່ມ</label>
+                <input type="number" min={0} value={collarQty} onChange={(e) => setCollarQty(Number(e.target.value))} disabled={!canEdit || collarType === "none"} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+                <div className="mt-1 text-[11px] font-bold text-slate-500">ລວມຄ່າບວກຄໍ: {formatMoney(collarTotal)}</div>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນແຂນເສື້ອທີ່ບວກເພີ່ມ</label>
+                <input type="number" min={0} value={sleeveChargeQty} onChange={(e) => setSleeveChargeQty(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+                <div className="mt-1 text-[11px] font-bold text-slate-500">ລວມຄ່າບວກແຂນ: {formatMoney(sleeveChargeTotal)}</div>
+              </div>
+              <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ)</label>
                 <input type="number" min={0} value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຫັກຄ່າແບບ-ສ່ວນຫຼຸດ</label>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຫັກຄ່າແບບ</label>
                 <input type="number" min={0} value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ສ່ວນຫຼຸດ</label>
+                <input type="number" min={0} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ມັດຈຳສັ່ງຜະລິດຈາກລູກຄ້າ</label>
@@ -2585,20 +2648,44 @@ export default function FactoryDepositOrderFormPage() {
 
           <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
             <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ສະຫຼຸບອໍເດີ</div>
-            <div className="grid gap-4 md:grid-cols-4">
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຍອດລວມສຸດທິ</div>
-                <div className="mt-2 text-2xl font-black text-slate-900">{formatMoney(netTotal)}</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຍອດລວມ</div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{formatMoney(grossTotal)}</div>
               </div>
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ມັດຈຳສັ່ງຜະລິດຈາກລູກຄ້າ</div>
-                <div className="mt-2 text-2xl font-black text-slate-900">{formatMoney(initialDeposit)}</div>
+              {summaryItems.map((item) => (
+                <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">{item.label}</div>
+                  <div className={`mt-2 text-2xl font-black ${item.color}`}>{formatMoney(item.value)}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-amber-700">ຫັກຄ່າແບບ</div>
+                <div className="mt-2 text-2xl font-black text-amber-900">{formatMoney(designDeposit)}</div>
               </div>
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຍອດຄ້າງ</div>
-                <div className="mt-2 text-2xl font-black text-amber-700">{formatMoney(balance)}</div>
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-rose-700">ສ່ວນຫຼຸດ</div>
+                <div className="mt-2 text-2xl font-black text-rose-900">{formatMoney(discount)}</div>
               </div>
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-sky-700">ຄົງເຫຼືອຫຼັງຫັກ</div>
+                <div className="mt-2 text-2xl font-black text-sky-900">{formatMoney(customerBillTotal)}</div>
+              </div>
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-emerald-700">ມັດຈຳກ່ອນ</div>
+                <div className="mt-2 text-2xl font-black text-emerald-900">
+                  {formatMoney(initialDeposit)}
+                  {initialDeposit > 0 && customerBillTotal > 0 ? <span className="ml-2 text-sm font-bold">({formattedDepositPercent}%)</span> : null}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-rose-700">ຍອດຄ້າງຊຳລະ</div>
+                <div className="mt-2 text-2xl font-black text-rose-900">{formatMoney(balance)}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຕົ້ນທຶນລວມ</div>
                 <div className="mt-2 text-2xl font-black text-slate-900">{formatMoney(totalFactoryCost)}</div>
               </div>
@@ -2878,9 +2965,9 @@ export default function FactoryDepositOrderFormPage() {
                 <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນແບບ</div>
                 <div className="mt-2 text-2xl font-black text-slate-900">{productionStyleCount}</div>
               </div>
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຍອດສຸດທິ</div>
-                <div className="mt-2 text-2xl font-black text-slate-900">{formatMoney(netTotal)}</div>
+              <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-wide text-sky-700">ຄົງເຫຼືອຫຼັງຫັກ</div>
+                <div className="mt-2 text-2xl font-black text-sky-900">{formatMoney(customerBillTotal)}</div>
               </div>
             </div>
           </section>

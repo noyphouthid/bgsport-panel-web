@@ -13,15 +13,17 @@ type OrderSummaryPanelProps = {
   pantsTotal: number;
   plusSizeTotal: number;
   collarTotal: number;
+  sleeveChargeTotal: number;
   extraCharge: number;
-  designDiscount: number;
+  designDeposit: number;
+  discount: number;
   primaryPaidLabel: string;
   primaryPaidValue: number;
   secondaryPaidLabel?: string;
   secondaryPaidValue?: number;
   outstandingLabel: string;
   outstandingValue: number;
-  netTotal: number;
+  customerBillTotal: number;
   totalFactoryCost?: number;
   profitPreview?: number;
   showProfitDetails?: boolean;
@@ -152,15 +154,17 @@ export function OrderSummaryPanel({
   pantsTotal,
   plusSizeTotal,
   collarTotal,
+  sleeveChargeTotal,
   extraCharge,
-  designDiscount,
+  designDeposit,
+  discount,
   primaryPaidLabel,
   primaryPaidValue,
   secondaryPaidLabel,
   secondaryPaidValue,
   outstandingLabel,
   outstandingValue,
-  netTotal,
+  customerBillTotal,
   totalFactoryCost,
   profitPreview,
   showProfitDetails = false,
@@ -198,12 +202,14 @@ export function OrderSummaryPanel({
         <SummaryMiniCard label="ຄ່າໂສ້ງລວມ" value={formatMoney(pantsTotal)} />
         <SummaryMiniCard label="ບວກໄຊສ໌ໃຫຍ່" value={formatMoney(plusSizeTotal)} tone="orange" />
         <SummaryMiniCard label="ບວກຄໍເສື້ອ" value={formatMoney(collarTotal)} tone="violet" />
+        <SummaryMiniCard label="ບວກແຂນເສື້ອ" value={formatMoney(sleeveChargeTotal)} tone="blue" />
         <SummaryMiniCard label="ບວກເພີ່ມ" value={formatMoney(extraCharge)} tone="blue" />
-        <SummaryMiniCard label="ຫັກຄ່າແບບ/ສ່ວນຫຼຸດ" value={`-${formatMoney(designDiscount)}`} tone="red" />
+        <SummaryMiniCard label="ຫັກຄ່າແບບ" value={formatMoney(designDeposit)} tone="orange" />
+        <SummaryMiniCard label="ສ່ວນຫຼຸດ" value={`-${formatMoney(discount)}`} tone="red" />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <SummaryAccentCard label="ຍອດສຸດທິ" value={formatMoney(netTotal)} tone="blue" fullWidth />
+        <SummaryAccentCard label="ຄົງເຫຼືອຫຼັງຫັກ" value={formatMoney(customerBillTotal)} tone="blue" fullWidth />
         <SummaryAccentCard label={primaryPaidLabel} value={formatMoney(primaryPaidValue)} tone="green" />
         <SummaryAccentCard label={outstandingLabel} value={formatMoney(outstandingValue)} tone="rose" />
       </div>

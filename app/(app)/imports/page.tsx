@@ -150,6 +150,7 @@ export default function ImportExcelPage() {
         qty_5xl: 0,
         extra_charge: 0,
         design_deposit: 0,
+        discount: 0,
         initial_deposit: 500000,
         factory_cost: 700000,
         admin_name: adminExample,
@@ -182,6 +183,7 @@ export default function ImportExcelPage() {
       const qty5xl = Math.max(0, toNum(readFirst(row, ["qty_5xl"])));
       const extraCharge = Math.max(0, toNum(readFirst(row, ["extra_charge"])));
       const designDeposit = Math.max(0, toNum(readFirst(row, ["design_deposit"])));
+      const discount = Math.max(0, toNum(readFirst(row, ["discount"])));
       const initialDeposit = Math.max(0, toNum(readFirst(row, ["initial_deposit"])));
       const factoryCost = Math.max(0, toNum(readFirst(row, ["factory_cost"])));
 
@@ -230,8 +232,8 @@ export default function ImportExcelPage() {
       const shirtsTotal = shortQty * (Number(pickedFabric.short_price) || 0) + longQty * (Number(pickedFabric.long_price) || 0);
       const plusSizeTotal = (qty3xl + qty4xl + qty5xl) * sizeUpcharge;
       const grossTotal = shirtsTotal + plusSizeTotal + extraCharge;
-      const netTotal = Math.max(0, grossTotal - designDeposit);
-      const balance = Math.max(0, netTotal - initialDeposit);
+      const netTotal = Math.max(0, grossTotal - discount);
+      const balance = Math.max(0, netTotal - designDeposit - initialDeposit);
 
       const payload: Record<string, unknown> = {
         order_date: orderDate,
@@ -256,6 +258,7 @@ export default function ImportExcelPage() {
         size_upcharge: sizeUpcharge,
         extra_charge: extraCharge,
         design_deposit: designDeposit,
+        discount,
         initial_deposit: initialDeposit,
         factory_cost: factoryCost,
         gross_total: grossTotal,
@@ -406,6 +409,7 @@ export default function ImportExcelPage() {
     { key: "size_upcharge", label: "ຄ່າບວກໄຊ" },
     { key: "extra_charge", label: "ຄ່າໃຊ້ຈ່າຍເພີ່ມ" },
     { key: "design_deposit", label: "ຄ່າມັດຈຳອອກແບບ" },
+    { key: "discount", label: "ສ່ວນຫຼຸດ" },
     { key: "initial_deposit", label: "ຄ່າມັດຈຳເບື້ອງຕົ້ນ" },
     { key: "factory_cost", label: "ຕົ້ນທຶນໂຮງງານ" },
     { key: "gross_total", label: "ຍອດລວມ" },

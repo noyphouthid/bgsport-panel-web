@@ -10,6 +10,7 @@ const SIZE_UPCHARGES = {
   "5XL": 35000,
   "6XL": 35000,
 } as const;
+const SLEEVE_PRICE = 20000;
 
 function formatDate(value: string) {
   if (!value) return "-";
@@ -22,6 +23,7 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
   const billableQty = Math.max(0, draft.shortQty) + Math.max(0, draft.longQty);
   const totalQty = billableQty + Math.max(0, draft.freeQty);
   const collarTotal = draft.collarType === "none" ? 0 : Math.max(0, draft.collarQty) * COLLAR_PRICE;
+  const sleeveChargeTotal = Math.max(0, draft.sleeveChargeQty) * SLEEVE_PRICE;
   const shirtTotal = Math.max(0, draft.shortQty) * Math.max(0, draft.fabricShortPrice) + Math.max(0, draft.longQty) * Math.max(0, draft.fabricLongPrice);
   const plusSizeTotal =
     Math.max(0, draft.qty3XL) * SIZE_UPCHARGES["3XL"] +
@@ -29,9 +31,12 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
     Math.max(0, draft.qty5XL) * SIZE_UPCHARGES["5XL"] +
     Math.max(0, draft.qty6XL) * SIZE_UPCHARGES["6XL"];
   const pantsSummary = getPantsItemsSummary(draft.pantsItems || []);
-  const grossTotal = shirtTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + Math.max(0, draft.extraCharge);
+  const grossTotal = shirtTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + sleeveChargeTotal + Math.max(0, draft.extraCharge);
   const netTotal = Math.max(0, grossTotal - Math.max(0, draft.discount));
-  const outstanding = Math.max(0, netTotal - Math.max(0, draft.deposit));
+  const customerBillTotal = Math.max(0, netTotal - Math.max(0, draft.designDeposit));
+  const outstanding = Math.max(0, customerBillTotal - Math.max(0, draft.deposit));
+  const depositPercent = customerBillTotal > 0 ? (Math.max(0, draft.deposit) / customerBillTotal) * 100 : 0;
+  const formattedDepositPercent = Number.isInteger(depositPercent) ? depositPercent.toFixed(0) : depositPercent.toFixed(1);
 
   const previewRows = [
     draft.fabricName ? { key: "fabric", label: draft.fabricName, qty: 0, price: 0, total: 0, muted: true } : null,
@@ -45,7 +50,8 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
     draft.qty4XL > 0 ? { key: "4xl", label: "ເພີ່ມ 4XL", qty: draft.qty4XL, price: SIZE_UPCHARGES["4XL"], total: draft.qty4XL * SIZE_UPCHARGES["4XL"] } : null,
     draft.qty5XL > 0 ? { key: "5xl", label: "ເພີ່ມ 5XL", qty: draft.qty5XL, price: SIZE_UPCHARGES["5XL"], total: draft.qty5XL * SIZE_UPCHARGES["5XL"] } : null,
     draft.qty6XL > 0 ? { key: "6xl", label: "ເພີ່ມ 6XL", qty: draft.qty6XL, price: SIZE_UPCHARGES["6XL"], total: draft.qty6XL * SIZE_UPCHARGES["6XL"] } : null,
-    collarTotal > 0 ? { key: "collar", label: "ບວກຄໍເສື້ອ/ແຂນເສື້ອ", qty: draft.collarQty, price: COLLAR_PRICE, total: collarTotal } : null,
+    collarTotal > 0 ? { key: "collar", label: "ບວກຄໍເສື້ອ", qty: draft.collarQty, price: COLLAR_PRICE, total: collarTotal } : null,
+    sleeveChargeTotal > 0 ? { key: "sleeve", label: "ບວກແຂນເສື້ອ", qty: draft.sleeveChargeQty, price: SLEEVE_PRICE, total: sleeveChargeTotal } : null,
     ...(draft.pantsItems || []).map((item, index) => ({
       key: `pants-${item.clientId}`,
       label: `${item.productName || `ໂສ້ງພິມລາຍ ${index + 1}`}${item.freeQty > 0 ? ` + ແຖມ ${item.freeQty}` : ""}${item.notes.trim() ? ` (${item.notes.trim()})` : ""}`,
@@ -135,11 +141,12 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
           </div>
           <div className="space-y-1.5 rounded-3xl bg-slate-50 p-2 text-[10px]">
             <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ຍອດລວມ</span><span className="font-bold text-slate-900">{grossTotal.toLocaleString()}</span></div>
-            <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ສ່ວນຫຼຸດ/ຄ່າແບບ</span><span className="font-bold text-rose-600">- {draft.discount.toLocaleString()}</span></div>
-            <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ມັດຈຳກ່ອນ</span><span className="font-bold text-emerald-600">{draft.deposit.toLocaleString()}</span></div>
+            <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ຫັກຄ່າແບບ</span><span className="font-bold text-amber-700">{draft.designDeposit.toLocaleString()}</span></div>
+            <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ສ່ວນຫຼຸດ</span><span className="font-bold text-rose-600">- {draft.discount.toLocaleString()}</span></div>
             <div className="border-t border-slate-200 pt-2">
-              <div className="flex items-center justify-between"><span className="font-black text-slate-800">ຍອດສຸດທິ</span><span className="text-[13px] font-black text-slate-950">{netTotal.toLocaleString()}</span></div>
+              <div className="flex items-center justify-between"><span className="font-black text-slate-800">ຄົງເຫຼືອ</span><span className="text-[13px] font-black text-slate-950">{customerBillTotal.toLocaleString()}</span></div>
             </div>
+            <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ມັດຈຳກ່ອນ</span><span className="font-bold text-emerald-600">{draft.deposit.toLocaleString()} {draft.deposit > 0 && customerBillTotal > 0 ? `(${formattedDepositPercent}%)` : ""}</span></div>
             <div className="flex items-center justify-between"><span className="font-black text-slate-800">ຍອດຄ້າງຊຳລະ</span><span className="text-[13px] font-black text-sky-700">{outstanding.toLocaleString()}</span></div>
           </div>
         </div>

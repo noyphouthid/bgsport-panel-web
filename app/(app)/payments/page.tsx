@@ -11,6 +11,7 @@ type OrderLedgerRow = {
   customer_phone: string | null;
   factory_bill_code: string | null;
   net_total: number;
+  design_deposit: number;
   initial_deposit: number;
   balance: number;
   status: "in_progress" | "completed";
@@ -44,7 +45,7 @@ export default function PaymentsPage() {
     let q = supabase
       .from("orders")
       .select(
-        "id,order_code,order_date,customer_phone,factory_bill_code,net_total,initial_deposit,balance,status"
+        "id,order_code,order_date,customer_phone,factory_bill_code,net_total,design_deposit,initial_deposit,balance,status"
       )
       .order("order_date", { ascending: false })
       .order("created_at", { ascending: false });
@@ -129,13 +130,20 @@ export default function PaymentsPage() {
     }, {});
   }, [txs]);
 
+  const baseReceivedByOrder = useMemo(() => {
+    return rows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.id] = (Number(row.design_deposit) || 0) + (Number(row.initial_deposit) || 0);
+      return acc;
+    }, {});
+  }, [rows]);
+
   const summary = useMemo(() => {
     const totalBilled = rows.reduce((sum, r) => sum + (Number(r.net_total) || 0), 0);
-    const totalReceivedFromTx = txs.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-    const totalReceived =
-      txs.length > 0
-        ? totalReceivedFromTx
-        : rows.reduce((sum, r) => sum + (Number(r.initial_deposit) || 0), 0);
+    const totalReceived = rows.reduce((sum, row) => {
+      const baseReceived = baseReceivedByOrder[row.id] || 0;
+      const txReceived = receivedByOrder[row.id] || 0;
+      return sum + baseReceived + txReceived;
+    }, 0);
 
     const totalOutstanding = rows.reduce((sum, r) => sum + (Number(r.balance) || 0), 0);
     const paidOrders = rows.filter((r) => Number(r.balance) === 0).length;
@@ -153,7 +161,7 @@ export default function PaymentsPage() {
       collectionRate,
       txCount: txs.length,
     };
-  }, [rows, txs]);
+  }, [baseReceivedByOrder, receivedByOrder, rows, txs.length]);
 
   const formatMoney = (n: number) => n.toLocaleString();
 
@@ -305,8 +313,7 @@ export default function PaymentsPage() {
                 </tr>
               ) : (
                 rows.map((r) => {
-                  const txReceived = receivedByOrder[r.id];
-                  const received = txReceived !== undefined ? txReceived : Number(r.initial_deposit || 0);
+                  const received = (baseReceivedByOrder[r.id] || 0) + (receivedByOrder[r.id] || 0);
                   return (
                     <tr key={r.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="p-4 text-slate-600 font-medium">{r.order_date}</td>

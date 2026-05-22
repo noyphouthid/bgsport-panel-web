@@ -25,6 +25,7 @@ type OrderRow = {
   order_image_url: string | null;
   fabric_name: string;
   net_total: number;
+  design_deposit: number;
   initial_deposit: number;
   balance: number;
   factory_cost: number;
@@ -93,7 +94,7 @@ export default function OrdersPage() {
     let q = supabase
       .from("orders")
       .select(
-        "id,order_code,order_date,customer_phone,customer_whatsapp,factory_bill_code,order_image_url,fabric_name,net_total,initial_deposit,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,updated_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,admin_user_id",
+        "id,order_code,order_date,customer_phone,customer_whatsapp,factory_bill_code,order_image_url,fabric_name,net_total,design_deposit,initial_deposit,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,updated_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,admin_user_id",
         { count: "exact" }
       )
       .order("order_date", { ascending: false })

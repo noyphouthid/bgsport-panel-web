@@ -20,6 +20,7 @@ export type OrderSummary = {
   qty_5xl?: number;
   net_total?: number;
   balance?: number;
+  design_deposit?: number;
   initial_deposit?: number;
   factory_cost?: number;
   customer_paid_full_at?: string | null;
@@ -52,7 +53,7 @@ export type QrInputKind = "shop_qr" | "factory_qr" | "factory_bill_code" | "orde
 const QR_PREFIX = "BGSPORT-FACTORY";
 const FACTORY_URL_BILL_PATTERN = /\/orders\/(\d+)\/print(?:[/?#]|$)/i;
 const NUMERIC_CODE_PATTERN = /^\d{4,}$/;
-const ORDER_CODE_PATTERN = /^[A-Z]{2,6}\d{2}-\d{1,}$/i;
+const ORDER_CODE_PATTERN = /^[A-Z0-9]+-[A-Z0-9+]+$/i;
 const SHOP_QR_SPLITTER = /\|/;
 
 export function buildOrderQrCode(order: Pick<OrderSummary, "id" | "order_code" | "factory_bill_code">) {
@@ -141,7 +142,7 @@ export const ORDER_QR_LABEL_SELECT =
   "id,order_id,qr_code,order_code,factory_bill_code,label_status,printed_at,printed_by,print_count,last_printed_at,received_at,received_by,shipped_at,shipped_by,last_scanned_at,created_at,updated_at";
 
 export const ORDER_QR_ORDER_SELECT =
-  "id,order_code,factory_bill_code,order_image_url,order_transfer_slip_url,order_date,production_completed_at,shipment_status,shipment_completed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,net_total,initial_deposit,balance,factory_cost,customer_paid_full_at,factory_paid_full_at,status";
+  "id,order_code,factory_bill_code,order_image_url,order_transfer_slip_url,order_date,production_completed_at,shipment_status,shipment_completed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,net_total,design_deposit,initial_deposit,balance,factory_cost,customer_paid_full_at,factory_paid_full_at,status";
 
 export function buildOrderLookupOrFilter(term: string) {
   const escaped = term.replace(/%/g, "\\%").replace(/_/g, "\\_");

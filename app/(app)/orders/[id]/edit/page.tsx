@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { ArrowLeft, CheckCheck, RefreshCcw, Save, Trash2, Undo2 } from "lucide-react";
+import { OrderActivityPanel, type OrderHistoryEntry } from "../../_components/order-activity-panel";
 import { OrderSummaryPanel } from "../../_components/order-summary-panel";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
@@ -63,9 +64,11 @@ type OrderDetail = {
   qty_6xl: number;
   collar_type: "none" | "polo" | "mandarin";
   collar_qty: number;
+  sleeve_charge_qty?: number;
   size_upcharge: number;
   extra_charge: number;
   design_deposit: number;
+  discount?: number;
   initial_deposit: number;
   factory_cost: number;
   gross_total: number;
@@ -113,6 +116,16 @@ type UserOption = {
   is_active: boolean;
 };
 
+type OrderTransferSlipRow = {
+  id: string;
+  order_id: string;
+  file_name: string;
+  file_path: string;
+  file_url: string | null;
+  note: string | null;
+  uploaded_at: string;
+};
+
 type FabricRow = {
   id: string;
   name: string;
@@ -152,11 +165,15 @@ type ShipmentMediaInfo = {
 
 type LinkedDepositMediaInfo = {
   mockup_urls: string[];
-  transfer_slip_url: string | null;
+  transfer_slip_urls: string[];
   sleeve_type: "short" | "long" | "mixed" | null;
   collar_type: "none" | "polo" | "mandarin" | null;
   collar_qty: number;
+  sleeve_charge_qty: number;
   extra_charge: number;
+  design_deposit: number;
+  discount: number;
+  initial_deposit: number;
 };
 
 const SIZE_UPCHARGES = {
@@ -164,6 +181,8 @@ const SIZE_UPCHARGES = {
   "4XL": 25000,
   "5XL": 35000,
 } as const;
+const COLLAR_PRICE = 20000;
+const SLEEVE_PRICE = 20000;
 
 const CUSTOM_ORDER_TYPE_VALUE = "__custom__";
 const QUOTATION_SLEEVE_OPTIONS = [
@@ -189,6 +208,44 @@ function formatDateTime(value: string | null) {
   return date.toLocaleString("en-US");
 }
 
+const ORDER_AUDIT_FIELD_LABELS: Record<string, string> = {
+  order_code: "ລະຫັດອໍເດີ",
+  order_date: "ວັນທີອໍເດີ",
+  customer_phone: "ເບີລູກຄ້າ",
+  customer_whatsapp: "WhatsApp",
+  factory_bill_code: "ບິນໂຮງງານ",
+  admin_user_id: "Admin",
+  graphic_user_id: "Graphic",
+  fabric_id: "ຜ້າ",
+  short_qty: "ແຂນສັ້ນ",
+  long_qty: "ແຂນຍາວ",
+  free_qty: "ຈຳນວນແຖມ",
+  qty_3xl: "3XL",
+  qty_4xl: "4XL",
+  qty_5xl: "5XL",
+  qty_6xl: "6XL",
+  collar_type: "ຄໍເສື້ອ",
+  collar_qty: "ຈຳນວນຄໍ",
+  sleeve_charge_qty: "ຈຳນວນບວກແຂນ",
+  extra_charge: "ບວກເພີ່ມ",
+  design_deposit: "ຫັກຄ່າແບບ",
+  discount: "ສ່ວນຫຼຸດ",
+  initial_deposit: "ເງິນມັດຈຳ",
+  factory_cost: "ຕົ້ນທຶນໂຮງງານ",
+  gross_total: "ຍອດລວມ",
+  net_total: "ຍອດສຸດທິ",
+  balance: "ຍອດຄ້າງ",
+  order_transfer_slip_count: "ຈຳນວນສະລິບອໍເດີ",
+  order_image_count: "ຈຳນວນຮູບອໍເດີ",
+};
+
+function normalizeAuditValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "number") return value.toLocaleString();
+  if (typeof value === "boolean") return value ? "ແມ່ນ" : "ບໍ່";
+  return String(value);
+}
+
 export default function EditOrderPage() {
   const params = useParams();
   const router = useRouter();
@@ -210,6 +267,9 @@ export default function EditOrderPage() {
   const [err, setErr] = useState<string | null>(null);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [viewerPermissions, setViewerPermissions] = useState<UserPermissionSettings>({});
+  const [viewerUserId, setViewerUserId] = useState<string | null>(null);
+  const [orderHistory, setOrderHistory] = useState<OrderHistoryEntry[]>([]);
+  const [loadingOrderHistory, setLoadingOrderHistory] = useState(true);
   const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
 
   const [orderDate, setOrderDate] = useState("");
@@ -230,9 +290,11 @@ export default function EditOrderPage() {
   const [qty6XL, setQty6XL] = useState(0);
   const [collarType, setCollarType] = useState<"none" | "polo" | "mandarin">("none");
   const [collarQty, setCollarQty] = useState(0);
+  const [sleeveChargeQty, setSleeveChargeQty] = useState(0);
   const [pantsItems, setPantsItems] = useState<PantsOrderItemDraft[]>([]);
   const [extraCharge, setExtraCharge] = useState(0);
   const [designDeposit, setDesignDeposit] = useState(0);
+  const [discount, setDiscount] = useState(0);
   const [initialDeposit, setInitialDeposit] = useState(0);
   const [factoryCost, setFactoryCost] = useState(0);
   const [factoryPaidFullDate, setFactoryPaidFullDate] = useState("");
@@ -241,8 +303,10 @@ export default function EditOrderPage() {
   const [pendingOrderImageFiles, setPendingOrderImageFiles] = useState<File[]>([]);
   const [pendingOrderImagePreviewUrls, setPendingOrderImagePreviewUrls] = useState<string[]>([]);
   const [savedOrderImageUrls, setSavedOrderImageUrls] = useState<string[]>([]);
-  const [orderTransferSlipFile, setOrderTransferSlipFile] = useState<File | null>(null);
-  const [orderTransferSlipPreviewUrl, setOrderTransferSlipPreviewUrl] = useState<string | null>(null);
+  const [pendingOrderTransferSlipFiles, setPendingOrderTransferSlipFiles] = useState<File[]>([]);
+  const [pendingOrderTransferSlipPreviewUrls, setPendingOrderTransferSlipPreviewUrls] = useState<string[]>([]);
+  const [savedOrderTransferSlips, setSavedOrderTransferSlips] = useState<OrderTransferSlipRow[]>([]);
+  const [deletingOrderTransferSlipId, setDeletingOrderTransferSlipId] = useState<string | null>(null);
 
   const [showCustomerPayModal, setShowCustomerPayModal] = useState(false);
   const [customerPayAmount, setCustomerPayAmount] = useState(0);
@@ -265,14 +329,58 @@ export default function EditOrderPage() {
   const isCustomOrderType = useMemo(() => Boolean(orderType) && !orderTypeOptions.includes(orderType), [orderType, orderTypeOptions]);
   const orderTypeSelectValue = isCustomOrderType ? CUSTOM_ORDER_TYPE_VALUE : orderType;
 
-  const safeInsertAction = async (action: string, detail: string) => {
+  const safeInsertAction = async (action: string, detail: string, actionMeta?: Record<string, unknown> | null) => {
     const { error } = await supabase.from("order_status_history").insert({
       order_id: orderId,
       action,
       detail,
       action_at: new Date().toISOString(),
+      action_by_user_id: viewerUserId,
+      action_meta: actionMeta ?? null,
     });
     if (error && !error.message.includes("Could not find the table")) setErr(error.message);
+  };
+
+  const loadOrderHistory = async () => {
+    setLoadingOrderHistory(true);
+    const { data, error } = await supabase
+      .from("order_status_history")
+      .select("id,action,detail,action_at,action_meta,actor:users!order_status_history_action_by_user_id_fkey(full_name,role)")
+      .eq("order_id", orderId)
+      .order("action_at", { ascending: false })
+      .limit(20);
+
+    if (error) {
+      if (error.message.includes("Could not find the table")) {
+        setOrderHistory([]);
+        setLoadingOrderHistory(false);
+        return;
+      }
+      throw error;
+    }
+
+    const rows = ((data ?? []) as Array<{
+      id: string;
+      action: string;
+      detail: string | null;
+      action_at: string;
+      action_meta?: unknown;
+      actor?: Array<{ full_name?: string | null; role?: string | null }> | { full_name?: string | null; role?: string | null } | null;
+    }>).map((row) => {
+      const actor = Array.isArray(row.actor) ? row.actor[0] : row.actor;
+      return {
+        id: row.id,
+        action: row.action,
+        detail: row.detail,
+        action_at: row.action_at,
+        action_meta: row.action_meta,
+        actor_name: actor?.full_name || null,
+        actor_role: actor?.role || null,
+      } satisfies OrderHistoryEntry;
+    });
+
+    setOrderHistory(rows);
+    setLoadingOrderHistory(false);
   };
 
   const loadOrder = async () => {
@@ -309,8 +417,10 @@ export default function EditOrderPage() {
     setQty6XL(o.qty_6xl);
     setCollarType(o.collar_type || "none");
     setCollarQty(Math.max(0, Number(o.collar_qty) || 0));
+    setSleeveChargeQty(Math.max(0, Number(o.sleeve_charge_qty) || 0));
     setExtraCharge(o.extra_charge);
     setDesignDeposit(o.design_deposit);
+    setDiscount(Number(o.discount) || 0);
     setInitialDeposit(o.initial_deposit);
     setFactoryCost(shirtItem ? Math.max(0, Number(shirtItem.factory_cost_total) || 0) : itemRows.length > 0 ? 0 : o.factory_cost);
     pantsItems.forEach((item) => {
@@ -346,9 +456,36 @@ export default function EditOrderPage() {
         .map((entry) => supabase.storage.from(ORDER_MEDIA_BUCKET).getPublicUrl(`${imageFolderPath}/${entry.name}`).data.publicUrl);
       setSavedOrderImageUrls(galleryUrls.length > 0 ? galleryUrls : fallbackOrderImageUrl ? [fallbackOrderImageUrl] : []);
     }
-    setOrderTransferSlipFile(null);
-    if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
-    setOrderTransferSlipPreviewUrl(toDisplayMediaUrl(o.order_transfer_slip_url) || null);
+    pendingOrderTransferSlipPreviewUrls.forEach((url) => {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    });
+    setPendingOrderTransferSlipFiles([]);
+    setPendingOrderTransferSlipPreviewUrls([]);
+    const { data: slipRows, error: slipError } = await supabase
+      .from("order_transfer_slips")
+      .select("id,order_id,file_name,file_path,file_url,note,uploaded_at")
+      .eq("order_id", orderId)
+      .order("uploaded_at", { ascending: false });
+    if (slipError && !slipError.message.includes("Could not find the table")) throw slipError;
+    if (slipError) {
+      setSavedOrderTransferSlips(
+        o.order_transfer_slip_path
+          ? [
+              {
+                id: `legacy-${orderId}`,
+                order_id: orderId,
+                file_name: o.order_transfer_slip_file_name || o.order_transfer_slip_path.split("/").pop() || "slip",
+                file_path: o.order_transfer_slip_path,
+                file_url: o.order_transfer_slip_url ?? null,
+                note: null,
+                uploaded_at: o.created_at,
+              },
+            ]
+          : []
+      );
+    } else {
+      setSavedOrderTransferSlips((slipRows ?? []) as OrderTransferSlipRow[]);
+    }
   };
 
   const loadUsers = async () => {
@@ -461,7 +598,7 @@ export default function EditOrderPage() {
   const loadLinkedDepositMedia = async () => {
     const { data, error } = await supabase
       .from("factory_deposit_orders")
-      .select("production_items,transfer_slip_url,sleeve_type,collar_type,collar_qty,extra_charge")
+      .select("id,production_items,transfer_slip_url,sleeve_type,collar_type,collar_qty,sleeve_charge_qty,extra_charge,design_deposit,discount,initial_deposit")
       .eq("order_id", orderId)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -475,34 +612,83 @@ export default function EditOrderPage() {
     }
 
     const row = data as {
+      id?: string;
       production_items?: unknown;
       transfer_slip_url?: string | null;
       sleeve_type?: "short" | "long" | "mixed" | null;
       collar_type?: "none" | "polo" | "mandarin" | null;
       collar_qty?: number | null;
+      sleeve_charge_qty?: number | null;
       extra_charge?: number | null;
+      design_deposit?: number | null;
+      discount?: number | null;
+      initial_deposit?: number | null;
     };
+
+    const { data: slipRows, error: slipError } = row.id
+      ? await supabase
+          .from("factory_deposit_order_slips")
+          .select("file_url")
+          .eq("deposit_order_id", row.id)
+          .order("uploaded_at", { ascending: false })
+      : { data: [], error: null as { message?: string } | null };
+
+    if (slipError && !slipError.message?.includes("Could not find the table")) throw slipError;
+    const transferSlipUrls = ((slipRows ?? []) as Array<{ file_url?: string | null }>)
+      .map((item) => toDisplayMediaUrl(item.file_url) || null)
+      .filter((item): item is string => Boolean(item));
+
     setLinkedDepositMedia({
       mockup_urls: extractProductionMockupUrls(row.production_items),
-      transfer_slip_url: toDisplayMediaUrl(row.transfer_slip_url) || null,
+      transfer_slip_urls:
+        transferSlipUrls.length > 0
+          ? Array.from(new Set(transferSlipUrls))
+          : toDisplayMediaUrl(row.transfer_slip_url)
+            ? [toDisplayMediaUrl(row.transfer_slip_url) as string]
+            : [],
       sleeve_type: row.sleeve_type || null,
       collar_type: row.collar_type || null,
       collar_qty: Math.max(0, Number(row.collar_qty) || 0),
+      sleeve_charge_qty: Math.max(0, Number(row.sleeve_charge_qty) || 0),
       extra_charge: Math.max(0, Number(row.extra_charge) || 0),
+      design_deposit: Math.max(0, Number(row.design_deposit) || 0),
+      discount: Math.max(0, Number(row.discount) || 0),
+      initial_deposit: Math.max(0, Number(row.initial_deposit) || 0),
     });
   };
 
   useEffect(() => {
     if (!order || !linkedDepositMedia) return;
     if (depositCollarFallbackAppliedRef.current) return;
-    if (collarType !== "none" || collarQty !== 0) return;
-    if (linkedDepositMedia.collar_type && linkedDepositMedia.collar_type !== "none") {
+    const shouldFillCollarType = collarType === "none" && Boolean(linkedDepositMedia.collar_type && linkedDepositMedia.collar_type !== "none");
+    const shouldFillCollarQty = collarQty === 0 && linkedDepositMedia.collar_qty > 0;
+    const shouldFillSleeveChargeQty = sleeveChargeQty === 0 && linkedDepositMedia.sleeve_charge_qty > 0;
+    const shouldFillExtraCharge = extraCharge === 0 && linkedDepositMedia.extra_charge > 0;
+    const shouldFillDesignDeposit = designDeposit === 0 && linkedDepositMedia.design_deposit > 0;
+    const shouldFillDiscount = discount === 0 && linkedDepositMedia.discount > 0;
+    const shouldFillInitialDeposit = initialDeposit === 0 && linkedDepositMedia.initial_deposit > 0;
+
+    if (
+      shouldFillCollarType ||
+      shouldFillCollarQty ||
+      shouldFillSleeveChargeQty ||
+      shouldFillExtraCharge ||
+      shouldFillDesignDeposit ||
+      shouldFillDiscount ||
+      shouldFillInitialDeposit
+    ) {
       depositCollarFallbackAppliedRef.current = true;
-      setCollarType(linkedDepositMedia.collar_type);
-      setCollarQty(linkedDepositMedia.collar_qty);
-      setExtraCharge(linkedDepositMedia.extra_charge);
+      if (shouldFillCollarType) {
+        setCollarType(linkedDepositMedia.collar_type && linkedDepositMedia.collar_type !== "none" ? linkedDepositMedia.collar_type : "none");
+      }
+      if (shouldFillCollarQty) setCollarQty(linkedDepositMedia.collar_qty);
+      if (shouldFillSleeveChargeQty) setSleeveChargeQty(linkedDepositMedia.sleeve_charge_qty);
+      if (shouldFillExtraCharge) setExtraCharge(linkedDepositMedia.extra_charge);
+      if (shouldFillDesignDeposit) setDesignDeposit(linkedDepositMedia.design_deposit);
+      if (shouldFillDiscount) setDiscount(linkedDepositMedia.discount);
+      if (shouldFillInitialDeposit) setInitialDeposit(linkedDepositMedia.initial_deposit);
     }
-  }, [collarQty, collarType, linkedDepositMedia, order]);
+  }, [collarQty, collarType, designDeposit, discount, extraCharge, initialDeposit, linkedDepositMedia, order, sleeveChargeQty]);
 
   const handleOrderImageSelected = (fileList: FileList | null) => {
     const nextFiles = Array.from(fileList ?? []).filter((file) => file.type.startsWith("image/"));
@@ -523,34 +709,25 @@ export default function EditOrderPage() {
     );
   };
 
-  const handleOrderTransferSlipSelected = (file: File | null) => {
-    setOrderTransferSlipFile(file);
-    if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
-    setOrderTransferSlipPreviewUrl(
-      file && file.type.startsWith("image/") ? URL.createObjectURL(file) : toDisplayMediaUrl(order?.order_transfer_slip_url) || null
+  const handleOrderTransferSlipSelected = (fileList: FileList | null) => {
+    const nextFiles = Array.from(fileList ?? []).filter(
+      (file) => file.type.startsWith("image/") || file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
     );
+    if (nextFiles.length === 0) return;
+
+    const nextPreviewUrls = nextFiles.map((file) => (file.type.startsWith("image/") ? URL.createObjectURL(file) : ""));
+    setPendingOrderTransferSlipFiles((prev) => [...prev, ...nextFiles]);
+    setPendingOrderTransferSlipPreviewUrls((prev) => [...prev, ...nextPreviewUrls]);
   };
 
-  const uploadOrderAsset = async (kind: "order-image" | "order-transfer-slip", currentOrderCode: string, file: File | null) => {
-    if (!file) {
-      return {
-        path: null,
-        url: null,
-        fileName: null,
-      };
-    }
-
-    const safeName = buildSafeStorageFileName(file.name, kind);
-    const path = `${kind}/${currentOrderCode}/${safeName}`;
-    const { error: uploadError } = await supabase.storage.from(ORDER_MEDIA_BUCKET).upload(path, file, { upsert: true });
-    if (uploadError) throw uploadError;
-
-    const { data } = supabase.storage.from(ORDER_MEDIA_BUCKET).getPublicUrl(path);
-    return {
-      path,
-      url: data.publicUrl,
-      fileName: file.name,
-    };
+  const removePendingOrderTransferSlipAt = (index: number) => {
+    setPendingOrderTransferSlipFiles((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+    setPendingOrderTransferSlipPreviewUrls((prev) =>
+      prev.filter((url, itemIndex) => {
+        if (itemIndex === index && url.startsWith("blob:")) URL.revokeObjectURL(url);
+        return itemIndex !== index;
+      })
+    );
   };
 
   const uploadOrderImages = async (currentOrderCode: string, files: File[]) => {
@@ -574,16 +751,112 @@ export default function EditOrderPage() {
     return uploaded;
   };
 
+  const syncPrimaryOrderTransferSlip = async (orderTransferSlips: OrderTransferSlipRow[]) => {
+    const primarySlip = orderTransferSlips[0] || null;
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        order_transfer_slip_path: primarySlip?.file_path || null,
+        order_transfer_slip_url: primarySlip?.file_url || null,
+        order_transfer_slip_file_name: primarySlip?.file_name || null,
+      })
+      .eq("id", orderId);
+    if (error) throw error;
+  };
+
+  const uploadOrderTransferSlipsIfNeeded = async (currentOrderCode: string) => {
+    if (pendingOrderTransferSlipFiles.length === 0) return savedOrderTransferSlips;
+
+    const uploaded: Array<{ file_name: string; file_path: string; file_url: string | null }> = [];
+
+    for (let index = 0; index < pendingOrderTransferSlipFiles.length; index += 1) {
+      const file = pendingOrderTransferSlipFiles[index];
+      const safeName = buildSafeStorageFileName(file.name, `order-transfer-slip-${index + 1}`);
+      const path = `order-transfer-slip/${currentOrderCode}/${safeName}`;
+      const { error: uploadError } = await supabase.storage.from(ORDER_MEDIA_BUCKET).upload(path, file, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from(ORDER_MEDIA_BUCKET).getPublicUrl(path);
+      uploaded.push({
+        file_name: file.name,
+        file_path: path,
+        file_url: data.publicUrl,
+      });
+    }
+
+    const { error: insertSlipError } = await supabase.from("order_transfer_slips").insert(
+      uploaded.map((item) => ({
+        order_id: orderId,
+        file_name: item.file_name,
+        file_path: item.file_path,
+        file_url: item.file_url,
+        uploaded_by_user_id: viewerUserId,
+      }))
+    );
+    if (insertSlipError) throw insertSlipError;
+
+    const { data: slipRows, error: slipLoadError } = await supabase
+      .from("order_transfer_slips")
+      .select("id,order_id,file_name,file_path,file_url,note,uploaded_at")
+      .eq("order_id", orderId)
+      .order("uploaded_at", { ascending: false });
+    if (slipLoadError) throw slipLoadError;
+
+    const rows = (slipRows ?? []) as OrderTransferSlipRow[];
+    await syncPrimaryOrderTransferSlip(rows);
+    pendingOrderTransferSlipPreviewUrls.forEach((url) => {
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    });
+    setPendingOrderTransferSlipFiles([]);
+    setPendingOrderTransferSlipPreviewUrls([]);
+    setSavedOrderTransferSlips(rows);
+    return rows;
+  };
+
+  const removeSavedOrderTransferSlip = async (slip: OrderTransferSlipRow) => {
+    if (slip.id.startsWith("legacy-")) {
+      toast.error("ກະລຸນາບັນທຶກສະລິບໃໝ່ເພື່ອຈັດການໄຟລ໌ເກົ່າ");
+      return;
+    }
+
+    setDeletingOrderTransferSlipId(slip.id);
+    try {
+      if (slip.file_path) {
+        const { error: storageError } = await supabase.storage.from(ORDER_MEDIA_BUCKET).remove([slip.file_path]);
+        if (storageError) throw storageError;
+      }
+
+      const { error: deleteError } = await supabase.from("order_transfer_slips").delete().eq("id", slip.id);
+      if (deleteError) throw deleteError;
+
+      const nextRows = savedOrderTransferSlips.filter((item) => item.id !== slip.id);
+      await syncPrimaryOrderTransferSlip(nextRows);
+      setSavedOrderTransferSlips(nextRows);
+      await safeInsertAction("update_order", "Removed order transfer slip", {
+        summary_lines: [`ລົບສະລິບ: ${slip.file_name || slip.file_path}`],
+      });
+      await loadOrderHistory();
+      toast.success("ລົບສະລິບແລ້ວ");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "delete_order_transfer_slip_failed";
+      setErr(message);
+      toast.error(message);
+    } finally {
+      setDeletingOrderTransferSlipId(null);
+    }
+  };
+
   const reloadAll = async () => {
     setLoading(true);
     setErr(null);
     try {
       await Promise.all([loadOrder(), loadUsers(), loadFabrics()]);
-      await Promise.all([loadCustomerPayments(), loadFactoryPayments(), loadImportReceipt(), loadShipmentMedia(), loadLinkedDepositMedia()]);
+      await Promise.all([loadCustomerPayments(), loadFactoryPayments(), loadImportReceipt(), loadShipmentMedia(), loadLinkedDepositMedia(), loadOrderHistory()]);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Load failed");
       setLoadingUsers(false);
       setLoadingFabrics(false);
+      setLoadingOrderHistory(false);
     } finally {
       setLoading(false);
     }
@@ -599,20 +872,23 @@ export default function EditOrderPage() {
       pendingOrderImagePreviewUrls.forEach((url) => {
         if (url.startsWith("blob:")) URL.revokeObjectURL(url);
       });
-      if (orderTransferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(orderTransferSlipPreviewUrl);
+      pendingOrderTransferSlipPreviewUrls.forEach((url) => {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+      });
       pantsItems.forEach((item) => {
         if (item.mockupPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(item.mockupPreviewUrl);
       });
     };
-  }, [pendingOrderImagePreviewUrls, orderTransferSlipPreviewUrl, pantsItems]);
+  }, [pendingOrderImagePreviewUrls, pendingOrderTransferSlipPreviewUrls, pantsItems]);
 
   useEffect(() => {
     const loadViewerRole = async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const authUserId = sessionData.session?.user.id;
       if (!authUserId) return;
-      const { data } = await supabase.from("users").select("role,permission_settings").eq("auth_user_id", authUserId).maybeSingle();
+      const { data } = await supabase.from("users").select("id,role,permission_settings").eq("auth_user_id", authUserId).maybeSingle();
       if (data?.role) setViewerRole(data.role as AppRole);
+      setViewerUserId((data as { id?: string | null } | null)?.id ?? null);
       setViewerPermissions(normalizeUserPermissionSettings((data as { permission_settings?: UserPermissionSettings | null } | null)?.permission_settings));
     };
     void loadViewerRole();
@@ -637,22 +913,25 @@ export default function EditOrderPage() {
       qty6XL * SIZE_UPCHARGES["5XL"],
     [qty3XL, qty4XL, qty5XL, qty6XL]
   );
-  const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * 20000), [collarQty, collarType]);
+  const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * COLLAR_PRICE), [collarQty, collarType]);
+  const sleeveChargeTotal = useMemo(() => Math.max(0, sleeveChargeQty) * SLEEVE_PRICE, [sleeveChargeQty]);
   const pantsSummary = useMemo(() => getPantsItemsSummary(pantsItems), [pantsItems]);
   const grossTotal = useMemo(
-    () => shirtsTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + extraCharge,
-    [shirtsTotal, plusSizeTotal, pantsSummary.grossTotal, collarTotal, extraCharge]
+    () => shirtsTotal + plusSizeTotal + pantsSummary.grossTotal + collarTotal + sleeveChargeTotal + extraCharge,
+    [shirtsTotal, plusSizeTotal, pantsSummary.grossTotal, collarTotal, sleeveChargeTotal, extraCharge]
   );
-  const netTotal = useMemo(() => Math.max(0, grossTotal - designDeposit), [grossTotal, designDeposit]);
+  const netTotal = useMemo(() => Math.max(0, grossTotal - discount), [grossTotal, discount]);
+  const customerBillTotal = useMemo(() => Math.max(0, netTotal - designDeposit), [netTotal, designDeposit]);
+  const paymentHistoryTotal = useMemo(() => customerPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0), [customerPayments]);
 
   const customerReceived = useMemo(() => {
-    const paymentHistoryTotal = customerPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const savedDeposit = Number(initialDeposit || 0);
+    const baseReceived = Math.max(0, Number(initialDeposit || 0)) + paymentHistoryTotal;
     const receivedFromBalance = order ? Math.max(0, Number(order.net_total || 0) - Number(order.balance || 0)) : 0;
-    return Math.max(paymentHistoryTotal, savedDeposit, receivedFromBalance);
-  }, [customerPayments, initialDeposit, order]);
+    const receivedFromBalanceExcludingDesign = Math.max(0, receivedFromBalance - Math.max(0, Number(designDeposit || 0)));
+    return Math.max(baseReceived, receivedFromBalanceExcludingDesign);
+  }, [designDeposit, initialDeposit, order, paymentHistoryTotal]);
 
-  const customerOutstanding = useMemo(() => Math.max(0, netTotal - customerReceived), [netTotal, customerReceived]);
+  const customerOutstanding = useMemo(() => Math.max(0, customerBillTotal - customerReceived), [customerBillTotal, customerReceived]);
   const factoryPaid = useMemo(() => factoryPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0), [factoryPayments]);
   const totalFactoryCost = useMemo(() => Math.max(0, Number(factoryCost || 0)) + pantsSummary.factoryCostTotal, [factoryCost, pantsSummary.factoryCostTotal]);
   const factoryOutstanding = useMemo(() => Math.max(0, totalFactoryCost - factoryPaid), [totalFactoryCost, factoryPaid]);
@@ -667,13 +946,81 @@ export default function EditOrderPage() {
 
   const productionStatusLabel = order?.production_completed_at ? "ຜະລິດສຳເລັດ" : "ກຳລັງຜະລິດ";
   const closeStatusLabel = order?.status === "completed" ? "ປິດງານແລ້ວ" : "ຍັງບໍ່ປິດງານ";
-  const isReadOnlyAdmin = !canEditWithPermissions(viewerPermissions, "orders", viewerRole !== "admin");
+  const isReadOnlyAdmin = !canEditWithPermissions(viewerPermissions, "orders", true);
   const canViewProfitDetails = viewerRole !== "admin" && viewerRole !== "staff";
   const latestShipmentDeliveryDate = shipmentMedia?.delivery_scheduled_at ? toDateInput(shipmentMedia.delivery_scheduled_at) : "";
   const oldFactoryFallbackImageUrl = useMemo(() => {
     if (savedOrderImageUrls.length > 0 || pendingOrderImagePreviewUrls.length > 0 || (linkedDepositMedia?.mockup_urls.length || 0) > 0) return null;
     return buildFactoryDesignFallbackUrl(factoryBillCode);
   }, [factoryBillCode, linkedDepositMedia?.mockup_urls.length, pendingOrderImagePreviewUrls.length, savedOrderImageUrls.length]);
+
+  const buildOrderUpdateMeta = (nextValues: Record<string, unknown>, nextTransferSlipCount: number) => {
+    if (!order) return null;
+
+    const getUserLabel = (userId: string | null | undefined) => users.find((user) => user.id === userId)?.full_name || (userId || "-");
+    const getFabricLabel = (nextFabricId: string | null | undefined) =>
+      fabrics.find((fabric) => fabric.id === nextFabricId)?.name || (nextFabricId || "-");
+
+    const previousValues: Record<string, unknown> = {
+      order_code: order.order_code,
+      order_date: order.order_date,
+      customer_phone: order.customer_phone,
+      customer_whatsapp: order.customer_whatsapp,
+      factory_bill_code: order.factory_bill_code,
+      admin_user_id: getUserLabel(order.admin_user_id),
+      graphic_user_id: getUserLabel(order.graphic_user_id),
+      fabric_id: getFabricLabel(order.fabric_id),
+      short_qty: order.short_qty,
+      long_qty: order.long_qty,
+      free_qty: order.free_qty,
+      qty_3xl: order.qty_3xl,
+      qty_4xl: order.qty_4xl,
+      qty_5xl: order.qty_5xl,
+      qty_6xl: order.qty_6xl,
+      collar_type: order.collar_type,
+      collar_qty: order.collar_qty,
+      sleeve_charge_qty: order.sleeve_charge_qty,
+      extra_charge: order.extra_charge,
+      design_deposit: order.design_deposit,
+      discount: order.discount ?? 0,
+      initial_deposit: order.initial_deposit,
+      factory_cost: order.factory_cost,
+      gross_total: order.gross_total,
+      net_total: order.net_total,
+      balance: order.balance,
+      order_transfer_slip_count: savedOrderTransferSlips.length,
+      order_image_count: savedOrderImageUrls.length,
+    };
+
+    const comparableValues: Record<string, unknown> = {
+      ...nextValues,
+      admin_user_id: getUserLabel(adminUserId || null),
+      graphic_user_id: getUserLabel(graphicUserId || null),
+      fabric_id: getFabricLabel(fabricId || null),
+      order_transfer_slip_count: nextTransferSlipCount,
+      order_image_count: savedOrderImageUrls.length + pendingOrderImageFiles.length,
+    };
+
+    const changed_fields = Object.entries(comparableValues).reduce<Array<{ label: string; before: string; after: string }>>((acc, [key, value]) => {
+      const before = normalizeAuditValue(previousValues[key]);
+      const after = normalizeAuditValue(value);
+      if (before === after) return acc;
+      acc.push({
+        label: ORDER_AUDIT_FIELD_LABELS[key] || key,
+        before,
+        after,
+      });
+      return acc;
+    }, []);
+
+    return {
+      changed_fields,
+      summary_lines: [
+        `ລະຫັດອໍເດີ: ${buildOrderCode(orderType, orderNo)}`,
+        `ຈຳນວນລາຍການທີ່ຖືກແກ້: ${changed_fields.length.toLocaleString()} ສ່ວນ`,
+      ],
+    };
+  };
 
   const renderMediaPreview = (url: string | null, alt: string, fallbackLabel: string) => {
     if (!url) {
@@ -801,7 +1148,6 @@ export default function EditOrderPage() {
       const fabric = selectedFabric ?? { id: order.fabric_id, name: order.fabric_name, short_price: order.fabric_short_price, long_add: 0, long_price: order.fabric_long_price, is_active: true };
       const currentOrderCode = buildOrderCode(orderType, orderNo);
       const uploadedOrderImages = await uploadOrderImages(currentOrderCode, pendingOrderImageFiles);
-      const orderTransferSlipAsset = await uploadOrderAsset("order-transfer-slip", currentOrderCode, orderTransferSlipFile);
       const uploadedPantsItems = await uploadPantsMockupsIfNeeded(currentOrderCode);
       const primaryOrderImage =
         uploadedOrderImages[0] ||
@@ -821,9 +1167,9 @@ export default function EditOrderPage() {
         order_image_path: primaryOrderImage?.path ?? order.order_image_path ?? null,
         order_image_url: primaryOrderImage?.url ?? order.order_image_url ?? null,
         order_image_file_name: primaryOrderImage?.fileName ?? order.order_image_file_name ?? null,
-        order_transfer_slip_path: orderTransferSlipAsset.path ?? order.order_transfer_slip_path ?? null,
-        order_transfer_slip_url: orderTransferSlipAsset.url ?? order.order_transfer_slip_url ?? null,
-        order_transfer_slip_file_name: orderTransferSlipAsset.fileName ?? order.order_transfer_slip_file_name ?? null,
+        order_transfer_slip_path: savedOrderTransferSlips[0]?.file_path ?? order.order_transfer_slip_path ?? null,
+        order_transfer_slip_url: savedOrderTransferSlips[0]?.file_url ?? order.order_transfer_slip_url ?? null,
+        order_transfer_slip_file_name: savedOrderTransferSlips[0]?.file_name ?? order.order_transfer_slip_file_name ?? null,
         fabric_id: fabric.id,
         fabric_name: fabric.name,
         fabric_short_price: fabric.short_price,
@@ -839,17 +1185,22 @@ export default function EditOrderPage() {
         qty_6xl: Math.max(0, qty6XL),
         collar_type: collarType,
         collar_qty: Math.max(0, collarQty),
+        sleeve_charge_qty: Math.max(0, sleeveChargeQty),
         extra_charge: Math.max(0, extraCharge),
         design_deposit: Math.max(0, designDeposit),
+        discount: Math.max(0, discount),
         factory_cost: totalFactoryCost,
         gross_total: grossTotal,
         net_total: netTotal,
-        initial_deposit: customerReceived,
+        initial_deposit: Math.max(0, initialDeposit),
         balance: customerOutstanding,
         customer_paid_full_at: customerOutstanding === 0 ? order.customer_paid_full_at || new Date().toISOString() : null,
         factory_paid_full_at: dateInputToIso(factoryPaidFullDate),
         production_completed_at: dateInputToIso(productionCompletedDate),
       };
+
+      const nextTransferSlipCount = savedOrderTransferSlips.length + pendingOrderTransferSlipFiles.length;
+      const updateHistoryMeta = buildOrderUpdateMeta(payload, nextTransferSlipCount);
 
       const { error } = await supabase.from("orders").update(payload).eq("id", orderId);
       if (error) {
@@ -915,7 +1266,29 @@ export default function EditOrderPage() {
         }
       }
 
-      await safeInsertAction("update_order", "Updated order details");
+      let savedTransferSlips: OrderTransferSlipRow[] = [];
+      try {
+        savedTransferSlips = await uploadOrderTransferSlipsIfNeeded(currentOrderCode);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "upload_order_transfer_slip_failed";
+        setErr(message);
+        toast.error(`ບັນທຶກຂໍ້ມູນອໍເດີແລ້ວ ແຕ່ອັບໂຫຼດສະລິບບໍ່ສຳເລັດ: ${message}`);
+        return;
+      }
+      const finalHistoryMeta = updateHistoryMeta
+        ? {
+            ...updateHistoryMeta,
+            changed_fields: Array.isArray(updateHistoryMeta.changed_fields)
+              ? updateHistoryMeta.changed_fields.map((item) =>
+                  item.label === ORDER_AUDIT_FIELD_LABELS.order_transfer_slip_count
+                    ? { ...item, after: normalizeAuditValue(savedTransferSlips.length) }
+                    : item
+                )
+              : [],
+          }
+        : null;
+
+      await safeInsertAction("update_order", "Updated order details", finalHistoryMeta);
       await reloadAll();
       markClean();
       if (orderItemsUnavailable && hasPantsLine) {
@@ -946,10 +1319,9 @@ export default function EditOrderPage() {
       return;
     }
 
-    const nextReceived = Math.max(Number(order.initial_deposit || 0), customerReceived) + customerPayAmount;
-    const nextOutstanding = Math.max(0, netTotal - nextReceived);
+    const nextReceived = customerReceived + customerPayAmount;
+    const nextOutstanding = Math.max(0, customerBillTotal - nextReceived);
     const { error: updateError } = await supabase.from("orders").update({
-      initial_deposit: nextReceived,
       balance: nextOutstanding,
       customer_paid_full_at: nextOutstanding === 0 ? paidAtIso : null,
     }).eq("id", orderId);
@@ -1507,12 +1879,16 @@ export default function EditOrderPage() {
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <div className="text-xs font-black uppercase tracking-wide text-slate-700">ສະລິບມັດຈຳອໍເດີ</div>
+                    <div className="text-[11px] font-bold text-slate-500">
+                      {savedOrderTransferSlips.length + pendingOrderTransferSlipFiles.length} ໄຟລ໌
+                    </div>
                   </div>
-                  <div className="mb-2 flex flex-wrap gap-2">
+                  <div className="mb-3 flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => orderTransferSlipFileInputRef.current?.click()}
                       className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-black text-white"
+                      disabled={isReadOnlyAdmin}
                     >
                       ເລືອກໄຟລ໌
                     </button>
@@ -1520,6 +1896,7 @@ export default function EditOrderPage() {
                       type="button"
                       onClick={() => orderTransferSlipCameraInputRef.current?.click()}
                       className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-black text-slate-700"
+                      disabled={isReadOnlyAdmin}
                     >
                       ຖ່າຍຮູບ
                     </button>
@@ -1527,19 +1904,87 @@ export default function EditOrderPage() {
                       ref={orderTransferSlipFileInputRef}
                       type="file"
                       accept="image/*,.pdf"
+                      multiple
                       className="sr-only"
-                      onChange={(e) => handleOrderTransferSlipSelected(e.target.files?.[0] ?? null)}
+                      onChange={(e) => {
+                        handleOrderTransferSlipSelected(e.target.files);
+                        e.currentTarget.value = "";
+                      }}
                     />
                     <input
                       ref={orderTransferSlipCameraInputRef}
                       type="file"
                       accept="image/*"
                       capture="environment"
+                      multiple
                       className="sr-only"
-                      onChange={(e) => handleOrderTransferSlipSelected(e.target.files?.[0] ?? null)}
+                      onChange={(e) => {
+                        handleOrderTransferSlipSelected(e.target.files);
+                        e.currentTarget.value = "";
+                      }}
                     />
                   </div>
-                  {renderMediaPreview(orderTransferSlipPreviewUrl, `${order.order_code}-order-slip`, "ຍັງບໍ່ມີສະລິບຂອງອໍເດີ")}
+                  {savedOrderTransferSlips.length === 0 && pendingOrderTransferSlipFiles.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-5 text-center text-xs font-bold text-slate-500">
+                      ຍັງບໍ່ມີສະລິບຂອງອໍເດີ
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {pendingOrderTransferSlipFiles.map((file, index) => {
+                        const previewUrl = pendingOrderTransferSlipPreviewUrls[index] || "";
+                        return (
+                          <div key={`pending-slip-${file.name}-${index}`} className="overflow-hidden rounded-xl border border-amber-200 bg-amber-50/70">
+                            {previewUrl ? (
+                              <a href={previewUrl} target="_blank" rel="noreferrer" className="block">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={previewUrl} alt={`pending-transfer-slip-${index + 1}`} className="h-40 w-full object-cover" />
+                              </a>
+                            ) : (
+                              <div className="flex h-40 items-center justify-center bg-white px-3 text-center text-xs font-black text-slate-500">
+                                ໄຟລ໌ PDF ພ້ອມອັບໂຫຼດ
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between gap-2 border-t border-amber-200 px-3 py-2">
+                              <div className="truncate text-xs font-semibold text-slate-600">{file.name}</div>
+                              {!isReadOnlyAdmin ? (
+                                <button
+                                  type="button"
+                                  onClick={() => removePendingOrderTransferSlipAt(index)}
+                                  className="rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-black text-rose-600"
+                                >
+                                  ລຶບ
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {savedOrderTransferSlips.map((slip) => {
+                        const fileUrl = toDisplayMediaUrl(slip.file_url) || slip.file_url || null;
+                        return (
+                          <div key={slip.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                            {renderMediaPreview(fileUrl, `${order.order_code}-order-slip-${slip.id}`, slip.file_name || "ສະລິບຂອງອໍເດີ")}
+                            <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2">
+                              <div>
+                                <div className="truncate text-xs font-semibold text-slate-700">{slip.file_name || slip.file_path}</div>
+                                <div className="text-[11px] font-medium text-slate-400">{formatDateTime(slip.uploaded_at)}</div>
+                              </div>
+                              {!isReadOnlyAdmin ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void removeSavedOrderTransferSlip(slip)}
+                                  disabled={deletingOrderTransferSlipId === slip.id}
+                                  className="rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-black text-rose-600 disabled:opacity-50"
+                                >
+                                  {deletingOrderTransferSlipId === slip.id ? "ກຳລັງລົບ..." : "ລຶບ"}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1708,7 +2153,7 @@ export default function EditOrderPage() {
             <div className="mb-3 border-b border-slate-50 pb-2 text-xs font-bold uppercase tracking-wider text-slate-800">4) ຮູບແບບມັດຈຳ & ລາຍການບວກເພີ່ມ</div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-bold text-slate-700">ຄໍເສື້ອ/ແຂນເສື້ອ</label>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ຄໍເສື້ອ</label>
                 <select
                   value={collarType}
                   onChange={(e) => {
@@ -1730,7 +2175,7 @@ export default function EditOrderPage() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-slate-700">ຈຳນວນຄໍທີ່ບວກເພີ່ມ</label>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ຈຳນວນຄໍເສື້ອທີ່ບວກເພີ່ມ</label>
                 <input
                   type="number"
                   value={collarQty}
@@ -1740,7 +2185,21 @@ export default function EditOrderPage() {
                   className={`${inputClassName} font-bold ${(isReadOnlyAdmin || collarType === "none") ? "bg-slate-50 text-slate-600" : ""}`}
                 />
                 <div className="mt-1 text-[11px] font-bold text-slate-500">
-                  ລວມຄ່າບວກ: {collarTotal.toLocaleString()} ກີບ
+                  ລວມຄ່າບວກຄໍ: {collarTotal.toLocaleString()} ກີບ
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ຈຳນວນແຂນເສື້ອທີ່ບວກເພີ່ມ</label>
+                <input
+                  type="number"
+                  value={sleeveChargeQty}
+                  onChange={(e) => setSleeveChargeQty(Number(e.target.value))}
+                  min={0}
+                  disabled={isReadOnlyAdmin}
+                  className={`${inputClassName} font-bold ${isReadOnlyAdmin ? "bg-slate-50 text-slate-600" : ""}`}
+                />
+                <div className="mt-1 text-[11px] font-bold text-slate-500">
+                  ລວມຄ່າບວກແຂນ: {sleeveChargeTotal.toLocaleString()} ກີບ
                 </div>
               </div>
               <div>
@@ -1748,8 +2207,12 @@ export default function EditOrderPage() {
                 <input type="number" min={0} value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} className={`${inputClassName} font-bold`} />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-slate-700">ຫັກຄ່າແບບ-ສ່ວນຫຼຸດ</label>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ຫັກຄ່າແບບ</label>
                 <input type="number" min={0} value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} className={`${inputClassName} font-bold text-red-600`} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">ສ່ວນຫຼຸດ</label>
+                <input type="number" min={0} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} className={`${inputClassName} font-bold text-rose-600`} />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-bold text-slate-700">ເງິນມັດຈຳສັ່ງຜະລິດ</label>
@@ -1782,7 +2245,15 @@ export default function EditOrderPage() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <div className="text-xs font-black uppercase tracking-wide text-slate-700">ສະລິບຈາກໃບສັ່ງຜະລິດ</div>
-                {renderMediaPreview(linkedDepositMedia?.transfer_slip_url || null, `${order.order_code}-deposit-slip`, "ບໍ່ມີສະລິບຈາກໃບສັ່ງຜະລິດ")}
+                {linkedDepositMedia?.transfer_slip_urls.length ? (
+                  <div className="grid gap-3">
+                    {linkedDepositMedia.transfer_slip_urls.map((url, index) => (
+                      <div key={`${url}-${index}`}>{renderMediaPreview(url, `${order.order_code}-deposit-slip-${index + 1}`, `ສະລິບຈາກໃບສັ່ງຜະລິດ ${index + 1}`)}</div>
+                    ))}
+                  </div>
+                ) : (
+                  renderMediaPreview(null, `${order.order_code}-deposit-slip`, "ບໍ່ມີສະລິບຈາກໃບສັ່ງຜະລິດ")
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1836,20 +2307,23 @@ export default function EditOrderPage() {
             pantsTotal={pantsSummary.grossTotal}
             plusSizeTotal={plusSizeTotal}
             collarTotal={collarTotal}
+            sleeveChargeTotal={sleeveChargeTotal}
             extraCharge={extraCharge}
-            designDiscount={designDeposit}
+            designDeposit={designDeposit}
+            discount={discount}
             primaryPaidLabel="ຮັບແລ້ວ"
             primaryPaidValue={customerReceived}
             secondaryPaidLabel="ເງິນມັດຈຳສັ່ງຜະລິດ"
             secondaryPaidValue={initialDeposit}
             outstandingLabel="ຄ້າງຊຳລະ"
             outstandingValue={customerOutstanding}
-            netTotal={netTotal}
+            customerBillTotal={customerBillTotal}
             totalFactoryCost={totalFactoryCost}
             profitPreview={profitPreview}
             showProfitDetails={canViewProfitDetails}
             footerNote={`ລາຍການລວມ ${totalOrderQty.toLocaleString()} ໂຕ`}
           />
+          <OrderActivityPanel items={orderHistory} loading={loadingOrderHistory} />
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-900 shadow-sm space-y-1">
             <div><span className="font-black">ສະຖານະຜະລິດ:</span> <span className="font-bold">{productionStatusLabel}</span></div>
             <div><span className="font-black">ສະຖານະປິດງານ:</span> <span className="font-bold">{closeStatusLabel}</span></div>
