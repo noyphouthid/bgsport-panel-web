@@ -12,6 +12,15 @@ const SIZE_UPCHARGES = {
 } as const;
 const SLEEVE_PRICE = 20000;
 
+type PreviewRow = {
+  key: string;
+  label: string;
+  qty: number | null;
+  price: number | null;
+  total: number;
+  muted?: boolean;
+};
+
 function formatDate(value: string) {
   if (!value) return "-";
   const date = new Date(`${value}T12:00:00`);
@@ -52,6 +61,7 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
     draft.qty6XL > 0 ? { key: "6xl", label: "ເພີ່ມ 6XL", qty: draft.qty6XL, price: SIZE_UPCHARGES["6XL"], total: draft.qty6XL * SIZE_UPCHARGES["6XL"] } : null,
     collarTotal > 0 ? { key: "collar", label: "ບວກຄໍເສື້ອ", qty: draft.collarQty, price: COLLAR_PRICE, total: collarTotal } : null,
     sleeveChargeTotal > 0 ? { key: "sleeve", label: "ບວກແຂນເສື້ອ", qty: draft.sleeveChargeQty, price: SLEEVE_PRICE, total: sleeveChargeTotal } : null,
+    draft.extraCharge > 0 ? { key: "extra-charge", label: "ບວກເພີ່ມອື່ນໆ", qty: null, price: null, total: Math.max(0, draft.extraCharge) } : null,
     ...(draft.pantsItems || []).map((item, index) => ({
       key: `pants-${item.clientId}`,
       label: `${item.productName || `ໂສ້ງພິມລາຍ ${index + 1}`}${item.freeQty > 0 ? ` + ແຖມ ${item.freeQty}` : ""}${item.notes.trim() ? ` (${item.notes.trim()})` : ""}`,
@@ -59,7 +69,7 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
       price: Math.max(0, Number(item.unitPrice) || 0),
       total: getPantsLineGross(item),
     })),
-  ].filter(Boolean) as Array<{ key: string; label: string; qty: number; price: number; total: number; muted?: boolean }>;
+  ].filter(Boolean) as PreviewRow[];
 
   return (
     <div className='mx-auto aspect-[148/210] w-full max-w-[430px] overflow-hidden border border-slate-300 bg-white [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>
@@ -112,8 +122,8 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
                 <tr key={row.key}>
                   <td className="border border-slate-300 px-1.5 py-1.5 text-center font-bold">{index + 1}</td>
                   <td className={`border border-slate-300 px-1.5 py-1.5 ${row.muted ? "font-bold text-slate-900" : ""}`}>{row.label}</td>
-                  <td className="border border-slate-300 px-1.5 py-1.5 text-center font-bold">{row.qty > 0 ? row.qty : ""}</td>
-                  <td className="border border-slate-300 px-1.5 py-1.5 text-right font-bold">{row.price > 0 ? row.price.toLocaleString() : ""}</td>
+                  <td className="border border-slate-300 px-1.5 py-1.5 text-center font-bold">{typeof row.qty === "number" && row.qty > 0 ? row.qty : ""}</td>
+                  <td className="border border-slate-300 px-1.5 py-1.5 text-right font-bold">{typeof row.price === "number" && row.price > 0 ? row.price.toLocaleString() : ""}</td>
                   <td className="border border-slate-300 px-1.5 py-1.5 text-right font-black">{row.total > 0 ? row.total.toLocaleString() : ""}</td>
                 </tr>
               ))}

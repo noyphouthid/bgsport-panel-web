@@ -109,6 +109,15 @@ function NumberField({
   );
 }
 
+type PreviewRow = {
+  key: string;
+  label: string;
+  qty: number | null;
+  price: number | null;
+  total: number;
+  muted?: boolean;
+};
+
 export default function NewQuotationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -472,6 +481,9 @@ export default function NewQuotationPage() {
     sleeveChargeTotal > 0
       ? { key: "sleeve", label: "ບວກແຂນເສື້ອ", qty: sleeveChargeQty, price: SLEEVE_PRICE, total: sleeveChargeTotal }
       : null,
+    extraCharge > 0
+      ? { key: "extra-charge", label: "ບວກເພີ່ມອື່ນໆ", qty: null, price: null, total: Math.max(0, extraCharge) }
+      : null,
     ...pantsItems.map((item, index) => ({
       key: `pants-${item.clientId}`,
       label: `${item.productName || `ໂສ້ງພິມລາຍ ${index + 1}`}${item.freeQty > 0 ? ` + ແຖມ ${item.freeQty}` : ""}${item.notes.trim() ? ` (${item.notes.trim()})` : ""}`,
@@ -479,7 +491,7 @@ export default function NewQuotationPage() {
       price: Number(item.unitPrice) || 0,
       total: getPantsLineGross(item),
     })),
-  ].filter(Boolean) as Array<{ key: string; label: string; qty: number; price: number; total: number; muted?: boolean }>;
+  ].filter(Boolean) as PreviewRow[];
 
   const summaryItems = [
     { label: "ຄ່າເສື້ອລວມ", value: shirtTotal, color: "text-slate-900" },
@@ -873,8 +885,8 @@ export default function NewQuotationPage() {
                         <tr key={row.key}>
                           <td className="border border-slate-300 px-1.5 py-1.5 text-center font-bold">{index + 1}</td>
                           <td className={`border border-slate-300 px-1.5 py-1.5 ${row.muted ? "font-bold text-slate-900" : ""}`}>{row.label}</td>
-                          <td className="border border-slate-300 px-1.5 py-1.5 text-center font-bold">{row.qty > 0 ? row.qty : ""}</td>
-                          <td className="border border-slate-300 px-1.5 py-1.5 text-right font-bold">{row.price > 0 ? row.price.toLocaleString() : ""}</td>
+                          <td className="border border-slate-300 px-1.5 py-1.5 text-center font-bold">{typeof row.qty === "number" && row.qty > 0 ? row.qty : ""}</td>
+                          <td className="border border-slate-300 px-1.5 py-1.5 text-right font-bold">{typeof row.price === "number" && row.price > 0 ? row.price.toLocaleString() : ""}</td>
                           <td className="border border-slate-300 px-1.5 py-1.5 text-right font-black">{row.total > 0 ? row.total.toLocaleString() : ""}</td>
                         </tr>
                       ))}
