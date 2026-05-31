@@ -107,7 +107,7 @@ export default function PublicTrackingPage() {
             <div className="text-[11px] font-black uppercase tracking-[0.35em] text-white/70">BG SPORT</div>
             <h1 className="mt-3 text-3xl font-black leading-none">ຕິດຕາມສະຖານະ</h1>
             <p className="mt-3 max-w-[18rem] text-sm font-medium text-white/80">
-              ກວດສອບຄວາມຄືບໜ້າຂອງອໍເດີໄດ້ທັນທີ ໂດຍບໍ່ຕ້ອງລັອກອິນ
+              ພຽງແຕ່ລູກຄ້າໄສ່ເລກລະຫັດອໍເດີ້ ເຊັ່ນ: PK26-5001 ໄສ່ພຽງເລກທ້າຍ 5001 ຫຼື ໄສ່ເບີໂທລູກຄ້າກໍ່ໄດ້
             </p>
             <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-2 text-[11px] font-bold text-white/90">
               <ShieldCheck size={14} />
