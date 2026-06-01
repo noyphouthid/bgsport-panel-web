@@ -117,7 +117,7 @@ export default function PayrollPage() {
       { label: "ເງິນຄ່າ OT", amount: selectedEmployee.overtimePay },
       { label: "ເບ້ຍຂະຫຍັນ", amount: selectedEmployee.attendance_bonus },
       { label: "ຄອມມິດຊັນ", amount: selectedEmployee.commission },
-      { label: "ຄ່າຊ່ວຍເຫຼືອ", amount: selectedEmployee.allowance },
+      { label: "ຄ່ານ້ຳມັນ", amount: selectedEmployee.allowance },
     ];
 
     const deductionItems = [
