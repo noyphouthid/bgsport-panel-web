@@ -16,6 +16,7 @@ type OrderRow = {
   admin_user_id: string | null;
   short_qty: number;
   long_qty: number;
+  free_qty: number;
   net_total: number;
 };
 
@@ -38,6 +39,9 @@ type ViewerProfile = {
   id: string;
   role: AppRole;
 };
+
+const UNASSIGNED_ADMIN_ID = "__unassigned__";
+const UNASSIGNED_ADMIN_LABEL = "ບໍ່ໄດ້ລະບຸ admin";
 
 export default function AdminSalesReportPage() {
   const now = new Date();
@@ -71,7 +75,7 @@ export default function AdminSalesReportPage() {
     ] = await Promise.all([
       supabase
         .from("orders")
-        .select("id,order_code,order_date,admin_user_id,short_qty,long_qty,net_total")
+        .select("id,order_code,order_date,admin_user_id,short_qty,long_qty,free_qty,net_total")
         .order("order_date", { ascending: false }),
       supabase.from("users").select("id,full_name,role,is_active").order("full_name", { ascending: true }),
       viewerPromise,
@@ -123,25 +127,27 @@ export default function AdminSalesReportPage() {
 
   const summaryRows = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
+    const startDate = start.slice(0, 10);
+    const endExclusiveDate = endExclusive.slice(0, 10);
     const adminMap = new Map(admins.map((u) => [u.id, u.full_name]));
     const grouped = new Map<string, AdminSummary>();
 
     for (const row of orders) {
-      const date = new Date(`${row.order_date}T00:00:00`).toISOString();
-      if (!(date >= start && date < endExclusive)) continue;
+      const orderDate = String(row.order_date || "").slice(0, 10);
+      if (!orderDate) continue;
+      if (!(orderDate >= startDate && orderDate < endExclusiveDate)) continue;
       if (!matchPrefix(row.order_code, prefix)) continue;
-      if (!row.admin_user_id) continue;
       if (effectiveAdminFilter !== "ALL" && row.admin_user_id !== effectiveAdminFilter) continue;
 
-      const key = row.admin_user_id;
+      const key = row.admin_user_id || UNASSIGNED_ADMIN_ID;
       const current = grouped.get(key) ?? {
         admin_id: key,
-        admin_name: adminMap.get(key) || "Unknown",
+        admin_name: adminMap.get(key) || UNASSIGNED_ADMIN_LABEL,
         shirts_total: 0,
         orders_total: 0,
         sales_total: 0,
       };
-      current.shirts_total += (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0);
+      current.shirts_total += (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0);
       current.orders_total += 1;
       current.sales_total += Number(row.net_total) || 0;
       grouped.set(key, current);
