@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { CheckCheck, Factory, MessageCircleMore, PackagePlus, RotateCcw, ScanLine } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { getTotalShirtQty } from "@/lib/order-quantities";
 import {
   buildOrderQrCode,
   formatDateOnly,
@@ -221,13 +222,7 @@ export default function FactoryReceiptsPage() {
         customer_phone: order?.customer_phone || null,
         customer_whatsapp: order?.customer_whatsapp || null,
         balance: Number(order?.balance) || 0,
-        total_qty:
-          (Number(order?.short_qty) || 0) +
-          (Number(order?.long_qty) || 0) +
-          (Number(order?.free_qty) || 0) +
-          (Number(order?.qty_3xl) || 0) +
-          (Number(order?.qty_4xl) || 0) +
-          (Number(order?.qty_5xl) || 0),
+        total_qty: getTotalShirtQty(order),
         factory_bill_code: label?.factory_bill_code || null,
         label_status: label?.label_status || "received",
       } satisfies ReceiptDetailItem;

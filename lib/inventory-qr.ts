@@ -1,5 +1,7 @@
 export type OrderQrLabelStatus = "created" | "received" | "shipped";
 
+import { getTotalShirtQty } from "@/lib/order-quantities";
+
 export type OrderSummary = {
   id: string;
   order_code: string;
@@ -255,14 +257,7 @@ export function getOrderQrPrintHtml(labels: QrLabelRow[], previewMap: Record<str
 }
 
 export function getTotalUnits(order: Partial<OrderSummary>) {
-  return (
-    Number(order.short_qty || 0) +
-    Number(order.long_qty || 0) +
-    Number(order.free_qty || 0) +
-    Number(order.qty_3xl || 0) +
-    Number(order.qty_4xl || 0) +
-    Number(order.qty_5xl || 0)
-  );
+  return getTotalShirtQty(order);
 }
 
 export function formatDateTime(value?: string | null) {

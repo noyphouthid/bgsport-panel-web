@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Eye, MessageCircleMore } from "lucide-react";
 import { isMissingOrderItemsTableError, type OrderItemRow } from "@/lib/order-items";
+import { getTotalShirtQty } from "@/lib/order-quantities";
 import { extractProductionMockupUrls, isImageFileName, ORDER_MEDIA_BUCKET, toDisplayMediaUrl } from "@/lib/order-media";
 import { getQuotationDraftById, type QuotationDraft } from "@/lib/quotation-drafts";
 import { supabase } from "@/lib/supabase";
@@ -57,7 +58,7 @@ type PreviewGalleryImage = {
 };
 
 function getDisplayShirtTotal(row: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
-  return (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0);
+  return getTotalShirtQty(row);
 }
 
 export default function OrdersPage() {
@@ -324,11 +325,7 @@ export default function OrdersPage() {
   const activeWhatsappMessage = activeWhatsappOrder
     ? buildProductionCompletedWhatsappMessage({
         orderCode: activeWhatsappOrder.order_code,
-        totalQty:
-          getDisplayShirtTotal(activeWhatsappOrder) +
-          (Number(activeWhatsappOrder.qty_3xl) || 0) +
-          (Number(activeWhatsappOrder.qty_4xl) || 0) +
-          (Number(activeWhatsappOrder.qty_5xl) || 0),
+        totalQty: getDisplayShirtTotal(activeWhatsappOrder),
         balance: Number(activeWhatsappOrder.balance) || 0,
       })
     : "";

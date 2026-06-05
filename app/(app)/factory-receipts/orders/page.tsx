@@ -12,6 +12,7 @@ import {
   ORDER_CHANGE_REQUEST_STATUS_STYLES,
   type OrderChangeRequestRow,
 } from "@/lib/order-change-requests";
+import { getTotalShirtQty } from "@/lib/order-quantities";
 import { WhatsappMessageModal } from "../../_components/whatsapp-message-modal";
 import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
 
@@ -224,13 +225,7 @@ export default function FactoryReceiptOrdersPage() {
           shipmentStatus: order.shipment_status,
           shipmentCompletedAt: order.shipment_completed_at,
           closedAt: order.closed_at,
-          totalQty:
-            (Number(order.short_qty) || 0) +
-            (Number(order.long_qty) || 0) +
-            (Number(order.free_qty) || 0) +
-            (Number(order.qty_3xl) || 0) +
-            (Number(order.qty_4xl) || 0) +
-            (Number(order.qty_5xl) || 0),
+          totalQty: getTotalShirtQty(order),
         } satisfies ImportedOrderRow;
       })
       .filter((row): row is ImportedOrderRow => row !== null)

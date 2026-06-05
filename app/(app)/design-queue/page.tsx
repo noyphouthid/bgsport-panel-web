@@ -49,6 +49,7 @@ type ViewerProfile = {
 
 const URGENT_WORK_TYPE = "ງານດ່ວນ";
 const NORMAL_WORK_TYPE = "ງານປົກກະຕິ";
+const ALL_GRAPHIC_FILTER = "__ALL__";
 
 const WORK_TYPE_OPTIONS = [
   { value: URGENT_WORK_TYPE, label: URGENT_WORK_TYPE },
@@ -139,6 +140,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const [monthFilter, setMonthFilter] = useState<MonthFilter>(today.getMonth() + 1);
   const [yearFilter, setYearFilter] = useState(today.getFullYear());
   const [workTypeFilter, setWorkTypeFilter] = useState<WorkTypeFilter>("ALL");
+  const [graphicFilterUserId, setGraphicFilterUserId] = useState<string>(ALL_GRAPHIC_FILTER);
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
   const [query, setQuery] = useState("");
@@ -245,6 +247,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     () => (isGraphicViewer && creatorUserId ? graphicUsers.filter((user) => user.id === creatorUserId) : graphicUsers),
     [creatorUserId, graphicUsers, isGraphicViewer]
   );
+  const activeGraphicFilterUserId = isGraphicViewer && creatorUserId ? creatorUserId : graphicFilterUserId;
 
   const filteredRows = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -252,6 +255,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     return rows.filter((row) => {
       if (monthFilter !== "ALL" && row.queue_month !== monthFilter) return false;
       if (row.queue_year !== yearFilter) return false;
+      if (activeGraphicFilterUserId !== ALL_GRAPHIC_FILTER && row.graphic_user_id !== activeGraphicFilterUserId) return false;
       if (dateFromFilter && row.queue_date < dateFromFilter) return false;
       if (dateToFilter && row.queue_date > dateToFilter) return false;
       if (isCompletedView && !row.is_designed) return false;
@@ -283,7 +287,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
 
       return a.order_no.localeCompare(b.order_no);
     });
-  }, [dateFromFilter, dateToFilter, graphicNameMap, isCompletedView, monthFilter, query, rows, workTypeFilter, yearFilter]);
+  }, [activeGraphicFilterUserId, dateFromFilter, dateToFilter, graphicNameMap, isCompletedView, monthFilter, query, rows, workTypeFilter, yearFilter]);
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -661,10 +665,23 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
               </select>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-4">
+            <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-5">
               <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-black text-slate-700">
                 {isCompletedView ? "ສະແດງສະເພາະທີ່ອອກແບບສຳເລັດ" : "ສະແດງສະເພາະທີ່ຍັງບໍ່ທັນອອກແບບ"}
               </div>
+              <select
+                value={activeGraphicFilterUserId}
+                onChange={(event) => setGraphicFilterUserId(event.target.value)}
+                disabled={isGraphicViewer}
+                className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:bg-slate-50"
+              >
+                <option value={ALL_GRAPHIC_FILTER}>ທຸກຄົນອອກແບບ</option>
+                {availableGraphicUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name} ({user.id.slice(0, 8)})
+                  </option>
+                ))}
+              </select>
               <select
                 value={workTypeFilter}
                 onChange={(event) => setWorkTypeFilter(event.target.value as WorkTypeFilter)}
