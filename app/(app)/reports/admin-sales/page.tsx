@@ -23,6 +23,8 @@ type OrderRow = {
 type UserRow = {
   id: string;
   full_name: string;
+  email: string | null;
+  auth_user_id: string | null;
   role: string;
   is_active: boolean;
 };
@@ -38,20 +40,57 @@ type AdminSummary = {
 type ViewerProfile = {
   id: string;
   role: AppRole;
+  full_name: string;
+  email: string | null;
+  auth_user_id: string | null;
 };
 
 const UNASSIGNED_ADMIN_ID = "__unassigned__";
 const UNASSIGNED_ADMIN_LABEL = "ບໍ່ໄດ້ລະບຸ admin";
+const ALL_ADMIN_FILTER = "ALL";
+
+function normalizeIdentityText(value: string | null | undefined) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function getCanonicalAdminGroupKey(user: Pick<UserRow, "id" | "full_name" | "email" | "auth_user_id"> | null | undefined) {
+  if (!user) return null;
+
+  const normalizedEmail = normalizeIdentityText(user.email);
+  if (normalizedEmail) return `email:${normalizedEmail}`;
+
+  const authUserId = String(user.auth_user_id || "").trim();
+  if (authUserId) return `auth:${authUserId}`;
+
+  const normalizedName = normalizeIdentityText(user.full_name);
+  if (normalizedName) return `name:${normalizedName}`;
+
+  return `user:${user.id}`;
+}
+
+function pickViewerProfile(users: UserRow[], authUserId: string | null | undefined, sessionEmail: string | null | undefined) {
+  const normalizedEmail = normalizeIdentityText(sessionEmail);
+  const candidates = users.filter((user) => user.is_active);
+
+  return (
+    candidates.find((user) => String(user.auth_user_id || "").trim() === String(authUserId || "").trim()) ||
+    candidates.find((user) => normalizeIdentityText(user.email) === normalizedEmail) ||
+    null
+  );
+}
 
 export default function AdminSalesReportPage() {
   const now = new Date();
   const [month, setMonth] = useState<MonthFilter>(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [prefix, setPrefix] = useState<PrefixFilter>("ALL");
-  const [adminFilter, setAdminFilter] = useState("ALL");
+  const [adminFilter, setAdminFilter] = useState(ALL_ADMIN_FILTER);
 
   const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [admins, setAdmins] = useState<UserRow[]>([]);
+  const [users, setUsers] = useState<UserRow[]>([]);
   const [viewer, setViewer] = useState<ViewerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -63,48 +102,46 @@ export default function AdminSalesReportPage() {
     setErr(null);
     const { data: sessionData } = await supabase.auth.getSession();
     const authUserId = sessionData.session?.user.id;
-
-    const viewerPromise = authUserId
-      ? supabase.from("users").select("id,role").eq("auth_user_id", authUserId).maybeSingle()
-      : Promise.resolve({ data: null, error: null });
+    const sessionEmail = String(sessionData.session?.user.email || "").trim().toLowerCase();
 
     const [
       { data: orderData, error: orderError },
       { data: userData, error: userError },
-      { data: viewerData, error: viewerError },
     ] = await Promise.all([
       supabase
         .from("orders")
         .select("id,order_code,order_date,admin_user_id,short_qty,long_qty,free_qty,net_total")
         .order("order_date", { ascending: false }),
-      supabase.from("users").select("id,full_name,role,is_active").order("full_name", { ascending: true }),
-      viewerPromise,
+      supabase.from("users").select("id,full_name,email,auth_user_id,role,is_active").order("full_name", { ascending: true }),
     ]);
 
     if (orderError) {
       setErr(orderError.message);
       setOrders([]);
-      setAdmins([]);
+      setUsers([]);
       setLoading(false);
       return;
     }
-
-    if (viewerError) {
-      setErr(viewerError.message);
-      setViewer(null);
-      setLoading(false);
-      return;
-    }
-
-    const currentViewer = viewerData ? ({ id: viewerData.id, role: viewerData.role as AppRole } satisfies ViewerProfile) : null;
-    setViewer(currentViewer);
 
     if (userError) {
       setErr(userError.message);
-      setAdmins([]);
+      setUsers([]);
+      setViewer(null);
     } else {
       const allUsers = (userData ?? []) as UserRow[];
-      setAdmins(allUsers.filter((u) => isAdminRole(u.role)));
+      setUsers(allUsers);
+      const currentViewer = pickViewerProfile(allUsers, authUserId, sessionEmail);
+      setViewer(
+        currentViewer
+          ? ({
+              id: currentViewer.id,
+              role: currentViewer.role as AppRole,
+              full_name: currentViewer.full_name,
+              email: currentViewer.email,
+              auth_user_id: currentViewer.auth_user_id,
+            } satisfies ViewerProfile)
+          : null
+      );
     }
 
     setOrders((orderData ?? []) as OrderRow[]);
@@ -118,18 +155,60 @@ export default function AdminSalesReportPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const lockedAdminId = viewer?.role === "admin" ? viewer.id : null;
+  const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const canonicalGroupMeta = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        key: string;
+        label: string;
+        userIds: string[];
+        hasAdminRole: boolean;
+      }
+    >();
+
+    for (const user of users) {
+      const key = getCanonicalAdminGroupKey(user) || `user:${user.id}`;
+      const current = grouped.get(key);
+      if (!current) {
+        grouped.set(key, {
+          key,
+          label: user.full_name || user.email || user.id,
+          userIds: [user.id],
+          hasAdminRole: isAdminRole(user.role),
+        });
+        continue;
+      }
+
+      current.userIds.push(user.id);
+      current.hasAdminRole = current.hasAdminRole || isAdminRole(user.role);
+
+      const shouldPromoteLabel =
+        (isAdminRole(user.role) && !isAdminRole(usersById.get(current.userIds[0])?.role || "")) ||
+        (!current.label && Boolean(user.full_name || user.email));
+      if (shouldPromoteLabel) {
+        current.label = user.full_name || user.email || current.label;
+      }
+    }
+
+    return grouped;
+  }, [users, usersById]);
+  const adminFilterOptions = useMemo(() => {
+    return [...canonicalGroupMeta.values()]
+      .filter((entry) => entry.hasAdminRole)
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [canonicalGroupMeta]);
+  const lockedAdminGroupKey = viewer?.role === "admin" ? getCanonicalAdminGroupKey(viewer) : null;
   const visibleAdmins = useMemo(() => {
-    if (!lockedAdminId) return admins;
-    return admins.filter((admin) => admin.id === lockedAdminId);
-  }, [admins, lockedAdminId]);
-  const effectiveAdminFilter = lockedAdminId || adminFilter;
+    if (!lockedAdminGroupKey) return adminFilterOptions;
+    return adminFilterOptions.filter((admin) => admin.key === lockedAdminGroupKey);
+  }, [adminFilterOptions, lockedAdminGroupKey]);
+  const effectiveAdminFilter = lockedAdminGroupKey || adminFilter;
 
   const summaryRows = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
     const startDate = start.slice(0, 10);
     const endExclusiveDate = endExclusive.slice(0, 10);
-    const adminMap = new Map(admins.map((u) => [u.id, u.full_name]));
     const grouped = new Map<string, AdminSummary>();
 
     for (const row of orders) {
@@ -137,12 +216,13 @@ export default function AdminSalesReportPage() {
       if (!orderDate) continue;
       if (!(orderDate >= startDate && orderDate < endExclusiveDate)) continue;
       if (!matchPrefix(row.order_code, prefix)) continue;
-      if (effectiveAdminFilter !== "ALL" && row.admin_user_id !== effectiveAdminFilter) continue;
+      const assignedUser = row.admin_user_id ? usersById.get(row.admin_user_id) || null : null;
+      const key = row.admin_user_id ? getCanonicalAdminGroupKey(assignedUser) || `user:${row.admin_user_id}` : UNASSIGNED_ADMIN_ID;
+      if (effectiveAdminFilter !== ALL_ADMIN_FILTER && key !== effectiveAdminFilter) continue;
 
-      const key = row.admin_user_id || UNASSIGNED_ADMIN_ID;
       const current = grouped.get(key) ?? {
         admin_id: key,
-        admin_name: adminMap.get(key) || UNASSIGNED_ADMIN_LABEL,
+        admin_name: key === UNASSIGNED_ADMIN_ID ? UNASSIGNED_ADMIN_LABEL : canonicalGroupMeta.get(key)?.label || assignedUser?.full_name || assignedUser?.email || row.admin_user_id || UNASSIGNED_ADMIN_LABEL,
         shirts_total: 0,
         orders_total: 0,
         sales_total: 0,
@@ -154,7 +234,7 @@ export default function AdminSalesReportPage() {
     }
 
     return [...grouped.values()].sort((a, b) => b.sales_total - a.sales_total);
-  }, [orders, admins, month, year, prefix, effectiveAdminFilter]);
+  }, [orders, month, year, prefix, effectiveAdminFilter, usersById, canonicalGroupMeta]);
 
   const totals = useMemo(() => {
     return summaryRows.reduce(
@@ -212,17 +292,17 @@ export default function AdminSalesReportPage() {
           <select
             value={effectiveAdminFilter}
             onChange={(e) => setAdminFilter(e.target.value)}
-            disabled={Boolean(lockedAdminId)}
+            disabled={Boolean(lockedAdminGroupKey)}
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold bg-white text-slate-800 disabled:bg-slate-50 disabled:text-slate-500"
           >
-            <option value="ALL">ແອັດມິນທັງໝົດ</option>
+            <option value={ALL_ADMIN_FILTER}>ແອັດມິນທັງໝົດ</option>
             {visibleAdmins.map((a) => (
-              <option key={a.id} value={a.id}>{a.full_name}</option>
+              <option key={a.key} value={a.key}>{a.label}</option>
             ))}
           </select>
         </div>
 
-        {lockedAdminId ? (
+        {lockedAdminGroupKey ? (
           <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-700">
             ບັນຊີ admin ຈະເຫັນສະເພາະຍອດຂາຍຂອງໂຕເອງ
           </div>
