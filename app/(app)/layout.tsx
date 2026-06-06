@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AppRole, canAccessPath, getDefaultPathForRole } from "@/lib/access-control";
+import { fetchNavBadgeCounts, type NavBadgeCounts, type NavBadgePath } from "@/lib/nav-badge-counts";
 import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
 type UserProfile = {
@@ -111,6 +112,26 @@ const nav: NavItem[] = [
   { type: "link", href: "/change-requests", label: "ຄຳຂໍລໍຖ້າອະນຸມັດ", icon: ClipboardList },
 ];
 
+function formatNavBadgeCount(count: number) {
+  return count > 99 ? "99+" : count.toLocaleString();
+}
+
+function NavCountBadge({ count }: { count: number }) {
+  return (
+    <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full border border-rose-200 bg-rose-500 px-1.5 py-0.5 text-[10px] font-black leading-none text-white shadow-sm">
+      {formatNavBadgeCount(count)}
+    </span>
+  );
+}
+
+function isNavBadgeRouteActive(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function getSeenNavBadgeStorageKey(userId: string) {
+  return `bgsport:seen-nav-badges:${userId}`;
+}
+
 export default function AppLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -118,6 +139,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [navBadgeCounts, setNavBadgeCounts] = useState<NavBadgeCounts>({});
+  const [seenNavBadgeSignatures, setSeenNavBadgeSignatures] = useState<Partial<Record<NavBadgePath, string>>>({});
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     Reports: false,
     Setting: false,
@@ -134,6 +157,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       if (!session) {
         if (active) {
           setProfile(null);
+          setSeenNavBadgeSignatures({});
           setAuthChecking(false);
         }
         router.replace("/login");
@@ -146,6 +170,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         if (active) {
           setProfile(null);
+          setSeenNavBadgeSignatures({});
           setAuthChecking(false);
         }
         router.replace("/login");
@@ -162,6 +187,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         if (active) {
           setProfile(null);
+          setSeenNavBadgeSignatures({});
           setAuthChecking(false);
         }
         toast.error("ເກີດຂໍ້ຜິດພາດການກວດສອບຜູ້ໃຊ້");
@@ -193,6 +219,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         if (active) {
           setProfile(null);
+          setSeenNavBadgeSignatures({});
           setAuthChecking(false);
         }
         toast.error("ບັນຊີນີ້ບໍ່ມີສິດເຂົ້າໃຊ້ລະບົບ");
@@ -201,10 +228,19 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       }
 
       if (active) {
+        let storedSeenBadges: Partial<Record<NavBadgePath, string>> = {};
+        try {
+          const raw = window.localStorage.getItem(getSeenNavBadgeStorageKey((userRow as UserProfile).id));
+          storedSeenBadges = raw ? ((JSON.parse(raw) as Partial<Record<NavBadgePath, string>>) || {}) : {};
+        } catch {
+          storedSeenBadges = {};
+        }
+
         setProfile({
           ...(userRow as UserProfile),
           permission_settings: normalizeUserPermissionSettings((userRow as UserProfile).permission_settings),
         });
+        setSeenNavBadgeSignatures(storedSeenBadges);
         setAuthChecking(false);
       }
     };
@@ -214,6 +250,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     const { data: authState } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
         setProfile(null);
+        setSeenNavBadgeSignatures({});
         router.replace("/login");
       }
     });
@@ -231,6 +268,60 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       router.replace(getDefaultPathForRole(profile.role));
     }
   }, [pathname, profile, router]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    let active = true;
+
+    const loadNavBadgeCounts = async () => {
+      try {
+        const nextCounts = await fetchNavBadgeCounts({
+          id: profile.id,
+          role: profile.role,
+        });
+        if (active) {
+          const activeEntry = (Object.keys(nextCounts) as NavBadgePath[]).find((href) => isNavBadgeRouteActive(pathname, href));
+          if (activeEntry) {
+            const activeSignature = nextCounts[activeEntry]?.signature || "";
+            if (activeSignature && seenNavBadgeSignatures[activeEntry] !== activeSignature) {
+              const nextSeen = {
+                ...seenNavBadgeSignatures,
+                [activeEntry]: activeSignature,
+              };
+              setSeenNavBadgeSignatures(nextSeen);
+              window.localStorage.setItem(getSeenNavBadgeStorageKey(profile.id), JSON.stringify(nextSeen));
+            }
+          }
+          setNavBadgeCounts(nextCounts);
+        }
+      } catch (error) {
+        console.error("Failed to load navigation badge counts", error);
+      }
+    };
+
+    void loadNavBadgeCounts();
+
+    const intervalId = window.setInterval(() => {
+      void loadNavBadgeCounts();
+    }, 30_000);
+
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === "visible") {
+        void loadNavBadgeCounts();
+      }
+    };
+
+    window.addEventListener("focus", handleVisibilityRefresh);
+    document.addEventListener("visibilitychange", handleVisibilityRefresh);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleVisibilityRefresh);
+      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+    };
+  }, [pathname, profile?.id, profile?.role, seenNavBadgeSignatures]);
 
   const availableNav = useMemo(() => {
     if (!profile) return [];
@@ -257,6 +348,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     const parts = name.split(/\s+/).filter(Boolean).slice(0, 2);
     return parts.map((part) => part[0]?.toUpperCase() || "").join("") || "BG";
   }, [profile]);
+
+  const getNavBadgeCount = (href: string) => {
+    const path = href as NavBadgePath;
+    const entry = navBadgeCounts[path];
+    if (!entry || entry.count <= 0) return 0;
+    if (isNavBadgeRouteActive(pathname, href)) return 0;
+    if (seenNavBadgeSignatures[path] === entry.signature) return 0;
+    return entry.count;
+  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -330,6 +430,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             if (item.type === "link") {
               const active = pathname === item.href || pathname.startsWith(item.href + "/");
               const Icon = item.icon;
+              const badgeCount = getNavBadgeCount(item.href);
 
               return (
                 <Link
@@ -340,8 +441,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     active ? "bg-slate-700 text-white shadow-lg" : "text-slate-400 hover:bg-slate-700/50 hover:text-white"
                   } ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
                 >
-                  <Icon size={18} className={active ? "text-blue-400" : "text-slate-400"} />
-                  <span className={sidebarCollapsed ? "md:hidden" : ""}>{item.label}</span>
+                  <div className="relative flex items-center justify-center">
+                    <Icon size={18} className={active ? "text-blue-400" : "text-slate-400"} />
+                    {sidebarCollapsed && badgeCount > 0 ? (
+                      <span className="absolute -right-2.5 -top-2.5">
+                        <NavCountBadge count={badgeCount} />
+                      </span>
+                    ) : null}
+                  </div>
+                  <span className={`flex-1 ${sidebarCollapsed ? "md:hidden" : ""}`}>{item.label}</span>
+                  {!sidebarCollapsed && badgeCount > 0 ? <NavCountBadge count={badgeCount} /> : null}
                 </Link>
               );
             }
