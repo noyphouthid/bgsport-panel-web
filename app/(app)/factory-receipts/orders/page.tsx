@@ -103,6 +103,7 @@ export default function FactoryReceiptOrdersPage() {
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
   const [receivedBy, setReceivedBy] = useState("");
+  const [noteQuery, setNoteQuery] = useState("");
   const [phoneFilter, setPhoneFilter] = useState<PhoneFilter>("all");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -153,9 +154,12 @@ export default function FactoryReceiptOrdersPage() {
       return;
     }
 
+    const receivedByKeyword = receivedBy.trim().toLowerCase();
+    const noteKeyword = noteQuery.trim().toLowerCase();
     const receiptRows = ((receiptData ?? []) as ReceiptRow[]).filter((receipt) => {
-      const keyword = receivedBy.trim().toLowerCase();
-      return !keyword || receipt.received_by.toLowerCase().includes(keyword);
+      const matchedReceivedBy = !receivedByKeyword || receipt.received_by.toLowerCase().includes(receivedByKeyword);
+      const matchedNote = !noteKeyword || (receipt.note ?? "").toLowerCase().includes(noteKeyword);
+      return matchedReceivedBy && matchedNote;
     });
 
     if (receiptRows.length === 0) {
@@ -291,6 +295,7 @@ export default function FactoryReceiptOrdersPage() {
     setFromDate(today);
     setToDate(today);
     setReceivedBy("");
+    setNoteQuery("");
     setPhoneFilter("all");
     setQuery("");
     setPage(1);
@@ -353,7 +358,7 @@ export default function FactoryReceiptOrdersPage() {
       {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">ຂໍ້ຜິດພາດ: {err}</div> : null}
 
       <div className="mb-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-6">
+        <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-7">
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຈາກວັນທີຮັບເຂົ້າ</label>
             <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500" />
@@ -367,6 +372,10 @@ export default function FactoryReceiptOrdersPage() {
             <input value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} placeholder="ຊື່ພະນັກງານ" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all placeholder-slate-300 focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ໝາຍເຫດ</label>
+            <input value={noteQuery} onChange={(e) => setNoteQuery(e.target.value)} placeholder="ຄົ້ນຫາໃນໝາຍເຫດ" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all placeholder-slate-300 focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ເບີລູກຄ້າ</label>
             <select value={phoneFilter} onChange={(e) => setPhoneFilter(e.target.value as PhoneFilter)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500">
               <option value="all">ທັງໝົດ</option>
@@ -376,9 +385,9 @@ export default function FactoryReceiptOrdersPage() {
           </div>
           <div className="md:col-span-2">
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຄົ້ນຫາ</label>
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ລະຫັດອໍເດີ / ບິນໂຮງງານ / ເບີ / ໝາຍເຫດ" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all placeholder-slate-300 focus:ring-2 focus:ring-blue-500" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ລະຫັດອໍເດີ / ບິນໂຮງງານ / ເບີ / WhatsApp" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition-all placeholder-slate-300 focus:ring-2 focus:ring-blue-500" />
           </div>
-          <div className="mt-2 flex gap-2 md:col-span-6">
+          <div className="mt-2 flex gap-2 md:col-span-7">
             <button onClick={runSearch} className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-blue-700">ຄົ້ນຫາ</button>
             <button onClick={resetAll} className="rounded-lg border border-slate-200 bg-slate-100 px-6 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200">ລ້າງ</button>
           </div>
