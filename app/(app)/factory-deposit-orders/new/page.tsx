@@ -1102,7 +1102,7 @@ export default function FactoryDepositOrderFormPage() {
       player_mode: item.player_mode,
       player_rows: getFilledPlayerRows(item).map((row) => ({
         size: row.size,
-        player_name: "",
+        player_name: row.player_name.trim(),
         jersey_number: row.jersey_number.trim(),
         note: row.note.trim(),
       })),

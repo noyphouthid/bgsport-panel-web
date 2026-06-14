@@ -963,18 +963,22 @@ export default function FactoryDepositOrdersPage() {
                             )}
                           </div>
                           <div className="mt-3 flex-1 rounded-md border border-slate-700 p-3">
-                            <div className="mb-2 text-center text-[17px] font-black text-sky-700">ຈຳນວນໄຊສ໌</div>
-                            <div className="space-y-2 text-[17px]">
-                              {PRODUCTION_SIZE_FIELDS.filter((field) => Number(item.sizes[field.key]) > 0).map((field) => (
-                                <div key={field.key} className="flex items-center justify-between gap-3">
-                                  <span className="font-black text-slate-900">{field.label}:</span>
-                                  <span className="font-black text-rose-600">{item.sizes[field.key].toLocaleString()}</span>
+                            {item.player_mode === "none" ? (
+                              <>
+                                <div className="mb-2 text-center text-[17px] font-black text-sky-700">ຈຳນວນໄຊສ໌</div>
+                                <div className="space-y-2 text-[17px]">
+                                  {PRODUCTION_SIZE_FIELDS.filter((field) => Number(item.sizes[field.key]) > 0).map((field) => (
+                                    <div key={field.key} className="flex items-center justify-between gap-3">
+                                      <span className="font-black text-slate-900">{field.label}:</span>
+                                      <span className="font-black text-rose-600">{item.sizes[field.key].toLocaleString()}</span>
+                                    </div>
+                                  ))}
+                                  {PRODUCTION_SIZE_FIELDS.every((field) => Number(item.sizes[field.key]) <= 0) ? (
+                                    <div className="text-center text-[13px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
+                                  ) : null}
                                 </div>
-                              ))}
-                              {item.player_mode === "none" && PRODUCTION_SIZE_FIELDS.every((field) => Number(item.sizes[field.key]) <= 0) ? (
-                                <div className="text-center text-[13px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
-                              ) : null}
-                            </div>
+                              </>
+                            ) : null}
 
                             {item.player_mode !== "none" && filledPlayerRows.length > 0 ? (
                               <div className="mt-4 border-t border-slate-200 pt-3">
