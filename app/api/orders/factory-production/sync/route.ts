@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
     status: string | null;
     statusIndex: number | null;
     error: string | null;
+    
   }> = [];
 
   for (const row of rows) {

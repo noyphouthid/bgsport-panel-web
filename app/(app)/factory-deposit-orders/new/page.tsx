@@ -372,6 +372,12 @@ function getPlayerModePreviewTitle(mode: ProductionPlayerMode, numberLabel = "�
   return `ຊື່ ແລະ ${numberLabel}`;
 }
 
+function getPlayerPreviewTextClass(mode: ProductionPlayerMode) {
+  if (mode === "name_and_number") return "text-[11px] leading-tight tracking-tight";
+  if (mode === "name_only") return "text-[12px] leading-[1.3]";
+  return "text-[13px] leading-snug";
+}
+
 function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType, fallbackCollar: ProductionCollarType) {
   if (!Array.isArray(raw) || raw.length === 0) {
     return [buildEmptyProductionItem({ sleeve_type: fallbackSleeve, collar_type: fallbackCollar })];
@@ -3022,17 +3028,18 @@ export default function FactoryDepositOrderFormPage() {
 
                 <div className="mt-4 grid flex-1 grid-cols-4 gap-3">
                   {activeProductionItems.map((item, index) => {
+                    const usesWidePreviewCard = item.player_mode === "name_and_number";
                     const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
                     const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
                     const imageUrl = item.mockup_preview_url || item.mockup_url;
                     const filledPlayerRows = getFilledPlayerRows(item);
                     const itemSizeMap = getProductionItemSizeMap(item);
                     return (
-                      <div key={item.client_id} className="flex min-h-0 flex-col">
+                      <div key={item.client_id} className={`flex min-h-0 flex-col ${usesWidePreviewCard ? "col-span-2" : ""}`}>
                         <div className="mb-2 rounded-md border border-slate-700 px-2 py-1.5 text-center text-[11px] font-black text-slate-700">
                           ແບບ {index + 1} • {sleeveLabel} • {collarLabel}
                         </div>
-                        <div className="aspect-square overflow-hidden rounded-md border border-slate-700 bg-white">
+                        <div className={`${usesWidePreviewCard ? "h-[176px]" : "aspect-square"} overflow-hidden rounded-md border border-slate-700 bg-white`}>
                           {imageUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={imageUrl} alt={`preview-${index + 1}`} className="h-full w-full object-contain bg-white" />
@@ -3067,7 +3074,7 @@ export default function FactoryDepositOrderFormPage() {
                               <div className="mb-2 text-center text-[14px] font-black text-slate-700">
                                 {getPlayerModePreviewTitle(item.player_mode)}
                               </div>
-                              <div className="space-y-1 text-[13px] leading-snug text-slate-900">
+                              <div className={`space-y-1 text-slate-900 ${getPlayerPreviewTextClass(item.player_mode)}`}>
                                 {filledPlayerRows.map((row) => {
                                   const sizeLabel = PRODUCTION_SIZE_FIELDS.find((field) => field.key === row.size)?.label || "-";
                                   const lineParts = [
@@ -3077,7 +3084,7 @@ export default function FactoryDepositOrderFormPage() {
                                     row.note ? row.note : null,
                                   ].filter(Boolean);
                                   return (
-                                    <div key={row.id} className="truncate font-bold">
+                                    <div key={row.id} className="whitespace-nowrap font-bold">
                                       {lineParts.join(" | ")}
                                     </div>
                                   );
