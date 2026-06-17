@@ -120,7 +120,7 @@ type DepositOrderRow = {
 
 type ProductionSleeveType = "short" | "long" | "mixed";
 type ProductionCollarType = "crew" | "polo" | "mandarin" | "v_cut_polo" | "v_neck" | "cross_v" | "cut_v" | "pentagon";
-type ProductionSlotCount = 1 | 2 | 3 | 4;
+type ProductionSlotCount = 1 | 2 | 3 | 4 | 5 | 6;
 type ProductionSizeKey = "xs" | "jxs" | "js" | "jm" | "jl" | "jxl" | "j2xl" | "s" | "m" | "l" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl";
 type ProductionPriority = "normal" | "urgent";
 type ProductionPlayerMode = "none" | "name_only" | "number_only" | "name_and_number";
@@ -384,7 +384,7 @@ function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType
   }
 
   const items = raw
-    .slice(0, 4)
+    .slice(0, 6)
     .map((entry) => {
       const row = typeof entry === "object" && entry ? (entry as Record<string, unknown>) : {};
       const nestedSizes = typeof row.sizes === "object" && row.sizes ? (row.sizes as Record<string, unknown>) : {};
@@ -751,7 +751,7 @@ export default function FactoryDepositOrderFormPage() {
             row.sleeve_type || "short",
             mapLegacyCollarType(row.collar_type)
           );
-          const styleCount = Math.min(4, Math.max(1, fallbackProductionItems.length)) as ProductionSlotCount;
+          const styleCount = Math.min(6, Math.max(1, fallbackProductionItems.length)) as ProductionSlotCount;
           setProductionStyleCount(styleCount);
           setProductionItems(ensureProductionItemCount(fallbackProductionItems, styleCount));
 
@@ -890,6 +890,8 @@ export default function FactoryDepositOrderFormPage() {
     () => ensureProductionItemCount(productionItems, productionStyleCount).slice(0, productionStyleCount),
     [productionItems, productionStyleCount]
   );
+  const productionSheetPreviewCardCount = activeProductionItems.length + pantsItems.length;
+  const usesExpandedProductionSheetLayout = productionSheetPreviewCardCount > 4;
   const priorityBannerText =
     productionPriority === "urgent"
       ? `ຕ້ອງການເຄື່ອງດ່ວນ! ກຳນົດສົ່ງບໍ່ເກີນວັນທີ ${urgentDueDate || "../../...."}`
@@ -2090,6 +2092,8 @@ export default function FactoryDepositOrderFormPage() {
                   <option value={2}>2 ແບບ</option>
                   <option value={3}>3 ແບບ</option>
                   <option value={4}>4 ແບບ</option>
+                  <option value={5}>5 ແບບ</option>
+                  <option value={6}>6 ແບບ</option>
                 </select>
               </div>
               <div>
@@ -3026,7 +3030,7 @@ export default function FactoryDepositOrderFormPage() {
                   <span className={productionPriority === "urgent" ? "text-red-600" : "text-sky-700"}>{priorityBannerText}</span>
                 </div>
 
-                <div className="mt-4 grid flex-1 grid-cols-4 gap-3">
+                <div className={`mt-4 grid flex-1 gap-3 ${usesExpandedProductionSheetLayout ? "grid-cols-6" : "grid-cols-4"}`}>
                   {activeProductionItems.map((item, index) => {
                     const usesWidePreviewCard = item.player_mode === "name_and_number";
                     const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
@@ -3036,10 +3040,10 @@ export default function FactoryDepositOrderFormPage() {
                     const itemSizeMap = getProductionItemSizeMap(item);
                     return (
                       <div key={item.client_id} className={`flex min-h-0 flex-col ${usesWidePreviewCard ? "col-span-2" : ""}`}>
-                        <div className="mb-2 rounded-md border border-slate-700 px-2 py-1.5 text-center text-[11px] font-black text-slate-700">
+                        <div className={`rounded-md border border-slate-700 text-center font-black text-slate-700 ${usesExpandedProductionSheetLayout ? "mb-1 px-1.5 py-1 text-[9px]" : "mb-2 px-2 py-1.5 text-[11px]"}`}>
                           ແບບ {index + 1} • {sleeveLabel} • {collarLabel}
                         </div>
-                        <div className={`${usesWidePreviewCard ? "h-[176px]" : "aspect-square"} overflow-hidden rounded-md border border-slate-700 bg-white`}>
+                        <div className={`${usesWidePreviewCard ? (usesExpandedProductionSheetLayout ? "h-[122px]" : "h-[176px]") : "aspect-square"} overflow-hidden rounded-md border border-slate-700 bg-white`}>
                           {imageUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={imageUrl} alt={`preview-${index + 1}`} className="h-full w-full object-contain bg-white" />
@@ -3049,11 +3053,11 @@ export default function FactoryDepositOrderFormPage() {
                             </div>
                           )}
                         </div>
-                        <div className="mt-3 flex-1 rounded-md border border-slate-700 p-3">
+                        <div className={`flex-1 rounded-md border border-slate-700 ${usesExpandedProductionSheetLayout ? "mt-2 p-2" : "mt-3 p-3"}`}>
                           {item.player_mode === "none" ? (
                             <>
-                              <div className="mb-2 text-center text-[17px] font-black text-sky-700">ຈຳນວນໄຊສ໌</div>
-                              <div className="space-y-2 text-[18px]">
+                              <div className={`text-center font-black text-sky-700 ${usesExpandedProductionSheetLayout ? "mb-1 text-[13px]" : "mb-2 text-[17px]"}`}>ຈຳນວນໄຊສ໌</div>
+                              <div className={`space-y-1.5 ${usesExpandedProductionSheetLayout ? "text-[11px] leading-tight" : "text-[18px]"}`}>
                                 {PRODUCTION_SIZE_FIELDS.filter((field) => Number(itemSizeMap[field.key]) > 0).map((field) => (
                                   <div key={field.key} className="flex items-center justify-between gap-3">
                                     <span className="font-black text-slate-900">{field.label}:</span>
@@ -3071,7 +3075,7 @@ export default function FactoryDepositOrderFormPage() {
 
                           {item.player_mode !== "none" && filledPlayerRows.length > 0 ? (
                             <div>
-                              <div className="mb-2 text-center text-[14px] font-black text-slate-700">
+                              <div className={`text-center font-black text-slate-700 ${usesExpandedProductionSheetLayout ? "mb-1 text-[11px]" : "mb-2 text-[14px]"}`}>
                                 {getPlayerModePreviewTitle(item.player_mode)}
                               </div>
                               <div className={`space-y-1 text-slate-900 ${getPlayerPreviewTextClass(item.player_mode)}`}>
@@ -3084,7 +3088,7 @@ export default function FactoryDepositOrderFormPage() {
                                     row.note ? row.note : null,
                                   ].filter(Boolean);
                                   return (
-                                    <div key={row.id} className="whitespace-nowrap font-bold">
+                                    <div key={row.id} className={usesExpandedProductionSheetLayout ? "truncate font-bold" : "whitespace-nowrap font-bold"}>
                                       {lineParts.join(" | ")}
                                     </div>
                                   );
@@ -3104,7 +3108,7 @@ export default function FactoryDepositOrderFormPage() {
                         const sizeEntries = PRODUCTION_SIZE_FIELDS.filter((field) => Number(pantsItemSizeMap[field.key]) > 0);
                         return (
                           <div key={item.clientId} className="flex min-h-0 flex-col">
-                            <div className="mb-2 rounded-md border border-indigo-300 bg-indigo-50 px-2 py-1.5 text-center text-[11px] font-black text-indigo-700">
+                            <div className={`rounded-md border border-indigo-300 bg-indigo-50 text-center font-black text-indigo-700 ${usesExpandedProductionSheetLayout ? "mb-1 px-1.5 py-1 text-[9px]" : "mb-2 px-2 py-1.5 text-[11px]"}`}>
                               ໂສ້ງ {index + 1}
                             </div>
                             <div className="aspect-square overflow-hidden rounded-md border border-slate-700 bg-white">
@@ -3117,11 +3121,11 @@ export default function FactoryDepositOrderFormPage() {
                                 </div>
                               )}
                             </div>
-                            <div className="mt-3 flex-1 rounded-md border border-slate-700 p-3">
+                            <div className={`flex-1 rounded-md border border-slate-700 ${usesExpandedProductionSheetLayout ? "mt-2 p-2" : "mt-3 p-3"}`}>
                               {item.player_mode === "none" ? (
                                 <>
-                                  <div className="mb-2 text-center text-[17px] font-black text-sky-700">ຈຳນວນໄຊສ໌</div>
-                                  <div className="space-y-2 text-[18px]">
+                                  <div className={`text-center font-black text-sky-700 ${usesExpandedProductionSheetLayout ? "mb-1 text-[13px]" : "mb-2 text-[17px]"}`}>ຈຳນວນໄຊສ໌</div>
+                                  <div className={`space-y-1.5 ${usesExpandedProductionSheetLayout ? "text-[11px] leading-tight" : "text-[18px]"}`}>
                                     {sizeEntries.map((field) => (
                                       <div key={`${item.clientId}-${field.key}`} className="flex items-center justify-between gap-3">
                                         <span className="font-black text-slate-900">{field.label}:</span>
@@ -3136,10 +3140,10 @@ export default function FactoryDepositOrderFormPage() {
                               ) : null}
                               {item.player_mode !== "none" && filledPantsPlayerRows.length > 0 ? (
                                 <div>
-                                  <div className="mb-2 text-center text-[14px] font-black text-slate-700">
+                                  <div className={`text-center font-black text-slate-700 ${usesExpandedProductionSheetLayout ? "mb-1 text-[11px]" : "mb-2 text-[14px]"}`}>
                                     LIST
                                   </div>
-                                  <div className="space-y-1 text-[13px] leading-snug text-slate-900">
+                                  <div className={`space-y-1 text-slate-900 ${usesExpandedProductionSheetLayout ? "text-[10px] leading-tight" : "text-[13px] leading-snug"}`}>
                                     {filledPantsPlayerRows.map((row) => {
                                       const sizeLabel = PRODUCTION_SIZE_FIELDS.find((field) => field.key === row.size)?.label || "-";
                                       const lineParts = [
