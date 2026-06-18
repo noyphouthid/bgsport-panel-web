@@ -155,6 +155,7 @@ export function getOrderQrPrintHtml(labels: QrLabelRow[], previewMap: Record<str
   const stickersHtml = labels
     .map((label) => {
       const qrImage = previewMap[label.id] || "";
+      const importedDate = formatDateOnly(label.received_at);
       return `
         <section class="sticker">
           <div class="title">${getOrderQrLabelTitle()}</div>
@@ -163,6 +164,7 @@ export function getOrderQrPrintHtml(labels: QrLabelRow[], previewMap: Record<str
           </div>
           <div class="order-code">${label.order_code}</div>
           <div class="factory-bill">ລະຫັດບິນໂຮງງານ: ${label.factory_bill_code?.trim() || "-"}</div>
+          <div class="import-date">ວັນທີນຳເຂົ້າ: ${importedDate}</div>
         </section>
       `;
     })
@@ -240,12 +242,22 @@ export function getOrderQrPrintHtml(labels: QrLabelRow[], previewMap: Record<str
             max-width: 100%;
           }
           .factory-bill {
-            margin-top: 4.5mm;
+            margin-top: 3.6mm;
             color: #6b7280;
-            font-size: 3.5mm;
+            font-size: 3.3mm;
             font-weight: 700;
             text-align: center;
             line-height: 1.3;
+            max-width: 100%;
+            white-space: nowrap;
+          }
+          .import-date {
+            margin-top: 1.6mm;
+            color: #475569;
+            font-size: 3.1mm;
+            font-weight: 700;
+            text-align: center;
+            line-height: 1.25;
             max-width: 100%;
             white-space: nowrap;
           }
@@ -260,28 +272,31 @@ export function getTotalUnits(order: Partial<OrderSummary>) {
   return getTotalShirtQty(order);
 }
 
-export function formatDateTime(value?: string | null) {
-  if (!value) return "-";
+function getValidDate(value?: string | null) {
+  if (!value) return null;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString("en-GB", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+export function formatDateTime(value?: string | null) {
+  const date = getValidDate(value);
+  if (!date) return "-";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${day}/${month}/${year} ${hour}:${minute}`;
 }
 
 export function formatDateOnly(value?: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("en-GB", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  });
+  const date = getValidDate(value);
+  if (!date) return "-";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 export function formatTimeOnly(value?: string | null) {

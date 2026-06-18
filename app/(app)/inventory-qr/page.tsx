@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import {
   buildOrderLookupOrFilter,
   buildOrderQrCode,
+  formatDateOnly,
   formatDateTime,
   getOrderQrPrintHtml,
   getTotalUnits,
@@ -503,6 +504,11 @@ export default function InventoryQrPage() {
                         <div className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                           ຜະລິດສຳເລັດ: {formatDateTime(order.production_completed_at)}
                         </div>
+                        {label?.received_at && (
+                          <div className="mt-2 text-sm font-semibold text-emerald-700">
+                            ວັນທີນຳເຂົ້າ: {formatDateOnly(label.received_at)}
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
                         {label && (
@@ -580,6 +586,7 @@ export default function InventoryQrPage() {
                 <div className="mt-4 text-center">
                   <div className="text-2xl font-black tracking-tight text-slate-950">{activeLabel.order_code}</div>
                   <div className="mt-1 text-sm font-semibold text-slate-500">ລະຫັດບິນໂຮງງານ: {activeLabel.factory_bill_code?.trim() || "-"}</div>
+                  <div className="mt-1 text-sm font-semibold text-emerald-700">ວັນທີນຳເຂົ້າ: {formatDateOnly(activeLabel.received_at)}</div>
                   <div className="mt-2 break-all text-xs font-semibold text-slate-400">{activeLabel.qr_code}</div>
                 </div>
               </div>
