@@ -822,12 +822,17 @@ export default function FactoryDepositOrderFormPage() {
 
   const selectedFabric = useMemo(() => fabrics.find((item) => item.id === fabricId) ?? null, [fabrics, fabricId]);
   const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
+  const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const adminOptions = useMemo(() => users.filter((item) => isFactoryDepositAdminRole(item.role)), [users]);
   const plannerOptions = useMemo(() => users.filter((item) => isGraphicRole(item.role)), [users]);
   const canEdit = canEditWithPermissions(viewerPermissions, "factory_deposit_orders", viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false);
   const isSuperAdmin = viewerRole === "superadmin";
   const canApproveHere = !!recordId && !!viewerRole && isSuperAdmin && canApproveFactoryDepositOrder(viewerRole) && status === "submitted";
   const canConvertHere = !!recordId && !!viewerRole && isSuperAdmin && canConvertFactoryDepositOrder(viewerRole) && status === "approved";
+  const createdByUserName = useMemo(
+    () => (createdByUserId ? usersById.get(createdByUserId)?.full_name || "" : ""),
+    [createdByUserId, usersById]
+  );
 
   const shirtTotal = useMemo(() => {
     if (!selectedFabric) return 0;
@@ -902,6 +907,12 @@ export default function FactoryDepositOrderFormPage() {
   );
   const quantityDifference = totalProductionQty - assignedProductionQty;
   const quantityMatches = quantityDifference === 0;
+  const signatureFields = [
+    { label: "ຜູ້ອອກໃບສັ່ງຜະລິດ", name: createdByUserName },
+    { label: "ຜູ້ວາງແບບ", name: "" },
+    { label: "ຜູ້ວາງພ້ອມພິມ", name: "" },
+    { label: "ຜູ້ສົ່ງໂຮງງານ", name: "" },
+  ];
 
   const pendingSlipPreviews = useMemo(
     () =>
@@ -3172,15 +3183,14 @@ export default function FactoryDepositOrderFormPage() {
                     : null}
                 </div>
 
-                <div className="mt-5 grid grid-cols-2 gap-10 px-8 text-center text-[12px] text-slate-900">
-                  <div>
-                    <div className="h-12 border-b border-slate-900" />
-                    <div className="mt-2 font-black">ຜູ້ອອກໃບສັ່ງຜະລິດ</div>
-                  </div>
-                  <div>
-                    <div className="h-12 border-b border-slate-900" />
-                    <div className="mt-2 font-black">ຜູ້ວ່າງຜະລິດ</div>
-                  </div>
+                <div className="mt-5 grid grid-cols-2 gap-x-10 gap-y-6 px-8 text-center text-[12px] text-slate-900">
+                  {signatureFields.map((field) => (
+                    <div key={field.label}>
+                      <div className="h-12 border-b border-slate-900" />
+                      <div className="mt-2 font-black">{field.label}</div>
+                      <div className="mt-1 min-h-[16px] text-[11px] font-bold text-slate-700">{field.name || "\u00A0"}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

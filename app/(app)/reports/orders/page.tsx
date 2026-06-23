@@ -64,6 +64,18 @@ function normalizeDigits(value: string | null | undefined) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function parseExactAmount(value: string) {
+  const digits = normalizeDigits(value);
+  if (!digits) return null;
+  const amount = Number(digits);
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function normalizeAmount(value: number | string | null | undefined) {
+  const amount = Number(value) || 0;
+  return Math.round(amount);
+}
+
 function getComparableDate(value: string | null | undefined, field: ReportDateField) {
   if (!value) return null;
   const parsed = new Date(field === "order_date" ? `${value}T00:00:00` : value);
@@ -107,6 +119,7 @@ export default function OrdersReportPage() {
   const [dateField, setDateField] = useState<ReportDateField>("order_date");
   const [rushFilter, setRushFilter] = useState<"all" | "rush" | "normal">("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [exactAmountSearch, setExactAmountSearch] = useState("");
 
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [adminOptions, setAdminOptions] = useState<UserOption[]>([]);
@@ -161,12 +174,18 @@ export default function OrdersReportPage() {
 
   const filteredRows = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
+    const exactAmount = parseExactAmount(exactAmountSearch);
     return rows.filter((row) => {
       const date = getComparableDate(row[dateField], dateField);
-      if (!date || !(date >= start && date < endExclusive)) return false;
+      if (exactAmount === null && (!date || !(date >= start && date < endExclusive))) return false;
       if (!matchSelectedPrefixes(row.order_code, selectedPrefixes)) return false;
       if (adminFilter !== "all" && row.admin_user_id !== adminFilter) return false;
       if (!matchesSearch(row, searchTerm)) return false;
+      if (exactAmount !== null) {
+        const netTotal = normalizeAmount(row.net_total);
+        const initialDeposit = normalizeAmount(row.initial_deposit);
+        if (netTotal !== exactAmount && initialDeposit !== exactAmount) return false;
+      }
       const isPaid = Number(row.balance) === 0;
       if (paymentStatus === "paid" && !isPaid) return false;
       if (paymentStatus === "unpaid" && isPaid) return false;
@@ -178,7 +197,7 @@ export default function OrdersReportPage() {
       if (rushFilter === "normal" && row.factory_production_is_rush) return false;
       return true;
     });
-  }, [rows, year, month, dateField, selectedPrefixes, adminFilter, searchTerm, paymentStatus, factoryPaymentStatus, workflowStatus, rushFilter]);
+  }, [rows, year, month, dateField, selectedPrefixes, adminFilter, searchTerm, exactAmountSearch, paymentStatus, factoryPaymentStatus, workflowStatus, rushFilter]);
 
   const summary = useMemo(() => {
     const paidAmount = filteredRows.reduce((sum, row) => sum + ((Number(row.net_total) || 0) - (Number(row.balance) || 0)), 0);
@@ -191,6 +210,7 @@ export default function OrdersReportPage() {
   const periodLabel = buildPeriodLabel(month, year);
   const prefixSummary = selectedPrefixes.length === 0 ? "ALL" : selectedPrefixes.join(", ");
   const dateFieldLabel = DATE_FIELD_OPTIONS.find((item) => item.value === dateField)?.label || "ວັນທີ";
+  const exactAmountLabel = parseExactAmount(exactAmountSearch)?.toLocaleString() || "-";
 
   const exportExcel = () => {
     const periodFileLabel = month === "ALL" ? `${year}-ALL` : `${year}-${String(month).padStart(2, "0")}`;
@@ -204,6 +224,7 @@ export default function OrdersReportPage() {
       shipment_completed_date: toDateOnly(row.shipment_completed_at),
       closed_date: toDateOnly(row.closed_at || null),
       net_total: Number(row.net_total) || 0,
+      initial_deposit: Number(row.initial_deposit) || 0,
       paid_amount: (Number(row.net_total) || 0) - (Number(row.balance) || 0),
       outstanding_amount: Number(row.balance) || 0,
       payment_status: Number(row.balance) === 0 ? "ຈ່າຍແລ້ວ" : "ຄ້າງຈ່າຍ",
@@ -219,9 +240,10 @@ export default function OrdersReportPage() {
       factory_bill_code: searchTerm || "-",
       order_date: `prefix=${prefixSummary}`,
       production_completed_date: `date=${dateField}`,
-      shipment_completed_date: `payment=${paymentStatus}`,
+      shipment_completed_date: `amount=${exactAmountLabel}`,
       closed_date: `factory_payment=${factoryPaymentStatus}`,
       net_total: 0,
+      initial_deposit: 0,
       paid_amount: summary.paidAmount,
       outstanding_amount: summary.outstandingAmount,
       payment_status: `rush=${rushFilter}`,
@@ -239,14 +261,14 @@ export default function OrdersReportPage() {
   const handlePrint = () => {
     openReportPrintWindow({
       title: "ລາຍງານອໍເດີ້",
-      subtitle: `ວັນທີ: ${dateFieldLabel} | ໄລຍະ: ${periodLabel} | ລະຫັດ: ${prefixSummary} | ແອັດມິນ: ${adminFilter === "all" ? "ທັງໝົດ" : adminNames.get(adminFilter) || "-"} | ຄົ້ນຫາ: ${searchTerm || "-"} | ງານດ່ວນ: ${rushFilter === "all" ? "ທັງໝົດ" : rushFilter === "rush" ? "ສະເພາະງານດ່ວນ" : "ສະເພາະງານປົກກະຕິ"}`,
+      subtitle: `ວັນທີ: ${dateFieldLabel} | ໄລຍະ: ${periodLabel} | ລະຫັດ: ${prefixSummary} | ແອັດມິນ: ${adminFilter === "all" ? "ທັງໝົດ" : adminNames.get(adminFilter) || "-"} | ຄົ້ນຫາ: ${searchTerm || "-"} | ຍອດກົງຈຳນວນ: ${exactAmountLabel} | ງານດ່ວນ: ${rushFilter === "all" ? "ທັງໝົດ" : rushFilter === "rush" ? "ສະເພາະງານດ່ວນ" : "ສະເພາະງານປົກກະຕິ"}`,
       summary: [
         { label: "ຍອດຈ່າຍແລ້ວ", value: summary.paidAmount.toLocaleString() },
         { label: "ຍອດຄ້າງຈ່າຍ", value: summary.outstandingAmount.toLocaleString() },
         { label: "ອໍເດີຈ່າຍແລ້ວ", value: summary.paidOrders.toLocaleString() },
         { label: "ອໍເດີຄ້າງຈ່າຍ", value: summary.unpaidOrders.toLocaleString() },
       ],
-      headers: ["ລະຫັດອໍເດີ", "ແອັດມິນ", "ເບີໂທ", "ວັນທີສັ່ງ", "ຜະລິດສຳເລັດ", "ຈັດສົ່ງສຳເລັດ", "ຈ່າຍແລ້ວ", "ຄ້າງ", "ສະຖານະ"],
+      headers: ["ລະຫັດອໍເດີ", "ແອັດມິນ", "ເບີໂທ", "ວັນທີສັ່ງ", "ຜະລິດສຳເລັດ", "ຈັດສົ່ງສຳເລັດ", "ຍອດທັງໝົດ", "ມັດຈຳ", "ຈ່າຍແລ້ວ", "ຄ້າງ", "ສະຖານະ"],
       rows: filteredRows.map((row) => [
         row.order_code,
         adminNames.get(row.admin_user_id || "") || "-",
@@ -254,6 +276,8 @@ export default function OrdersReportPage() {
         row.order_date,
         toDateOnly(row.production_completed_at) || "-",
         toDateOnly(row.shipment_completed_at) || "-",
+        (Number(row.net_total) || 0).toLocaleString(),
+        (Number(row.initial_deposit) || 0).toLocaleString(),
         ((Number(row.net_total) || 0) - (Number(row.balance) || 0)).toLocaleString(),
         (Number(row.balance) || 0).toLocaleString(),
         getWorkflowStatusLabel(getWorkflowStatus(row)),
@@ -266,14 +290,14 @@ export default function OrdersReportPage() {
     try {
       await exportReportDocumentAsPdf({
         title: "ລາຍງານອໍເດີ້",
-        subtitle: `ວັນທີ: ${dateFieldLabel} | ໄລຍະ: ${periodLabel} | ລະຫັດ: ${prefixSummary} | ແອັດມິນ: ${adminFilter === "all" ? "ທັງໝົດ" : adminNames.get(adminFilter) || "-"} | ຄົ້ນຫາ: ${searchTerm || "-"} | ງານດ່ວນ: ${rushFilter === "all" ? "ທັງໝົດ" : rushFilter === "rush" ? "ສະເພາະງານດ່ວນ" : "ສະເພາະງານປົກກະຕິ"}`,
+        subtitle: `ວັນທີ: ${dateFieldLabel} | ໄລຍະ: ${periodLabel} | ລະຫັດ: ${prefixSummary} | ແອັດມິນ: ${adminFilter === "all" ? "ທັງໝົດ" : adminNames.get(adminFilter) || "-"} | ຄົ້ນຫາ: ${searchTerm || "-"} | ຍອດກົງຈຳນວນ: ${exactAmountLabel} | ງານດ່ວນ: ${rushFilter === "all" ? "ທັງໝົດ" : rushFilter === "rush" ? "ສະເພາະງານດ່ວນ" : "ສະເພາະງານປົກກະຕິ"}`,
         summary: [
           { label: "ຍອດຈ່າຍແລ້ວ", value: summary.paidAmount.toLocaleString() },
           { label: "ຍອດຄ້າງຈ່າຍ", value: summary.outstandingAmount.toLocaleString() },
           { label: "ອໍເດີຈ່າຍແລ້ວ", value: summary.paidOrders.toLocaleString() },
           { label: "ອໍເດີຄ້າງຈ່າຍ", value: summary.unpaidOrders.toLocaleString() },
         ],
-        headers: ["ລະຫັດອໍເດີ", "ແອັດມິນ", "ເບີໂທ", "ວັນທີສັ່ງ", "ຜະລິດສຳເລັດ", "ຈັດສົ່ງສຳເລັດ", "ຈ່າຍແລ້ວ", "ຄ້າງ", "ສະຖານະ"],
+        headers: ["ລະຫັດອໍເດີ", "ແອັດມິນ", "ເບີໂທ", "ວັນທີສັ່ງ", "ຜະລິດສຳເລັດ", "ຈັດສົ່ງສຳເລັດ", "ຍອດທັງໝົດ", "ມັດຈຳ", "ຈ່າຍແລ້ວ", "ຄ້າງ", "ສະຖານະ"],
         rows: filteredRows.map((row) => [
           row.order_code,
           adminNames.get(row.admin_user_id || "") || "-",
@@ -281,6 +305,8 @@ export default function OrdersReportPage() {
           row.order_date,
           toDateOnly(row.production_completed_at) || "-",
           toDateOnly(row.shipment_completed_at) || "-",
+          (Number(row.net_total) || 0).toLocaleString(),
+          (Number(row.initial_deposit) || 0).toLocaleString(),
           ((Number(row.net_total) || 0) - (Number(row.balance) || 0)).toLocaleString(),
           (Number(row.balance) || 0).toLocaleString(),
           getWorkflowStatusLabel(getWorkflowStatus(row)),
@@ -328,11 +354,18 @@ export default function OrdersReportPage() {
           </select>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
           <input
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="ຄົ້ນຫາລະຫັດອໍເດີ, ບິນໂຮງງານ, ເບີໂທ"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none"
+          />
+          <input
+            value={exactAmountSearch}
+            onChange={(e) => setExactAmountSearch(e.target.value)}
+            inputMode="numeric"
+            placeholder="ຄົ້ນຫາຍອດທັງໝົດ/ມັດຈຳ ແບບກົງຈຳນວນ"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none"
           />
           <select value={factoryPaymentStatus} onChange={(e) => setFactoryPaymentStatus(e.target.value as FactoryPaymentStatus)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
@@ -423,6 +456,8 @@ export default function OrdersReportPage() {
                 <th className="p-3 text-left text-xs font-black uppercase">ວັນທີສັ່ງ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ຜະລິດສຳເລັດ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ຈັດສົ່ງສຳເລັດ</th>
+                <th className="p-3 text-right text-xs font-black uppercase">ຍອດທັງໝົດ</th>
+                <th className="p-3 text-right text-xs font-black uppercase">ມັດຈຳ</th>
                 <th className="p-3 text-right text-xs font-black uppercase">ຈ່າຍແລ້ວ</th>
                 <th className="p-3 text-right text-xs font-black uppercase">ຄ້າງຈ່າຍ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ສະຖານະ</th>
@@ -431,7 +466,7 @@ export default function OrdersReportPage() {
             <tbody className="divide-y divide-slate-50">
               {!loading && filteredRows.length === 0 ? (
                 <tr>
-                  <td className="p-8 text-center font-bold text-slate-500" colSpan={9}>ບໍ່ມີຂໍ້ມູນ</td>
+                  <td className="p-8 text-center font-bold text-slate-500" colSpan={11}>ບໍ່ມີຂໍ້ມູນ</td>
                 </tr>
               ) : (
                 filteredRows.map((row) => (
@@ -442,6 +477,8 @@ export default function OrdersReportPage() {
                     <td className="p-3 text-slate-800">{row.order_date}</td>
                     <td className="p-3 text-slate-800">{toDateOnly(row.production_completed_at) || "-"}</td>
                     <td className="p-3 text-slate-800">{toDateOnly(row.shipment_completed_at) || "-"}</td>
+                    <td className="p-3 text-right font-bold text-slate-700">{(Number(row.net_total) || 0).toLocaleString()}</td>
+                    <td className="p-3 text-right font-bold text-amber-600">{(Number(row.initial_deposit) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right font-bold text-emerald-600">{(((Number(row.net_total) || 0) - (Number(row.balance) || 0))).toLocaleString()}</td>
                     <td className="p-3 text-right font-bold text-rose-600">{(Number(row.balance) || 0).toLocaleString()}</td>
                     <td className="p-3 font-medium text-slate-800">{getWorkflowStatusLabel(getWorkflowStatus(row))}</td>
