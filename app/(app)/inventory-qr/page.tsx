@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import toast from "react-hot-toast";
-import { Download, Printer, QrCode, RefreshCw, Search } from "lucide-react";
+import { BadgeCheck, Download, Printer, QrCode, RefreshCw, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   buildOrderLookupOrFilter,
@@ -290,66 +290,79 @@ export default function InventoryQrPage() {
       toast.error("ກະລຸນາເລືອກ QR ຢ່າງໜ້ອຍ 1 ລາຍການ");
       return;
     }
-    const confirmed = window.confirm(
-      `ຕ້ອງການພິມ ${selectedLabels.length} QR ແລະ ບັນທຶກສະຖານະວ່າພິມແລ້ວ ຫຼື ບໍ່?`
-    );
+    const confirmed = window.confirm(`ຕ້ອງການເປີດໜ້າພິມ ${selectedLabels.length} QR ຫຼື ບໍ່?`);
     if (!confirmed) return;
 
     setPrinting(true);
-    const nextPreviewUrls = { ...previewUrls };
-    for (const label of selectedLabels) {
-      if (!nextPreviewUrls[label.id]) {
-        nextPreviewUrls[label.id] = await generatePreviewDataUrl(label.qr_code);
+    try {
+      const nextPreviewUrls = { ...previewUrls };
+      for (const label of selectedLabels) {
+        if (!nextPreviewUrls[label.id]) {
+          nextPreviewUrls[label.id] = await generatePreviewDataUrl(label.qr_code);
+        }
       }
-    }
-    setPreviewUrls(nextPreviewUrls);
 
-    const popup = window.open("", "_blank", "width=960,height=1200");
-    if (!popup) {
+      setPreviewUrls(nextPreviewUrls);
+
+      const popup = window.open("", "_blank", "width=960,height=1200");
+      if (!popup) {
+        toast.error("ບໍ່ສາມາດເປີດໜ້າພິມໄດ້");
+        return;
+      }
+
+      popup.document.write(getOrderQrPrintHtml(selectedLabels, nextPreviewUrls));
+      popup.document.close();
+      popup.focus();
+      popup.print();
+      toast.success(`ເປີດໜ້າພິມ ${selectedLabels.length} QR ແລ້ວ, ກະລຸນາກົດຢືນຢັນການພິມຫຼັງຈາກພິມສຳເລັດ`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ຈັດໜ້າພິມບໍ່ສຳເລັດ");
+    } finally {
       setPrinting(false);
-      toast.error("ບໍ່ສາມາດເປີດໜ້າພິມໄດ້");
+    }
+  };
+
+  const confirmPrinted = async (targetLabels: QrLabelRow[]) => {
+    const pendingLabels = targetLabels.filter((label) => !isLabelPrinted(label));
+    if (pendingLabels.length === 0) {
+      toast("ລາຍການທີ່ເລືອກຖືກຢືນຢັນການພິມແລ້ວ");
       return;
     }
 
-    popup.document.write(getOrderQrPrintHtml(selectedLabels, nextPreviewUrls));
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    const confirmed = window.confirm(`ຢືນຢັນການພິມ ${pendingLabels.length} QR ແລ້ວ ຫຼື ບໍ່?`);
+    if (!confirmed) return;
 
     const printedAt = new Date().toISOString();
     const printedBy = currentPrinter.trim() || null;
-    const updates = selectedLabels.map((label) => {
-      const nextPrintCount = (Number(label.print_count) || 0) + 1;
-      return supabase
+    const updates = pendingLabels.map((label) =>
+      supabase
         .from("order_qr_labels")
         .update({
           printed_at: label.printed_at || printedAt,
           printed_by: printedBy,
-          print_count: nextPrintCount,
+          print_count: Math.max(1, Number(label.print_count) || 0),
           last_printed_at: printedAt,
           updated_at: printedAt,
         })
-        .eq("id", label.id);
-    });
+        .eq("id", label.id)
+    );
 
     const updateResults = await Promise.all(updates);
-    setPrinting(false);
-
     const updateError = updateResults.find((result) => result.error)?.error;
     if (updateError) {
-      toast.error(`ພິມໄດ້ ແຕ່ບັນທຶກສະຖານະການພິມບໍ່ສຳເລັດ: ${updateError.message}`);
+      toast.error(`ຢືນຢັນການພິມບໍ່ສຳເລັດ: ${updateError.message}`);
       return;
     }
 
     setRecentLabels((prev) =>
       prev.map((label) => {
-        const selected = selectedLabels.find((item) => item.id === label.id);
+        const selected = pendingLabels.find((item) => item.id === label.id);
         if (!selected) return label;
         return {
           ...label,
-          printed_at: label.printed_at || printedAt,
+          printed_at: selected.printed_at || printedAt,
           printed_by: printedBy,
-          print_count: (Number(label.print_count) || 0) + 1,
+          print_count: Math.max(1, Number(label.print_count) || 0),
           last_printed_at: printedAt,
           updated_at: printedAt,
         };
@@ -357,14 +370,14 @@ export default function InventoryQrPage() {
     );
     setLabelsByOrderId((prev) => {
       const next = { ...prev };
-      selectedLabels.forEach((label) => {
+      pendingLabels.forEach((label) => {
         const existing = next[label.order_id];
         if (!existing) return;
         next[label.order_id] = {
           ...existing,
           printed_at: existing.printed_at || printedAt,
           printed_by: printedBy,
-          print_count: (Number(existing.print_count) || 0) + 1,
+          print_count: Math.max(1, Number(existing.print_count) || 0),
           last_printed_at: printedAt,
           updated_at: printedAt,
         };
@@ -372,18 +385,18 @@ export default function InventoryQrPage() {
       return next;
     });
     setActiveLabel((prev) =>
-      prev && selectedLabelIds.includes(prev.id)
+      prev && pendingLabels.some((label) => label.id === prev.id)
         ? {
             ...prev,
             printed_at: prev.printed_at || printedAt,
             printed_by: printedBy,
-            print_count: (Number(prev.print_count) || 0) + 1,
+            print_count: Math.max(1, Number(prev.print_count) || 0),
             last_printed_at: printedAt,
             updated_at: printedAt,
           }
         : prev
     );
-    toast.success(`ບັນທຶກການພິມ ${selectedLabels.length} QR ສຳເລັດ`);
+    toast.success(`ຢືນຢັນການພິມ ${pendingLabels.length} QR ສຳເລັດ`);
   };
 
   const toggleSelectAllRecent = () => {
@@ -673,7 +686,16 @@ export default function InventoryQrPage() {
               className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50"
             >
               <Printer size={16} />
-              {printing ? "ກຳລັງຈັດໜ້າ..." : "ພິມລາຍການທີ່ເລືອກ"}
+              {printing ? "ກຳລັງຈັດໜ້າ..." : "ເປີດພິມລາຍການ"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void confirmPrinted(selectedLabels)}
+              disabled={selectedLabels.filter((label) => !isLabelPrinted(label)).length === 0}
+              className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-black text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+            >
+              <BadgeCheck size={16} />
+              ຢືນຢັນການພິມ
             </button>
           </div>
         </div>
@@ -732,6 +754,15 @@ export default function InventoryQrPage() {
                         >
                           ເບິ່ງຕົວຢ່າງ
                         </button>
+                        {!isLabelPrinted(label) ? (
+                          <button
+                            type="button"
+                            onClick={() => void confirmPrinted([label])}
+                            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 font-bold text-emerald-700 transition hover:bg-emerald-100"
+                          >
+                            ຢືນຢັນພິມ
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => void deleteLabel(label)}

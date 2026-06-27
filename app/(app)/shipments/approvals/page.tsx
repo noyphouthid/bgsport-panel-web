@@ -13,6 +13,7 @@ import {
   type ShipmentDeliveryRequestRow,
   type ShipmentDeliveryStatus,
 } from "@/lib/shipment-delivery-requests";
+import { isTransportNoteDeposited, type TransportNoteRow } from "@/lib/transport-notes";
 
 type UserRow = {
   id: string;
@@ -42,6 +43,11 @@ type LabelRow = {
   shipped_at: string | null;
 };
 
+type TransportNoteApprovalRow = Pick<
+  TransportNoteRow,
+  "id" | "delivery_request_id" | "transport_deposited_at" | "transport_deposited_by" | "transport_deposit_receipt_id"
+>;
+
 function formatDateTime(value: string | null) {
   if (!value) return "-";
   const d = new Date(value);
@@ -63,6 +69,7 @@ export default function ShipmentApprovalsPage() {
   const [rows, setRows] = useState<ShipmentDeliveryRequestRow[]>([]);
   const [ordersById, setOrdersById] = useState<Record<string, OrderRow>>({});
   const [usersById, setUsersById] = useState<Record<string, UserRow>>({});
+  const [transportNotesByRequestId, setTransportNotesByRequestId] = useState<Record<string, TransportNoteApprovalRow>>({});
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [bulkAction, setBulkAction] = useState<"approve" | "reject" | null>(null);
@@ -71,6 +78,14 @@ export default function ShipmentApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState<ShipmentDeliveryStatus | "all">("submitted");
   const [query, setQuery] = useState("");
   const [err, setErr] = useState<string | null>(null);
+
+  const shouldShowApprovalRow = (
+    request: ShipmentDeliveryRequestRow,
+    transportNote: TransportNoteApprovalRow | undefined
+  ) => {
+    if (request.delivery_method !== "transport") return true;
+    return Boolean(transportNote && isTransportNoteDeposited(transportNote));
+  };
 
   const load = async () => {
     setLoading(true);
@@ -93,7 +108,25 @@ export default function ShipmentApprovalsPage() {
       setUsersById(Object.fromEntries(userRows.map((user) => [user.id, user])));
 
       const requestRows = (requestData ?? []) as ShipmentDeliveryRequestRow[];
-      setRows(requestRows);
+
+      const requestIds = [...new Set(requestRows.map((row) => row.id).filter(Boolean))];
+      if (requestIds.length > 0) {
+        const { data: transportNoteData, error: transportNoteError } = await supabase
+          .from("transport_notes")
+          .select("id,delivery_request_id,transport_deposited_at,transport_deposited_by,transport_deposit_receipt_id")
+          .in("delivery_request_id", requestIds);
+        if (transportNoteError) throw transportNoteError;
+        const nextTransportNotesByRequestId = Object.fromEntries(
+          ((transportNoteData ?? []) as TransportNoteApprovalRow[])
+            .filter((row) => row.delivery_request_id)
+            .map((row) => [String(row.delivery_request_id), row])
+        );
+        setTransportNotesByRequestId(nextTransportNotesByRequestId);
+        setRows(requestRows.filter((row) => shouldShowApprovalRow(row, nextTransportNotesByRequestId[row.id])));
+      } else {
+        setTransportNotesByRequestId({});
+        setRows(requestRows.filter((row) => shouldShowApprovalRow(row, undefined)));
+      }
 
       const orderIds = [...new Set(requestRows.map((row) => row.order_id))];
       if (orderIds.length === 0) {
@@ -133,7 +166,12 @@ export default function ShipmentApprovalsPage() {
   };
 
   const approveRequest = async (request: ShipmentDeliveryRequestRow) => {
-    const [{ data: orderData, error: orderError }, { data: labelData, error: labelError }, { data: existingShipment, error: existingShipmentError }] =
+    const [
+      { data: orderData, error: orderError },
+      { data: labelData, error: labelError },
+      { data: existingShipment, error: existingShipmentError },
+      { data: transportNoteData, error: transportNoteError },
+    ] =
       await Promise.all([
         supabase
           .from("orders")
@@ -152,20 +190,33 @@ export default function ShipmentApprovalsPage() {
           .order("shipped_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
+        supabase
+          .from("transport_notes")
+          .select("id,delivery_request_id,transport_deposited_at,transport_deposited_by,transport_deposit_receipt_id")
+          .eq("delivery_request_id", request.id)
+          .maybeSingle(),
       ]);
 
     if (orderError) throw orderError;
     if (labelError) throw labelError;
     if (existingShipmentError) throw existingShipmentError;
+    if (transportNoteError) throw transportNoteError;
 
     const order = (orderData as OrderRow | null) ?? null;
     const label = (labelData as LabelRow | null) ?? null;
+    const transportNote = (transportNoteData as TransportNoteApprovalRow | null) ?? null;
 
     if (!order) throw new Error("ບໍ່ພົບຂໍ້ມູນອໍເດີ");
     if (!label) throw new Error("ບໍ່ພົບຂໍ້ມູນ QR");
     if (order.status === "completed") throw new Error("ອໍເດີນີ້ຖືກປິດງານແລ້ວ");
     if (order.shipment_status === "shipped" || order.shipment_completed_at || label.label_status === "shipped" || label.shipped_at || existingShipment?.id) {
       throw new Error("ອໍເດີນີ້ຖືກຈັດສົ່ງແລ້ວ");
+    }
+    if (request.delivery_method === "transport") {
+      if (!transportNote) throw new Error("ບໍ່ພົບໃບຝາກເຄື່ອງຂອງຄຳຂໍນີ້");
+      if (!isTransportNoteDeposited(transportNote)) {
+        throw new Error("ຄຳຂໍນີ້ຍັງບໍ່ໄດ້ຢືນຢັນຝາກຂົນສົ່ງ");
+      }
     }
 
     const paymentAmount = Number(request.payment_amount) || 0;
@@ -175,7 +226,10 @@ export default function ShipmentApprovalsPage() {
     }
 
     const approvedAtIso = new Date().toISOString();
-    const shippedAtIso = request.delivery_scheduled_at || approvedAtIso;
+    const shippedAtIso =
+      request.delivery_method === "transport"
+        ? transportNote?.transport_deposited_at || approvedAtIso
+        : request.delivery_scheduled_at || approvedAtIso;
 
     const { data: shipmentData, error: shipmentError } = await supabase
       .from("shipment_records")
@@ -226,7 +280,7 @@ export default function ShipmentApprovalsPage() {
         balance: nextBalance,
         customer_paid_full_at: nextCustomerPaidFullAt,
         shipment_status: "shipped",
-        shipment_completed_at: approvedAtIso,
+        shipment_completed_at: shippedAtIso,
       })
       .eq("id", request.order_id);
     if (orderUpdateError) throw orderUpdateError;
@@ -235,7 +289,7 @@ export default function ShipmentApprovalsPage() {
       .from("order_qr_labels")
       .update({
         label_status: "shipped",
-        shipped_at: approvedAtIso,
+        shipped_at: shippedAtIso,
         shipped_by: request.delivery_person_name || usersById[request.requested_by_user_id || ""]?.full_name || "System",
         last_scanned_at: approvedAtIso,
         updated_at: approvedAtIso,
@@ -249,7 +303,7 @@ export default function ShipmentApprovalsPage() {
         status: "delivered",
         approved_at: approvedAtIso,
         approved_by_user_id: viewerUserId,
-        delivered_at: approvedAtIso,
+        delivered_at: shippedAtIso,
         delivered_by_user_id: viewerUserId,
         updated_at: approvedAtIso,
       })
@@ -259,7 +313,7 @@ export default function ShipmentApprovalsPage() {
     await safeInsertOrderAction(
       request.order_id,
       "approve_shipment_delivery_request",
-      `Approved delivery request ${request.id}; method=${request.delivery_method}; payment_amount=${paymentAmount}`
+      `Approved delivery request ${request.id}; method=${request.delivery_method}; payment_amount=${paymentAmount}; shipped_at=${shippedAtIso}`
     );
 
     return order;
@@ -451,7 +505,7 @@ export default function ShipmentApprovalsPage() {
             <ClipboardCheck size={24} className="text-amber-600" />
             ອະນຸມັດການສົ່ງມອບສິນຄ້າ
           </h1>
-          <div className="mt-2 text-sm font-medium text-slate-500">super admin ຈະເປັນຜູ້ຢືນຢັນປິດງານສົ່ງມອບ ແລະ ບັນທຶກລົງ order ຈິງ</div>
+          <div className="mt-2 text-sm font-medium text-slate-500">super admin ຈະອະນຸມັດສະເພາະລາຍການທີ່ຜ່ານການຢືນຢັນຝາກຂົນສົ່ງແລ້ວ ຫຼື ລາຍການຮັບເອງທີ່ຖືກສົ່ງເຂົ້າມາ.</div>
         </div>
         <Link href="/shipments" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
           ກັບໄປໜ້າຈັດສົ່ງ
@@ -530,6 +584,7 @@ export default function ShipmentApprovalsPage() {
                   const order = ordersById[row.order_id];
                   const requester = usersById[row.requested_by_user_id || ""];
                   const approver = usersById[row.approved_by_user_id || row.rejected_by_user_id || row.delivered_by_user_id || ""];
+                  const transportNote = transportNotesByRequestId[row.id];
                   return (
                     <tr key={row.id} className="hover:bg-slate-50/70">
                       <td className="p-4">
@@ -557,6 +612,13 @@ export default function ShipmentApprovalsPage() {
                         {row.delivery_method === "transport" ? (
                           <div className="mt-1 text-xs text-slate-500">
                             {row.transport_providers.join(", ") || "-"} {row.transport_branch ? `• ${row.transport_branch}` : ""}
+                          </div>
+                        ) : null}
+                        {row.delivery_method === "transport" ? (
+                          <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${transportNote && isTransportNoteDeposited(transportNote) ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                            {transportNote && isTransportNoteDeposited(transportNote)
+                              ? `ຝາກຂົນສົ່ງແລ້ວ ${formatDateTime(transportNote.transport_deposited_at)}`
+                              : "ຍັງບໍ່ຢືນຢັນຝາກຂົນສົ່ງ"}
                           </div>
                         ) : null}
                         {row.transfer_slip_url ? (

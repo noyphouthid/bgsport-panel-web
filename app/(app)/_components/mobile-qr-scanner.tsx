@@ -5,14 +5,24 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, CameraOff, ScanLine } from "lucide-react";
 
 type MobileQrScannerProps = {
-  onDetected: (value: string) => void;
+  onDetected: (value: string) => void | Promise<void>;
+  continuous?: boolean;
+  collapseOnDetect?: boolean;
+  dedupeMs?: number;
 };
 
-export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
+export function MobileQrScanner({
+  onDetected,
+  continuous = false,
+  collapseOnDetect = true,
+  dedupeMs = 1800,
+}: MobileQrScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<number | null>(null);
+  const lastDetectedValueRef = useRef("");
+  const dedupeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [active, setActive] = useState(false);
   const [opened, setOpened] = useState(false);
@@ -30,6 +40,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
       if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
+      if (dedupeTimerRef.current) clearTimeout(dedupeTimerRef.current);
     };
   }, []);
 
@@ -44,6 +55,10 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
     }
     setActive(false);
     if (collapse) setOpened(false);
+  };
+
+  const queueNextFrame = () => {
+    frameRef.current = requestAnimationFrame(scanFrame);
   };
 
   const scanFrame = () => {
@@ -66,15 +81,36 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
           });
 
           if (result?.data?.trim()) {
-            onDetected(result.data);
-            stopScanner(true);
+            const normalized = result.data.trim();
+            if (normalized && normalized === lastDetectedValueRef.current) {
+              queueNextFrame();
+              return;
+            }
+
+            lastDetectedValueRef.current = normalized;
+            if (dedupeTimerRef.current) clearTimeout(dedupeTimerRef.current);
+            dedupeTimerRef.current = setTimeout(() => {
+              lastDetectedValueRef.current = "";
+              dedupeTimerRef.current = null;
+            }, dedupeMs);
+
+            if (!continuous) {
+              void Promise.resolve(onDetected(normalized)).finally(() => {
+                stopScanner(collapseOnDetect);
+              });
+              return;
+            }
+
+            void Promise.resolve(onDetected(normalized)).finally(() => {
+              queueNextFrame();
+            });
             return;
           }
         }
       }
     }
 
-    frameRef.current = requestAnimationFrame(scanFrame);
+    queueNextFrame();
   };
 
   const startScanner = async () => {
@@ -100,8 +136,13 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
         await videoRef.current.play();
       }
 
+      lastDetectedValueRef.current = "";
+      if (dedupeTimerRef.current) {
+        clearTimeout(dedupeTimerRef.current);
+        dedupeTimerRef.current = null;
+      }
       setActive(true);
-      frameRef.current = requestAnimationFrame(scanFrame);
+      queueNextFrame();
     } catch (err) {
       setError(err instanceof Error ? err.message : "ບໍ່ສາມາດເປີດກ້ອງໄດ້");
       stopScanner();
@@ -125,7 +166,7 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
           }`}
         >
           {active ? <CameraOff size={18} /> : <Camera size={18} />}
-          {active ? "ຢຸດ" : "ສະແກນ"}
+          {active ? "ຢຸດສະແກນ" : "ສະແກນ"}
         </button>
       </div>
 
@@ -142,6 +183,11 @@ export function MobileQrScanner({ onDetected }: MobileQrScannerProps) {
             </div>
           )}
           {active && <div className="pointer-events-none absolute inset-6 rounded-[2rem] border-2 border-emerald-400/90" />}
+          {active && continuous ? (
+            <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-2xl bg-slate-950/70 px-3 py-2 text-center text-xs font-bold text-emerald-50">
+              ສະແກນໄດ້ຕໍ່ເນື່ອງຫຼາຍ QR. ກົດປຸ່ມຢຸດເມື່ອສະແກນຄົບແລ້ວ.
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="mt-4 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm font-medium text-slate-500 break-words">

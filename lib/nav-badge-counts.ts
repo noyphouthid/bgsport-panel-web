@@ -5,6 +5,7 @@ import { canManageAllTransportNotes } from "@/lib/transport-notes";
 
 export const NAV_BADGE_PATHS = [
   "/factory-deposit-orders",
+  "/factory-production-queue",
   "/order-alerts",
   "/factory-receipts/orders",
   "/shipments/notes",
@@ -71,6 +72,11 @@ type ShipmentApprovalBadgeRow = {
 };
 
 type DesignQueueBadgeRow = {
+  id: string;
+  updated_at: string | null;
+};
+
+type FactoryProductionQueueBadgeRow = {
   id: string;
   updated_at: string | null;
 };
@@ -250,9 +256,25 @@ async function fetchDesignQueueBadgeCount(profile: NavBadgeProfile) {
   };
 }
 
+async function fetchFactoryProductionQueueBadgeCount(profile: NavBadgeProfile) {
+  let query = supabase.from("factory_production_queue_entries").select("id,updated_at").neq("status", "sent_to_factory");
+  if (profile.role === "graphic") {
+    query = query.eq("planner_user_id", profile.id);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  const rows = (data ?? []) as FactoryProductionQueueBadgeRow[];
+  return {
+    count: rows.length,
+    signature: buildSignature(rows.map((row) => `${row.id}:${row.updated_at || ""}`).sort()),
+  };
+}
+
 export async function fetchNavBadgeCounts(profile: NavBadgeProfile): Promise<NavBadgeCounts> {
   const [
     factoryDepositOrders,
+    factoryProductionQueue,
     orderAlerts,
     factoryReceiptOrders,
     shipmentNotes,
@@ -260,6 +282,7 @@ export async function fetchNavBadgeCounts(profile: NavBadgeProfile): Promise<Nav
     designQueue,
   ] = await Promise.all([
     fetchFactoryDepositOrderBadgeCount(profile),
+    fetchFactoryProductionQueueBadgeCount(profile),
     fetchOrderAlertsBadgeCount(),
     fetchFactoryReceiptOrdersBadgeCount(),
     fetchShipmentNotesBadgeCount(profile),
@@ -269,6 +292,7 @@ export async function fetchNavBadgeCounts(profile: NavBadgeProfile): Promise<Nav
 
   return {
     "/factory-deposit-orders": factoryDepositOrders,
+    "/factory-production-queue": factoryProductionQueue,
     "/order-alerts": orderAlerts,
     "/factory-receipts/orders": factoryReceiptOrders,
     "/shipments/notes": shipmentNotes,

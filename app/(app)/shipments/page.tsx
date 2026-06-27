@@ -508,7 +508,7 @@ export default function ShipmentsPage() {
   const canCancelShipment = viewerRole === "superadmin" || viewerRole === "accountant";
   const requestSubmitted = activeRequest?.status === "submitted";
 
-  const saveDeliveryRequest = async (nextStatus: "draft" | "submitted") => {
+  const saveDeliveryRequest = async () => {
     if (!active) {
       toast.error("ກະລຸນາສະແກນ QR ກ່ອນ");
       return;
@@ -569,7 +569,7 @@ export default function ShipmentsPage() {
         order_id: active.order.id,
         qr_label_id: active.label.id,
         delivery_method: deliveryMethod,
-        status: nextStatus,
+        status: "draft",
         requested_by_user_id: viewerUserId,
         delivery_scheduled_at: scheduledAtIso,
         delivery_person_name: shippedBy.trim(),
@@ -594,6 +594,13 @@ export default function ShipmentsPage() {
         transport_province: deliveryMethod === "transport" ? transportProvince.trim() : null,
         transport_providers: deliveryMethod === "transport" ? transportProviders : [],
         transport_charge_mode: deliveryMethod === "transport" ? transportChargeMode : null,
+        approved_at: null,
+        approved_by_user_id: null,
+        delivered_at: null,
+        delivered_by_user_id: null,
+        rejected_at: null,
+        rejected_by_user_id: null,
+        rejection_note: null,
         updated_at: new Date().toISOString(),
       };
 
@@ -672,11 +679,9 @@ export default function ShipmentsPage() {
         }
       }
       toast.success(
-        nextStatus === "submitted"
-          ? `ສົ່ງຄຳຂໍອະນຸມັດສຳລັບ ${active.order.order_code} ແລ້ວ`
-          : deliveryMethod === "transport"
-            ? `ບັນທຶກບິນ ແລະ ຮ່າງການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
-            : `ບັນທຶກຮ່າງການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
+        deliveryMethod === "transport"
+          ? `ບັນທຶກບິນ ແລະ ການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
+          : `ບັນທຶກຮ່າງການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
       );
       markClean();
     } catch (error) {
@@ -888,6 +893,22 @@ export default function ShipmentsPage() {
               ລາຍການໃບຝາກເຄື່ອງ
             </Link>
           ) : null}
+          {viewerRole && canAccessPath("/shipments/deposits", viewerRole) ? (
+            <Link
+              href="/shipments/deposits"
+              className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
+            >
+              ລາຍການຝາກສຳເລັດ
+            </Link>
+          ) : null}
+          {viewerRole && canAccessPath("/shipments/deposits/scan", viewerRole) ? (
+            <Link
+              href="/shipments/deposits/scan"
+              className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/20"
+            >
+              ສະແກນຢືນຢັນຝາກ
+            </Link>
+          ) : null}
           {viewerRole && canAccessPath("/shipments/transport-note", viewerRole) ? (
             <Link
               href="/shipments/transport-note"
@@ -1032,7 +1053,7 @@ export default function ShipmentsPage() {
 
                 {requestSubmitted ? (
                   <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                    ຄຳຂໍນີ້ຖືກສົ່ງລໍຖ້າ super admin ອະນຸມັດແລ້ວ ຈະຍັງແກ້ໄຂບໍ່ໄດ້ຈົນກວ່າຖືກປະຕິເສດ.
+                    ລາຍການນີ້ຖືກຢືນຢັນຝາກຂົນສົ່ງແລ້ວ ແລະ ກຳລັງລໍຖ້າ super admin ອະນຸມັດ. ຈະຍັງແກ້ໄຂບໍ່ໄດ້ຈົນກວ່າຖືກປະຕິເສດ ຫຼື ຍ້ອນການຝາກ.
                   </div>
                 ) : null}
 
@@ -1368,7 +1389,7 @@ export default function ShipmentsPage() {
                 <div className="mt-5 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    onClick={() => void saveDeliveryRequest("draft")}
+                    onClick={() => void saveDeliveryRequest()}
                     disabled={saving || shipmentLocked || requestSubmitted}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50 sm:w-auto"
                   >
@@ -1378,23 +1399,11 @@ export default function ShipmentsPage() {
                       : shipmentLocked
                         ? "ອໍເດີນີ້ສົ່ງແລ້ວ"
                         : requestSubmitted
-                          ? "ສົ່ງຂໍອະນຸມັດແລ້ວ"
+                          ? "ລໍຖ້າອະນຸມັດ"
                           : deliveryMethod === "transport"
                           ? "ບັນທຶກບິນ ແລະ ການຈັດສົ່ງ"
                           : "ບັນທຶກຮ່າງການຈັດສົ່ງ"}
                   </button>
-
-                  {!shipmentLocked ? (
-                    <button
-                      type="button"
-                      onClick={() => void saveDeliveryRequest("submitted")}
-                      disabled={saving || requestSubmitted}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm font-black text-amber-800 shadow-sm transition hover:bg-amber-100 disabled:opacity-50 sm:w-auto"
-                    >
-                      <PackageCheck size={18} />
-                      {requestSubmitted ? "ລໍຖ້າອະນຸມັດ" : "ສົ່ງຂໍອະນຸມັດ"}
-                    </button>
-                  ) : null}
 
                   {shipmentLocked ? (
                     <button

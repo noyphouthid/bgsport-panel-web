@@ -21,6 +21,8 @@ const STAFF_ALLOWED_PATHS = new Set([
   "/factory-receipts",
   "/factory-receipts/orders",
   "/shipments",
+  "/shipments/deposits",
+  "/shipments/deposits/scan",
   "/shipments/notes",
   "/shipments/orders",
 ]);
@@ -37,6 +39,7 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/factory-payments", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/design-queue", roles: ["superadmin", "admin", "manager", "staff", "graphic"] },
   { prefix: "/factory-deposit-orders", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
+  { prefix: "/factory-production-queue", roles: ["superadmin", "admin", "manager", "staff", "graphic"] },
   { prefix: "/order-alerts", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/factory-production-status", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/inventory-qr", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },

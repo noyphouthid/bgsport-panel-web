@@ -368,6 +368,20 @@ export default function FactoryDepositOrdersPage() {
     });
   };
 
+  const syncProductionQueue = async (depositOrderId: string, nextStatus: FactoryDepositOrderStatus) => {
+    if (nextStatus === "draft" || nextStatus === "cancelled") {
+      await supabase.rpc("sync_factory_production_queue_entries", {
+        p_actor_user_id: viewerUserId,
+      });
+      return;
+    }
+
+    await supabase.rpc("upsert_factory_production_queue_entry", {
+      p_deposit_order_id: depositOrderId,
+      p_actor_user_id: viewerUserId,
+    });
+  };
+
   const confirmAction = async ({
     icon = "question",
     title,
@@ -419,6 +433,7 @@ export default function FactoryDepositOrdersPage() {
       if (error) throw error;
 
       await insertHistory(row.id, "approve", "approve deposit order", row.status, "approved");
+      await syncProductionQueue(row.id, "approved");
       toast.success("ອະນຸມັດໃບມັດຈຳແລ້ວ");
       await load();
     } catch (error) {
@@ -592,6 +607,7 @@ export default function FactoryDepositOrdersPage() {
         .eq("id", row.id);
       if (updateDepositError) throw new Error(`ອັບເດດສະຖານະໃບມັດຈຳບໍ່ສຳເລັດ: ${updateDepositError.message}`);
 
+      await syncProductionQueue(row.id, "converted");
       await insertHistory(row.id, "convert_to_order", `convert to order ${row.order_code}`, row.status, "converted");
       toast.success("ບັນທຶກເປັນອໍເດີແລ້ວ");
       await load();

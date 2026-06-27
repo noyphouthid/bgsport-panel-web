@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import QRCode from "qrcode";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Pencil, Printer, Search, Trash2, Truck } from "lucide-react";
+import { BadgeCheck, Pencil, Printer, Search, Trash2, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { canAccessPath, type AppRole } from "@/lib/access-control";
 import {
+  buildTransportNoteQrCode,
   canManageAllTransportNotes,
   getTransportNoteDisplayNo,
   getTransportNotePrintHtml,
+  isTransportNoteDeposited,
+  isTransportNotePrinted,
   type TransportNoteRow,
 } from "@/lib/transport-notes";
 
@@ -29,6 +33,7 @@ type UserRow = {
 
 type SourceFilter = "all" | "standalone" | "shipment_request";
 type PrintFilter = "all" | "printed" | "unprinted";
+type DepositFilter = "all" | "deposited" | "pending";
 
 function toLocalDateInputValue(date = new Date()) {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000;
@@ -57,14 +62,24 @@ function formatDateTime(value: string | null) {
 }
 
 function getPrintStatusLabel(row: Pick<TransportNoteRow, "print_count" | "printed_at" | "last_printed_at">) {
-  return (Number(row.print_count) || 0) > 0 || row.printed_at || row.last_printed_at
+  return isTransportNotePrinted(row)
     ? `ພິມແລ້ວ ${Math.max(1, Number(row.print_count) || 0)} ຄັ້ງ`
     : "ຍັງບໍ່ພິມ";
 }
 
 function getPrintStatusStyles(row: Pick<TransportNoteRow, "print_count" | "printed_at" | "last_printed_at">) {
-  return (Number(row.print_count) || 0) > 0 || row.printed_at || row.last_printed_at
+  return isTransportNotePrinted(row)
     ? "border-sky-200 bg-sky-50 text-sky-700"
+    : "border-amber-200 bg-amber-50 text-amber-700";
+}
+
+function getDepositStatusLabel(row: Pick<TransportNoteRow, "transport_deposited_at" | "transport_deposit_receipt_id">) {
+  return isTransportNoteDeposited(row) ? "ຢືນຢັນການຈັດສົ່ງແລ້ວ" : "ຍັງບໍ່ທັນຢືນຢັນການຈັດສົ່ງ";
+}
+
+function getDepositStatusStyles(row: Pick<TransportNoteRow, "transport_deposited_at" | "transport_deposit_receipt_id">) {
+  return isTransportNoteDeposited(row)
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : "border-amber-200 bg-amber-50 text-amber-700";
 }
 
@@ -77,6 +92,7 @@ export default function ShipmentNotesPage() {
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [printFilter, setPrintFilter] = useState<PrintFilter>("all");
+  const [depositFilter, setDepositFilter] = useState<DepositFilter>("all");
   const [adminFilter, setAdminFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState(today);
@@ -141,8 +157,10 @@ export default function ShipmentNotesPage() {
     return rows.filter((row) => {
       if (!canManageAllTransportNotes(viewerRole) && row.created_by_user_id !== viewerUserId) return false;
       if (sourceFilter !== "all" && row.source_type !== sourceFilter) return false;
-      if (printFilter === "printed" && !(Number(row.print_count) > 0 || row.printed_at || row.last_printed_at)) return false;
-      if (printFilter === "unprinted" && (Number(row.print_count) > 0 || row.printed_at || row.last_printed_at)) return false;
+      if (printFilter === "printed" && !isTransportNotePrinted(row)) return false;
+      if (printFilter === "unprinted" && isTransportNotePrinted(row)) return false;
+      if (depositFilter === "deposited" && !isTransportNoteDeposited(row)) return false;
+      if (depositFilter === "pending" && isTransportNoteDeposited(row)) return false;
       if (adminFilter !== "all" && row.created_by_user_id !== adminFilter) return false;
 
       const printedDate = toDateOnly(row.last_printed_at || row.created_at);
@@ -168,7 +186,7 @@ export default function ShipmentNotesPage() {
         .toLowerCase()
         .includes(keyword);
     });
-  }, [adminFilter, fromDate, ordersById, printFilter, query, rows, sourceFilter, toDate, usersById, viewerRole, viewerUserId]);
+  }, [adminFilter, depositFilter, fromDate, ordersById, printFilter, query, rows, sourceFilter, toDate, usersById, viewerRole, viewerUserId]);
 
   const adminOptions = useMemo(() => {
     const usedIds = new Set(rows.map((row) => row.created_by_user_id).filter((value): value is string => Boolean(value)));
@@ -200,54 +218,88 @@ export default function ShipmentNotesPage() {
     if (!confirmed) return;
 
     setPrinting(true);
-    const popup = window.open("", "_blank", "width=960,height=1200");
-    if (!popup) {
+    try {
+      const popup = window.open("", "_blank", "width=960,height=1200");
+      if (!popup) {
+        toast.error("ບໍ່ສາມາດເປີດໜ້າພິມໄດ້");
+        return;
+      }
+
+      const printableRows = await Promise.all(
+        selectedRows.map(async (row) => {
+          const qrCodeText = buildTransportNoteQrCode(row);
+          const qrCodeDataUrl = await QRCode.toDataURL(qrCodeText, {
+            width: 140,
+            margin: 0,
+            color: { dark: "#000000", light: "#ffffff" },
+          });
+          return {
+            ...row,
+            display_no: getTransportNoteDisplayNo(row, row.order_id ? ordersById[row.order_id]?.order_code : null),
+            qr_code_text: qrCodeText,
+            qr_code_data_url: qrCodeDataUrl,
+          };
+        })
+      );
+
+      popup.document.write(getTransportNotePrintHtml(printableRows));
+      popup.document.close();
+      popup.focus();
+      toast.success(`ເປີດໜ້າພິມ ${selectedRows.length} ໃບແລ້ວ, ກະລຸນາກົດຢືນຢັນການພິມຫຼັງຈາກພິມສຳເລັດ`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ຈັດໜ້າພິມບໍ່ສຳເລັດ");
+    } finally {
       setPrinting(false);
-      toast.error("ບໍ່ສາມາດເປີດໜ້າພິມໄດ້");
+    }
+  };
+
+  const confirmPrinted = async (targetRows: TransportNoteRow[]) => {
+    const pendingRows = targetRows.filter((row) => !isTransportNotePrinted(row));
+    if (pendingRows.length === 0) {
+      toast("ລາຍການທີ່ເລືອກຖືກຢືນຢັນການພິມແລ້ວ");
       return;
     }
 
-    popup.document.write(getTransportNotePrintHtml(selectedRows));
-    popup.document.close();
-    popup.focus();
+    const confirmed = window.confirm(`ຢືນຢັນການພິມ ${pendingRows.length} ໃບແລ້ວ ຫຼື ບໍ່?`);
+    if (!confirmed) return;
 
     const printedAt = new Date().toISOString();
-    const updates = selectedRows.map((row) =>
-      supabase
-        .from("transport_notes")
-        .update({
-          printed_at: row.printed_at || printedAt,
-          printed_by: currentPrinter || null,
-          print_count: (Number(row.print_count) || 0) + 1,
-          last_printed_at: printedAt,
-          updated_at: printedAt,
-        })
-        .eq("id", row.id)
+    const results = await Promise.all(
+      pendingRows.map((row) =>
+        supabase
+          .from("transport_notes")
+          .update({
+            printed_at: row.printed_at || printedAt,
+            printed_by: currentPrinter || null,
+            print_count: Math.max(1, Number(row.print_count) || 0) + (row.printed_at || row.last_printed_at ? 1 : 0),
+            last_printed_at: printedAt,
+            updated_at: printedAt,
+          })
+          .eq("id", row.id)
+      )
     );
 
-    const results = await Promise.all(updates);
-    setPrinting(false);
     const updateError = results.find((result) => result.error)?.error;
     if (updateError) {
-      toast.error(`ພິມໄດ້ ແຕ່ບັນທຶກສະຖານະການພິມບໍ່ສຳເລັດ: ${updateError.message}`);
+      toast.error(`ຢືນຢັນການພິມບໍ່ສຳເລັດ: ${updateError.message}`);
       return;
     }
 
     setRows((prev) =>
       prev.map((row) =>
-        selectedRows.some((item) => item.id === row.id)
+        pendingRows.some((item) => item.id === row.id)
           ? {
               ...row,
               printed_at: row.printed_at || printedAt,
               printed_by: currentPrinter || null,
-              print_count: (Number(row.print_count) || 0) + 1,
+              print_count: Math.max(1, Number(row.print_count) || 0) + (row.printed_at || row.last_printed_at ? 1 : 0),
               last_printed_at: printedAt,
               updated_at: printedAt,
             }
           : row
       )
     );
-    toast.success(`ພິມ ${selectedRows.length} ໃບສຳເລັດ`);
+    toast.success(`ຢືນຢັນການພິມ ${pendingRows.length} ໃບສຳເລັດ`);
   };
 
   const deleteRow = async (row: TransportNoteRow) => {
@@ -276,7 +328,7 @@ export default function ShipmentNotesPage() {
             </div>
             <h1 className="mt-4 text-3xl font-black tracking-tight">ລາຍການໃບຝາກເຄື່ອງ</h1>
             <p className="mt-2 max-w-2xl text-sm font-medium text-sky-100">
-              ຈັດການໃບບິນຂົນສົ່ງທັງໝົດ, ຄົ້ນຫາຕາມລະຫັດອໍເດີ, ແກ້ໄຂ, ລຶບ ແລະ ພິມຫຼາຍໃບພ້ອມກັນໄດ້.
+              ຈັດການໃບບິນຂົນສົ່ງທັງໝົດ, ພິມ QR ຕິດໃບຝາກ, ແລະ ຢືນຢັນສະຖານະການພິມແບບແຍກຈາກການເປີດໜ້າພິມ.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -292,14 +344,23 @@ export default function ShipmentNotesPage() {
               className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-black text-slate-900 transition hover:bg-slate-100 disabled:opacity-50"
             >
               <Printer size={16} />
-              {printing ? "ກຳລັງພິມ..." : `ພິມ ${selectedRows.length || ""} ໃບ`}
+              {printing ? "ກຳລັງຈັດໜ້າ..." : `ເປີດພິມ ${selectedRows.length || ""} ໃບ`}
+            </button>
+            <button
+              type="button"
+              onClick={() => void confirmPrinted(selectedRows)}
+              disabled={selectedRows.filter((row) => !isTransportNotePrinted(row)).length === 0}
+              className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-black text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+            >
+              <BadgeCheck size={16} />
+              ຢືນຢັນການພິມ
             </button>
           </div>
         </div>
       </section>
 
       <section className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-[1.4fr_180px_180px_180px_160px_160px]">
+        <div className="grid gap-4 md:grid-cols-[1.4fr_180px_180px_180px_180px_160px_160px]">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -318,6 +379,11 @@ export default function ShipmentNotesPage() {
             <option value="all">ທຸກສະຖານະພິມ</option>
             <option value="printed">ພິມແລ້ວ</option>
             <option value="unprinted">ຍັງບໍ່ພິມ</option>
+          </select>
+          <select value={depositFilter} onChange={(e) => setDepositFilter(e.target.value as DepositFilter)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="all">ທຸກສະຖານະຝາກ</option>
+            <option value="deposited">ຢືນຢັນການຈັດສົ່ງແລ້ວ</option>
+            <option value="pending">ຍັງບໍ່ທັນຢືນຢັນ</option>
           </select>
           {canManageAllTransportNotes(viewerRole) ? (
             <select value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
@@ -358,14 +424,15 @@ export default function ShipmentNotesPage() {
                 <th className="p-4 text-left font-bold uppercase tracking-widest">ອໍເດີ</th>
                 <th className="p-4 text-left font-bold uppercase tracking-widest">ຜູ້ຮັບ</th>
                 <th className="p-4 text-left font-bold uppercase tracking-widest">ຂົນສົ່ງ</th>
-                <th className="p-4 text-left font-bold uppercase tracking-widest">ພິມລ່າສຸດ</th>
+                <th className="p-4 text-left font-bold uppercase tracking-widest">ສະຖານະ</th>
+                <th className="p-4 text-left font-bold uppercase tracking-widest">ອັບເດດລ່າສຸດ</th>
                 <th className="p-4 text-center font-bold uppercase tracking-widest">ຈັດການ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {!loading && filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-10 text-center font-medium text-slate-400">ບໍ່ພົບໃບຝາກເຄື່ອງ</td>
+                  <td colSpan={8} className="p-10 text-center font-medium text-slate-400">ບໍ່ພົບໃບຝາກເຄື່ອງ</td>
                 </tr>
               ) : (
                 filteredRows.map((row) => {
@@ -400,18 +467,40 @@ export default function ShipmentNotesPage() {
                       </td>
                       <td className="p-4">
                         <div className="font-semibold text-slate-700">{row.transporters.join(", ") || "-"}</div>
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-xs text-slate-500">{[row.branch, row.city, row.province].filter(Boolean).join(" / ") || "-"}</div>
+                      </td>
+                      <td className="p-4">
+                        <div className="mt-2 text-xs text-slate-500">
                           <span className={`rounded-full border px-2 py-1 ${getPrintStatusStyles(row)}`}>
                             {getPrintStatusLabel(row)}
                           </span>
                         </div>
+                        <div className="mt-2 text-xs text-slate-500">
+                          <span className={`rounded-full border px-2 py-1 ${getDepositStatusStyles(row)}`}>
+                            {getDepositStatusLabel(row)}
+                          </span>
+                        </div>
                       </td>
                       <td className="p-4">
-                        <div className="font-semibold text-slate-700">{formatDateTime(row.last_printed_at || row.created_at)}</div>
-                        <div className="mt-1 text-xs text-slate-500">{row.printed_by || "-"}</div>
+                        <div className="font-semibold text-slate-700">
+                          {isTransportNoteDeposited(row) ? formatDateTime(row.transport_deposited_at) : formatDateTime(row.last_printed_at)}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {isTransportNoteDeposited(row) ? row.transport_deposited_by || "-" : row.printed_by || "-"}
+                        </div>
                       </td>
                       <td className="p-4">
                         <div className="flex flex-wrap items-center justify-center gap-2">
+                          {!isTransportNotePrinted(row) ? (
+                            <button
+                              type="button"
+                              onClick={() => void confirmPrinted([row])}
+                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-100"
+                            >
+                              <BadgeCheck size={14} />
+                              ຢືນຢັນພິມ
+                            </button>
+                          ) : null}
                           {viewerRole && canAccessPath("/shipments/transport-note", viewerRole) ? (
                             <Link href={`/shipments/transport-note?id=${row.id}`} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-700 transition hover:bg-slate-200">
                               <Pencil size={14} />

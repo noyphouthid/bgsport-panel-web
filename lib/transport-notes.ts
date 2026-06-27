@@ -23,9 +23,18 @@ export type TransportNoteRow = {
   printed_by: string | null;
   print_count: number;
   last_printed_at: string | null;
+  transport_deposited_at: string | null;
+  transport_deposited_by: string | null;
+  transport_deposit_receipt_id: string | null;
   created_by_user_id: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type TransportNotePrintRow = TransportNoteRow & {
+  display_no?: string | null;
+  qr_code_text?: string | null;
+  qr_code_data_url?: string | null;
 };
 
 export type TransportNoteForm = {
@@ -50,6 +59,9 @@ export const DEFAULT_TRANSPORT_NOTE_FORM: TransportNoteForm = {
   shippingChargeMode: "destination",
 };
 
+const TRANSPORT_NOTE_QR_PREFIX = "BGSPORT-TRANSPORT-NOTE";
+const TRANSPORT_NOTE_QR_SPLITTER = /\|/;
+
 export function canManageAllTransportNotes(
   role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant" | null
 ) {
@@ -64,6 +76,50 @@ export function buildTransportNoteNo() {
   const hh = String(now.getHours()).padStart(2, "0");
   const min = String(now.getMinutes()).padStart(2, "0");
   return `TN${yy}-${mm}${dd}${hh}${min}`;
+}
+
+export function isTransportNotePrinted(row: Pick<TransportNoteRow, "print_count" | "printed_at" | "last_printed_at">) {
+  return (Number(row.print_count) || 0) > 0 || Boolean(row.printed_at) || Boolean(row.last_printed_at);
+}
+
+export function isTransportNoteDeposited(row: Pick<TransportNoteRow, "transport_deposited_at" | "transport_deposit_receipt_id">) {
+  return Boolean(row.transport_deposited_at || row.transport_deposit_receipt_id);
+}
+
+export function buildTransportNoteQrCode(note: Pick<TransportNoteRow, "id" | "note_no" | "order_id">) {
+  if (!note.id) {
+    throw new Error("ຈຳເປັນຕ້ອງມີລະຫັດໃບຝາກເຄື່ອງກ່ອນສ້າງ QR");
+  }
+  return [TRANSPORT_NOTE_QR_PREFIX, note.id, note.order_id || "", note.note_no.trim()].join("|");
+}
+
+export function parseTransportNoteQrInput(rawValue: string) {
+  const normalized = rawValue.trim();
+  if (!normalized) {
+    return {
+      normalized: "",
+      kind: "empty" as const,
+      noteId: null,
+      noteNo: null,
+    };
+  }
+
+  if (normalized.startsWith(`${TRANSPORT_NOTE_QR_PREFIX}|`)) {
+    const [, noteId = "", , noteNo = ""] = normalized.split(TRANSPORT_NOTE_QR_SPLITTER);
+    return {
+      normalized,
+      kind: "transport_note_qr" as const,
+      noteId: noteId || null,
+      noteNo: noteNo || null,
+    };
+  }
+
+  return {
+    normalized,
+    kind: "note_no" as const,
+    noteId: null,
+    noteNo: normalized,
+  };
 }
 
 export function mapTransportNoteToForm(row: Partial<TransportNoteRow>): TransportNoteForm {
@@ -85,30 +141,43 @@ export function getTransportNoteDisplayNo(row: Pick<TransportNoteRow, "note_no" 
   return row.note_no;
 }
 
-export function getTransportNotePrintHtml(rows: TransportNoteRow[]) {
+export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
   const cards = rows
     .map((row) => {
       const shippingModeText = row.shipping_charge_mode === "origin" ? "ຈ່າຍຕົ້ນທາງ" : "ຈ່າຍປາຍທາງ";
       const transporters = row.transporters.join(", ");
+      const qrCodeHtml =
+        row.qr_code_data_url
+          ? `
+            <div class="qr-box qr-box-header">
+              <img src="${row.qr_code_data_url}" alt="Transport note QR" />
+            </div>
+          `
+          : "";
       return `
         <section class="note">
           <div class="header">
+            ${qrCodeHtml}
             <div class="logo">BG</div>
             <div class="shop">
               ຮ້ານ: BG SPORT<br />
               ເບີ: 2092201288
             </div>
           </div>
-          <div class="chip">ຜູ້ຮັບ (Receiver):</div>
+          <div class="meta">
+            <div class="chip">ຜູ້ຮັບ (Receiver):</div>
+          </div>
           <div class="body">
-            <div>ຊື່ຜູ້ຮັບ: <strong>${row.receiver_name || "-"}</strong></div>
-            <div>ເບີຜູ້ຮັບ: <strong>${row.receiver_phone || "-"}</strong></div>
-            <div>ຝາກສາຂາ: <strong>${row.branch || "-"}</strong></div>
-            <div>ເມືອງ: <strong>${row.city || "-"}</strong></div>
-            <div>ແຂວງ: <strong>${row.province || "-"}</strong></div>
-            <div class="divider"></div>
-            <div>ຝາກຂົນສົ່ງ: <strong>${transporters || "-"}</strong></div>
-            <div>ຄ່າຂົນສົ່ງ: <strong>${shippingModeText}</strong></div>
+            <div class="details">
+              <div>ຊື່ຜູ້ຮັບ: <strong>${row.receiver_name || "-"}</strong></div>
+              <div>ເບີຜູ້ຮັບ: <strong>${row.receiver_phone || "-"}</strong></div>
+              <div>ຝາກສາຂາ: <strong>${row.branch || "-"}</strong></div>
+              <div>ເມືອງ: <strong>${row.city || "-"}</strong></div>
+              <div>ແຂວງ: <strong>${row.province || "-"}</strong></div>
+              <div class="divider"></div>
+              <div>ຝາກຂົນສົ່ງ: <strong>${transporters || "-"}</strong></div>
+              <div>ຄ່າຂົນສົ່ງ: <strong>${shippingModeText}</strong></div>
+            </div>
             <div class="divider"></div>
             <div class="foot">* ກະລຸນາຖ່າຍ VDO ຕອນຮັບເຄື່ອງກ່ອນທຸກຄັ້ງ! *</div>
           </div>
@@ -146,6 +215,7 @@ export function getTransportNotePrintHtml(rows: TransportNoteRow[]) {
       .header {
         display: flex;
         align-items: center;
+        gap: 8px;
         border-bottom: 1.5px solid #000;
         padding: 8px 10px;
       }
@@ -161,13 +231,11 @@ export function getTransportNotePrintHtml(rows: TransportNoteRow[]) {
         font-weight: 700;
       }
       .shop {
-        margin-left: 10px;
         font-size: 14px;
         line-height: 1.2;
         font-weight: 700;
       }
       .chip {
-        margin: 6px 0 0 10px;
         display: inline-block;
         background: #000;
         color: #fff;
@@ -175,13 +243,34 @@ export function getTransportNotePrintHtml(rows: TransportNoteRow[]) {
         font-weight: 700;
         padding: 4px 8px;
       }
+      .meta {
+        display: flex;
+        align-items: center;
+        padding: 6px 10px 0;
+      }
       .body {
         padding: 6px 10px 4px;
         font-size: 14px;
         line-height: 1.78;
       }
+      .details {
+        min-width: 0;
+      }
       .body strong {
         font-size: 15px;
+      }
+      .qr-box {
+        width: 54px;
+        height: 54px;
+        border: 1.5px solid #000;
+        padding: 2px;
+        background: #fff;
+        flex: 0 0 54px;
+      }
+      .qr-box img {
+        display: block;
+        width: 100%;
+        height: 100%;
       }
       .divider {
         border-bottom: 1.5px solid #000;

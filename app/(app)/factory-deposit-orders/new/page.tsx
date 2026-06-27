@@ -1010,6 +1010,20 @@ export default function FactoryDepositOrderFormPage() {
     });
   };
 
+  const syncProductionQueue = async (depositOrderId: string, nextStatus: FactoryDepositOrderStatus) => {
+    if (nextStatus === "draft" || nextStatus === "cancelled") {
+      await supabase.rpc("sync_factory_production_queue_entries", {
+        p_actor_user_id: viewerUserId,
+      });
+      return;
+    }
+
+    await supabase.rpc("upsert_factory_production_queue_entry", {
+      p_deposit_order_id: depositOrderId,
+      p_actor_user_id: viewerUserId,
+    });
+  };
+
   const confirmAction = async ({
     title,
     text,
@@ -1678,6 +1692,7 @@ export default function FactoryDepositOrderFormPage() {
         recordId ? previousStatus : null,
         nextStatus
       );
+      await syncProductionQueue(depositOrderId, nextStatus);
 
       setStatus(nextStatus);
       markClean();
@@ -1881,6 +1896,7 @@ export default function FactoryDepositOrderFormPage() {
         .eq("id", saved.depositOrderId);
       if (updateDepositError) throw new Error(`ອັບເດດສະຖານະໃບມັດຈຳບໍ່ສຳເລັດ: ${updateDepositError.message}`);
 
+      await syncProductionQueue(saved.depositOrderId, "converted");
       await insertHistory(saved.depositOrderId, "convert_to_order", `convert to order ${orderCode.trim()}`, "approved", "converted");
       setLinkedOrderId(orderData.id as string);
       setStatus("converted");

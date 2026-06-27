@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import {
   LayoutDashboard,
   ClipboardList,
+  ClipboardCheck,
   ReceiptText,
   Search,
   FileSpreadsheet,
@@ -28,6 +29,10 @@ import {
   ChevronDown,
   HandCoins,
   Palette,
+  ScanLine,
+  CheckCheck,
+  PackageCheck,
+  Clock3,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AppRole, canAccessPath, getDefaultPathForRole } from "@/lib/access-control";
@@ -66,6 +71,7 @@ const nav: NavItem[] = [
   { type: "link", href: "/design-queue", label: "ຄິວອອກແບບ", icon: Palette },
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
+  { type: "link", href: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", icon: Factory },
   { type: "link", href: "/factory-production-status", label: "ສະຖານະໂຮງງານ", icon: Factory },
   { type: "link", href: "/search", label: "ຄົ້ນຫາອໍເດີທັງໝົດ", icon: Search },
   {
@@ -106,10 +112,12 @@ const nav: NavItem[] = [
   { type: "link", href: "/factory-receipts", label: "ຮັບສິນຄ້າເຂົ້າ", icon: PackagePlus },
   { type: "link", href: "/factory-receipts/orders", label: "ລາຍການອໍເດີນຳເຂົ້າ", icon: ClipboardList },
   { type: "link", href: "/shipments", label: "ຈັດສົ່ງສິນຄ້າ", icon: Truck },
-  { type: "link", href: "/shipments/notes", label: "ລາຍການໃບຝາກເຄື່ອງ", icon: ClipboardList },
-  { type: "link", href: "/shipments/approvals", label: "ອະນຸມັດສົ່ງມອບ", icon: ClipboardList },
-  { type: "link", href: "/shipments/orders", label: "ລາຍການອໍເດີຈັດສົ່ງ", icon: ClipboardList },
-  { type: "link", href: "/change-requests", label: "ຄຳຂໍລໍຖ້າອະນຸມັດ", icon: ClipboardList },
+  { type: "link", href: "/shipments/notes", label: "ລາຍການໃບຝາກເຄື່ອງ", icon: ReceiptText },
+  { type: "link", href: "/shipments/deposits/scan", label: "ສະແກນຢືນຢັນຝາກ", icon: ScanLine },
+  { type: "link", href: "/shipments/deposits", label: "ລາຍການຝາກສຳເລັດ", icon: PackageCheck },
+  { type: "link", href: "/shipments/approvals", label: "ອະນຸມັດສົ່ງມອບ", icon: CheckCheck },
+  { type: "link", href: "/shipments/orders", label: "ລາຍການອໍເດີຈັດສົ່ງ", icon: ClipboardCheck },
+  { type: "link", href: "/change-requests", label: "ຄຳຂໍລໍຖ້າອະນຸມັດ", icon: Clock3 },
 ];
 
 function formatNavBadgeCount(count: number) {

@@ -8,10 +8,12 @@ export const ACCESS_PERMISSION_ITEMS = [
   { key: "/quotations", label: "ໃບປະເມີນລາຄາ", group: "ອໍເດີ" },
   { key: "/design-queue", label: "ຄິວອອກແບບ", group: "ອໍເດີ" },
   { key: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", group: "ອໍເດີ" },
+  { key: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", group: "ອໍເດີ" },
   { key: "/factory-production-status", label: "ສະຖານະໂຮງງານ", group: "ອໍເດີ" },
   { key: "/inventory-qr", label: "ສ້າງ QR", group: "ຄັງ/ຂົນສົ່ງ" },
   { key: "/factory-receipts", label: "ຮັບສິນຄ້າເຂົ້າ", group: "ຄັງ/ຂົນສົ່ງ" },
   { key: "/shipments", label: "ຈັດສົ່ງສິນຄ້າ", group: "ຄັງ/ຂົນສົ່ງ" },
+  { key: "/shipments/deposits/scan", label: "ສະແກນຢືນຢັນຝາກ", group: "ຄັງ/ຂົນສົ່ງ" },
   { key: "/change-requests", label: "ຄຳຂໍປ່ຽນແປງ", group: "ຄັງ/ຂົນສົ່ງ" },
   { key: "/reports", label: "ລາຍງານທົ່ວໄປ", group: "ລາຍງານ" },
   { key: "/reports/data-export", label: "ລາຍງານດຶງຂໍ້ມູນ", group: "ລາຍງານ" },
@@ -29,6 +31,7 @@ export const EDIT_PERMISSION_ITEMS = [
   { key: "orders", label: "ແກ້ໄຂອໍເດີ", description: "ບັນທຶກ, ປິດງານ, ລົບ, ແກ້ໄຂລາຍລະອຽດອໍເດີ" },
   { key: "design_queue", label: "ແກ້ໄຂຄິວອອກແບບ", description: "ເພີ່ມ, ແກ້ໄຂ, ລຶບ, ແລະ ຕິກສະຖານະຄິວ" },
   { key: "factory_deposit_orders", label: "ແກ້ໄຂການມັດຈຳສັ່ງຜະລິດ", description: "ບັນທຶກ ແລະ ແກ້ໄຂຂໍ້ມູນໃບມັດຈຳ" },
+  { key: "factory_production_queue", label: "ແກ້ໄຂຄິວວາງຜະລິດ", description: "ມອບໝາຍຄິວ, ປ່ຽນສະຖານະວາງ Pattern, ແລະ ສົ່ງໂຮງງານ" },
 ] as const;
 
 export type AccessPermissionKey = (typeof ACCESS_PERMISSION_ITEMS)[number]["key"];
