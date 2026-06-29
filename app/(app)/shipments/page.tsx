@@ -507,6 +507,7 @@ export default function ShipmentsPage() {
   const shipmentLocked = Boolean(active?.existingShipmentAt || active?.label.label_status === "shipped");
   const canCancelShipment = viewerRole === "superadmin" || viewerRole === "accountant";
   const requestSubmitted = activeRequest?.status === "submitted";
+  const saveWillSubmit = deliveryMethod === "pickup";
 
   const saveDeliveryRequest = async () => {
     if (!active) {
@@ -564,12 +565,14 @@ export default function ShipmentsPage() {
       const uploadedSlip = await uploadTransferSlipIfNeeded(active.order.id, active.label.id);
       const uploadedHandoff = await uploadHandoffPhotoIfNeeded(active.order.id, active.label.id);
 
+      const nextStatus: ShipmentDeliveryRequestRow["status"] = deliveryMethod === "pickup" ? "submitted" : "draft";
+
       const payload = {
         request_no: activeRequest?.request_no || buildShipmentRequestNo(),
         order_id: active.order.id,
         qr_label_id: active.label.id,
         delivery_method: deliveryMethod,
-        status: "draft",
+        status: nextStatus,
         requested_by_user_id: viewerUserId,
         delivery_scheduled_at: scheduledAtIso,
         delivery_person_name: shippedBy.trim(),
@@ -679,7 +682,9 @@ export default function ShipmentsPage() {
         }
       }
       toast.success(
-        deliveryMethod === "transport"
+        deliveryMethod === "pickup"
+          ? `ບັນທຶກ ແລະ ສົ່ງຂໍອະນຸມັດສຳລັບ ${active.order.order_code} ແລ້ວ`
+          : deliveryMethod === "transport"
           ? `ບັນທຶກບິນ ແລະ ການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
           : `ບັນທຶກຮ່າງການຈັດສົ່ງສຳລັບ ${active.order.order_code} ແລ້ວ`
       );
@@ -1053,7 +1058,9 @@ export default function ShipmentsPage() {
 
                 {requestSubmitted ? (
                   <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                    ລາຍການນີ້ຖືກຢືນຢັນຝາກຂົນສົ່ງແລ້ວ ແລະ ກຳລັງລໍຖ້າ super admin ອະນຸມັດ. ຈະຍັງແກ້ໄຂບໍ່ໄດ້ຈົນກວ່າຖືກປະຕິເສດ ຫຼື ຍ້ອນການຝາກ.
+                    {activeRequest?.delivery_method === "transport"
+                      ? "ລາຍການນີ້ຖືກຢືນຢັນຝາກຂົນສົ່ງແລ້ວ ແລະ ກຳລັງລໍຖ້າ super admin ອະນຸມັດ. ຈະຍັງແກ້ໄຂບໍ່ໄດ້ຈົນກວ່າຖືກປະຕິເສດ ຫຼື ຍ້ອນການຝາກ."
+                      : "ລາຍການນີ້ຖືກສົ່ງໄປລໍຖ້າ super admin ອະນຸມັດແລ້ວ. ຈະຍັງແກ້ໄຂບໍ່ໄດ້ຈົນກວ່າຖືກປະຕິເສດ."}
                   </div>
                 ) : null}
 
@@ -1400,6 +1407,8 @@ export default function ShipmentsPage() {
                         ? "ອໍເດີນີ້ສົ່ງແລ້ວ"
                         : requestSubmitted
                           ? "ລໍຖ້າອະນຸມັດ"
+                          : saveWillSubmit
+                            ? "ບັນທຶກ ແລະ ສົ່ງຂໍອະນຸມັດ"
                           : deliveryMethod === "transport"
                           ? "ບັນທຶກບິນ ແລະ ການຈັດສົ່ງ"
                           : "ບັນທຶກຮ່າງການຈັດສົ່ງ"}
