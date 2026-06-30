@@ -4,11 +4,25 @@ import jsQR from "jsqr";
 import { useEffect, useRef, useState } from "react";
 import { Camera, CameraOff, ScanLine } from "lucide-react";
 
+type BarcodeDetectorResult = {
+  rawValue?: string;
+};
+
+type BarcodeDetectorInstance = {
+  detect: (source: CanvasImageSource) => Promise<BarcodeDetectorResult[]>;
+};
+
+type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorInstance;
+
+type ScannerMode = "qr" | "barcode";
+
 type MobileQrScannerProps = {
   onDetected: (value: string) => void | Promise<void>;
   continuous?: boolean;
   collapseOnDetect?: boolean;
   dedupeMs?: number;
+  mode?: ScannerMode;
+  barcodeFormats?: string[];
 };
 
 export function MobileQrScanner({
@@ -16,11 +30,14 @@ export function MobileQrScanner({
   continuous = false,
   collapseOnDetect = true,
   dedupeMs = 1800,
+  mode = "qr",
+  barcodeFormats = ["code_128"],
 }: MobileQrScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<number | null>(null);
+  const barcodeDetectorRef = useRef<BarcodeDetectorInstance | null>(null);
   const lastDetectedValueRef = useRef("");
   const dedupeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -31,10 +48,12 @@ export function MobileQrScanner({
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSupported(typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia);
+      const hasCamera = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
+      const barcodeDetectorApi = (globalThis as typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+      setSupported(mode === "barcode" ? hasCamera && !!barcodeDetectorApi : hasCamera);
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     return () => {
@@ -58,10 +77,12 @@ export function MobileQrScanner({
   };
 
   const queueNextFrame = () => {
-    frameRef.current = requestAnimationFrame(scanFrame);
+    frameRef.current = requestAnimationFrame(() => {
+      void scanFrame();
+    });
   };
 
-  const scanFrame = () => {
+  const scanFrame = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
@@ -75,13 +96,31 @@ export function MobileQrScanner({
           canvas.width = width;
           canvas.height = height;
           context.drawImage(video, 0, 0, width, height);
-          const imageData = context.getImageData(0, 0, width, height);
-          const result = jsQR(imageData.data, width, height, {
-            inversionAttempts: "dontInvert",
-          });
+          let normalized = "";
 
-          if (result?.data?.trim()) {
-            const normalized = result.data.trim();
+          if (mode === "barcode") {
+            const barcodeDetectorApi = (globalThis as typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+            if (!barcodeDetectorApi) {
+              setError("ອຸປະກອນນີ້ບໍ່ຮອງຮັບການສະແກນ Barcode ຜ່ານກ້ອງ");
+              stopScanner();
+              return;
+            }
+
+            if (!barcodeDetectorRef.current) {
+              barcodeDetectorRef.current = new barcodeDetectorApi({ formats: barcodeFormats });
+            }
+
+            const results = await barcodeDetectorRef.current.detect(canvas);
+            normalized = String(results.find((item) => item.rawValue?.trim())?.rawValue || "").trim();
+          } else {
+            const imageData = context.getImageData(0, 0, width, height);
+            const result = jsQR(imageData.data, width, height, {
+              inversionAttempts: "dontInvert",
+            });
+            normalized = String(result?.data || "").trim();
+          }
+
+          if (normalized) {
             if (normalized && normalized === lastDetectedValueRef.current) {
               queueNextFrame();
               return;
@@ -124,6 +163,15 @@ export function MobileQrScanner({
       return;
     }
 
+    if (mode === "barcode") {
+      const barcodeDetectorApi = (globalThis as typeof globalThis & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+      if (!barcodeDetectorApi) {
+        setError("ອຸປະກອນນີ້ບໍ່ຮອງຮັບການສະແກນ Barcode ຜ່ານກ້ອງ");
+        return;
+      }
+      barcodeDetectorRef.current = new barcodeDetectorApi({ formats: barcodeFormats });
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" } },
@@ -149,13 +197,17 @@ export function MobileQrScanner({
     }
   };
 
+  const scanLabel = mode === "barcode" ? "Barcode" : "QR";
+
   return (
     <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="text-sm font-black text-slate-900">ສະແກນ QR ຜ່ານມືຖື</div>
+          <div className="text-sm font-black text-slate-900">ສະແກນ {scanLabel} ຜ່ານມືຖື</div>
           <div className="break-words text-xs font-medium text-slate-500">
-            {supported ? "ອອກແບບສຳລັບການຮັບສິນຄ້າ ແລະ ຈັດສົ່ງຜ່ານໂທລະສັບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງໃນອຸປະກອນນີ້"}
+            {supported
+              ? "ອອກແບບສຳລັບການຮັບສິນຄ້າ ແລະ ຈັດສົ່ງຜ່ານໂທລະສັບ"
+              : `ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງໃນອຸປະກອນນີ້`}
           </div>
         </div>
         <button
@@ -178,14 +230,14 @@ export function MobileQrScanner({
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/80 text-center text-white">
               <ScanLine size={28} />
               <div className="text-sm font-bold">
-                {supported ? "ເປີດກ້ອງ ແລະ ຈັດ QR ໃຫ້ຢູ່ໃນກອບ" : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງ"}
+                {supported ? `ເປີດກ້ອງ ແລະ ຈັດ ${scanLabel} ໃຫ້ຢູ່ໃນກອບ` : "ກົດປຸ່ມສະແກນເພື່ອລອງເປີດກ້ອງ"}
               </div>
             </div>
           )}
           {active && <div className="pointer-events-none absolute inset-6 rounded-[2rem] border-2 border-emerald-400/90" />}
           {active && continuous ? (
             <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-2xl bg-slate-950/70 px-3 py-2 text-center text-xs font-bold text-emerald-50">
-              ສະແກນໄດ້ຕໍ່ເນື່ອງຫຼາຍ QR. ກົດປຸ່ມຢຸດເມື່ອສະແກນຄົບແລ້ວ.
+              ສະແກນໄດ້ຕໍ່ເນື່ອງຫຼາຍ {scanLabel}. ກົດປຸ່ມຢຸດເມື່ອສະແກນຄົບແລ້ວ.
             </div>
           ) : null}
         </div>
@@ -197,7 +249,7 @@ export function MobileQrScanner({
 
       {!supported && (
         <div className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600 break-words">
-          ຖ້າກ້ອງບໍ່ເປີດ ຫຼື ອຸປະກອນບໍ່ຮອງຮັບ, ທ່ານຍັງສາມາດວາງ ຫຼື ພິມຄ່າ QR ດ້ານລຸ່ມໄດ້.
+          ຖ້າກ້ອງບໍ່ເປີດ ຫຼື ອຸປະກອນບໍ່ຮອງຮັບ, ທ່ານຍັງສາມາດວາງ ຫຼື ພິມຄ່າ {scanLabel} ດ້ານລຸ່ມໄດ້.
         </div>
       )}
 

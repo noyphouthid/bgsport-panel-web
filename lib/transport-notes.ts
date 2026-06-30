@@ -35,6 +35,8 @@ export type TransportNotePrintRow = TransportNoteRow & {
   display_no?: string | null;
   qr_code_text?: string | null;
   qr_code_data_url?: string | null;
+  barcode_value?: string | null;
+  barcode_svg_markup?: string | null;
 };
 
 export type TransportNoteForm = {
@@ -93,6 +95,14 @@ export function buildTransportNoteQrCode(note: Pick<TransportNoteRow, "id" | "no
   return [TRANSPORT_NOTE_QR_PREFIX, note.id, note.order_id || "", note.note_no.trim()].join("|");
 }
 
+export function buildTransportNoteBarcodeValue(note: Pick<TransportNoteRow, "note_no">) {
+  const value = note.note_no.trim();
+  if (!value) {
+    throw new Error("ຈຳເປັນຕ້ອງມີລະຫັດໃບຝາກເຄື່ອງກ່ອນສ້າງ Barcode");
+  }
+  return value;
+}
+
 export function parseTransportNoteQrInput(rawValue: string) {
   const normalized = rawValue.trim();
   if (!normalized) {
@@ -146,18 +156,17 @@ export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
     .map((row) => {
       const shippingModeText = row.shipping_charge_mode === "origin" ? "ຈ່າຍຕົ້ນທາງ" : "ຈ່າຍປາຍທາງ";
       const transporters = row.transporters.join(", ");
-      const qrCodeHtml =
-        row.qr_code_data_url
+      const barcodeHtml =
+        row.barcode_svg_markup
           ? `
-            <div class="qr-box qr-box-header">
-              <img src="${row.qr_code_data_url}" alt="Transport note QR" />
+            <div class="barcode-wrap">
+              ${row.barcode_svg_markup}
             </div>
           `
           : "";
       return `
         <section class="note">
           <div class="header">
-            ${qrCodeHtml}
             <div class="logo">BG</div>
             <div class="shop">
               ຮ້ານ: BG SPORT<br />
@@ -179,7 +188,7 @@ export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
               <div>ຄ່າຂົນສົ່ງ: <strong>${shippingModeText}</strong></div>
             </div>
             <div class="divider"></div>
-            <div class="foot">* ກະລຸນາຖ່າຍ VDO ຕອນຮັບເຄື່ອງກ່ອນທຸກຄັ້ງ! *</div>
+            ${barcodeHtml}
           </div>
         </section>
       `;
@@ -259,27 +268,24 @@ export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
       .body strong {
         font-size: 15px;
       }
-      .qr-box {
-        width: 54px;
-        height: 54px;
-        border: 1.5px solid #000;
-        padding: 2px;
-        background: #fff;
-        flex: 0 0 54px;
-      }
-      .qr-box img {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
       .divider {
         border-bottom: 1.5px solid #000;
         margin: 4px 0;
       }
-      .foot {
-        text-align: center;
-        font-size: 9px;
-        font-weight: 500;
+      .barcode-wrap {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 48px;
+        padding-top: 2px;
+      }
+      .barcode-wrap svg {
+        display: block;
+        width: 100%;
+        height: 44px;
+      }
+      .barcode-wrap text {
+        display: none;
       }
     </style>
   </head>

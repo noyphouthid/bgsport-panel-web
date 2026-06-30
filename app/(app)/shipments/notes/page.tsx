@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import QRCode from "qrcode";
+import JsBarcode from "jsbarcode";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { BadgeCheck, Pencil, Printer, Search, Trash2, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { canAccessPath, type AppRole } from "@/lib/access-control";
 import {
-  buildTransportNoteQrCode,
+  buildTransportNoteBarcodeValue,
   canManageAllTransportNotes,
   getTransportNoteDisplayNo,
   getTransportNotePrintHtml,
@@ -227,17 +227,21 @@ export default function ShipmentNotesPage() {
 
       const printableRows = await Promise.all(
         selectedRows.map(async (row) => {
-          const qrCodeText = buildTransportNoteQrCode(row);
-          const qrCodeDataUrl = await QRCode.toDataURL(qrCodeText, {
-            width: 140,
+          const barcodeValue = buildTransportNoteBarcodeValue(row);
+          const barcodeSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          barcodeSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+          JsBarcode(barcodeSvg, barcodeValue, {
+            format: "CODE128",
+            displayValue: false,
             margin: 0,
-            color: { dark: "#000000", light: "#ffffff" },
+            height: 44,
+            width: 1.35,
           });
           return {
             ...row,
             display_no: getTransportNoteDisplayNo(row, row.order_id ? ordersById[row.order_id]?.order_code : null),
-            qr_code_text: qrCodeText,
-            qr_code_data_url: qrCodeDataUrl,
+            barcode_value: barcodeValue,
+            barcode_svg_markup: barcodeSvg.outerHTML,
           };
         })
       );

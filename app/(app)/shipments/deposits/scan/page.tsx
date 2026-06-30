@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { MobileQrScanner } from "../../../_components/mobile-qr-scanner";
 import type { ShipmentDeliveryRequestRow } from "@/lib/shipment-delivery-requests";
 import {
-  buildTransportNoteQrCode,
+  buildTransportNoteBarcodeValue,
   getTransportNoteDisplayNo,
   isTransportNoteDeposited,
   isTransportNotePrinted,
@@ -158,7 +158,7 @@ export default function ShipmentDepositScanPage() {
 
   const submitDepositReceipt = async () => {
     if (queue.length === 0) {
-      toast.error("ກະລຸນາສະແກນ QR ຢ່າງໜ້ອຍ 1 ລາຍການກ່ອນ");
+      toast.error("ກະລຸນາສະແກນ Barcode ຢ່າງໜ້ອຍ 1 ລາຍການກ່ອນ");
       return;
     }
     if (!confirmedBy.trim()) {
@@ -200,7 +200,7 @@ export default function ShipmentDepositScanPage() {
         transport_note_id: item.id,
         delivery_request_id: item.delivery_request_id as string,
         order_id: item.order_id as string,
-        qr_code: buildTransportNoteQrCode(item),
+        qr_code: buildTransportNoteBarcodeValue(item),
       }));
 
       const { error: itemError } = await supabase.from("transport_deposit_receipt_items").insert(itemPayload);
@@ -259,7 +259,7 @@ export default function ShipmentDepositScanPage() {
             </div>
             <h1 className="mt-4 text-3xl font-black tracking-tight">ສະແກນຢືນຢັນການຝາກເຄື່ອງກັບຂົນສົ່ງ</h1>
             <p className="mt-2 max-w-3xl text-sm font-medium text-emerald-50">
-              ເປີດກ້ອງຄ້າງໄວ້ ແລະ ສະແກນ QR ຈາກໃບຝາກໄດ້ຕໍ່ເນື່ອງຫຼາຍບິນ. ສະແກນໃຫ້ຄົບທຸກໃບ ແລ້ວຄ່ອຍກົດຢຸດສະແກນ ແລະ ຢືນຢັນການຝາກ.
+              ເປີດກ້ອງຄ້າງໄວ້ ແລະ ສະແກນ Barcode ຈາກໃບຝາກໄດ້ຕໍ່ເນື່ອງຫຼາຍບິນ. ສະແກນໃຫ້ຄົບທຸກໃບ ແລ້ວຄ່ອຍກົດຢຸດສະແກນ ແລະ ຢືນຢັນການຝາກ.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -280,12 +280,14 @@ export default function ShipmentDepositScanPage() {
             continuous
             collapseOnDetect={false}
             dedupeMs={2200}
+            mode="barcode"
+            barcodeFormats={["code_128"]}
           />
 
           <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2 text-lg font-black text-slate-900">
               <ScanLine size={20} />
-              ສະແກນ QR ໃບຝາກ
+              ສະແກນ Barcode ໃບຝາກ
             </div>
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
               <input
@@ -294,7 +296,7 @@ export default function ShipmentDepositScanPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void lookupTransportNote(scannerInput);
                 }}
-                placeholder="ວາງ QR ຫຼື ລະຫັດໃບຝາກ"
+                placeholder="ວາງ Barcode ຫຼື ລະຫັດໃບຝາກ"
                 className="min-w-0 w-full flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
               />
               <button
