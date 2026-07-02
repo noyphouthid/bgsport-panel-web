@@ -68,6 +68,7 @@ type DepositOrderRow = {
   id: string;
   quotation_draft_id: string | null;
   quotation_quote_no: string | null;
+  quotation_snapshot?: unknown;
   deposit_no: string;
   deposit_date: string;
   order_code: string | null;
@@ -81,7 +82,7 @@ type DepositOrderRow = {
   fabric_id: string | null;
   style_name: string;
   color_name: string;
-  sleeve_type: "short" | "long" | "mixed";
+  sleeve_type: "short" | "long" | "mixed" | "raglan" | "basketball";
   short_qty: number;
   long_qty: number;
   free_qty: number;
@@ -118,8 +119,20 @@ type DepositOrderRow = {
   pants_items?: unknown;
 };
 
-type ProductionSleeveType = "short" | "long" | "mixed";
-type ProductionCollarType = "crew" | "polo" | "mandarin" | "v_cut_polo" | "v_neck" | "cross_v" | "cut_v" | "pentagon";
+type ProductionSleeveType = "short" | "long" | "mixed" | "raglan" | "basketball";
+type ProductionCollarType =
+  | "crew"
+  | "polo"
+  | "mandarin"
+  | "v_cut_polo"
+  | "v_neck"
+  | "cross_v"
+  | "cut_v"
+  | "pentagon"
+  | "v_polo"
+  | "cross_v_polo"
+  | "y_neck"
+  | "sharp_v";
 type ProductionSlotCount = 1 | 2 | 3 | 4 | 5 | 6;
 type ProductionSizeKey = "xs" | "jxs" | "js" | "jm" | "jl" | "jxl" | "j2xl" | "s" | "m" | "l" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl";
 type ProductionPriority = "normal" | "urgent";
@@ -174,6 +187,8 @@ const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: str
   { value: "short", label: "ແຂນສັ້ນ" },
   { value: "long", label: "ແຂນຍາວ" },
   { value: "mixed", label: "ແຂນສັ້ນ/ແຂນຍາວ" },
+  { value: "raglan", label: "ແຂນກິ້ນ" },
+  { value: "basketball", label: "ເສື້ອບາສ" },
 ];
 
 const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: string }> = [
@@ -185,6 +200,10 @@ const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: str
   { value: "cross_v", label: "ຄໍວີໄຂວ່" },
   { value: "cut_v", label: "ຄໍວີຕັດ" },
   { value: "pentagon", label: "ຄໍ 5 ຫຼ່ຽມ" },
+  { value: "v_polo", label: "ຄໍໂປໂລວີ" },
+  { value: "cross_v_polo", label: "ຄໍໂປໂລວີໄຂວ່" },
+  { value: "y_neck", label: "ຄໍ Y" },
+  { value: "sharp_v", label: "ຄໍ V ໂຊສາບ" },
 ];
 
 const PRODUCTION_PLAYER_MODE_OPTIONS: Array<{ value: ProductionPlayerMode; label: string }> = [
@@ -237,6 +256,8 @@ function buildDepositNo() {
 function formatMoney(value: number) {
   return `${Math.max(0, Number(value) || 0).toLocaleString()} ກີບ`;
 }
+
+const DEFAULT_PAYMENT_TERMS = "ມັດຈຳເຂົ້າຄິວກ່ອນຜະລິດ ແລະ ຊຳລະຍອດທີ່ເຫຼືອຕາມວັນນັດ.";
 
 function isImageFileName(name: string) {
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(name || ""));
@@ -391,7 +412,11 @@ function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType
       const nestedPlayers = Array.isArray(row.player_rows) ? row.player_rows : [];
       return buildEmptyProductionItem({
         sleeve_type:
-          row.sleeve_type === "long" || row.sleeve_type === "mixed" || row.sleeve_type === "short"
+          row.sleeve_type === "long" ||
+          row.sleeve_type === "mixed" ||
+          row.sleeve_type === "short" ||
+          row.sleeve_type === "raglan" ||
+          row.sleeve_type === "basketball"
             ? (row.sleeve_type as ProductionSleeveType)
             : fallbackSleeve,
         collar_type:
@@ -609,6 +634,8 @@ export default function FactoryDepositOrderFormPage() {
 
   const [recordId, setRecordId] = useState<string | null>(null);
   const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
+  const [quotationDraftId, setQuotationDraftId] = useState<string | null>(draftId);
+  const [quotationStatus, setQuotationStatus] = useState<QuotationDraftStatus>("draft");
   const [createdByUserId, setCreatedByUserId] = useState<string | null>(null);
   const [status, setStatus] = useState<FactoryDepositOrderStatus>("draft");
   const [depositNo, setDepositNo] = useState(buildDepositNo());
@@ -622,6 +649,8 @@ export default function FactoryDepositOrderFormPage() {
   const [customerWhatsapp, setCustomerWhatsapp] = useState("");
   const [customerFacebook, setCustomerFacebook] = useState("");
 
+  const [styleName, setStyleName] = useState("");
+  const [colorName, setColorName] = useState("");
   const [teamName, setTeamName] = useState("");
   const [productionSentDate, setProductionSentDate] = useState("");
   const [customerDeliveryDate, setCustomerDeliveryDate] = useState("");
@@ -647,6 +676,10 @@ export default function FactoryDepositOrderFormPage() {
   const [designDeposit, setDesignDeposit] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [initialDeposit, setInitialDeposit] = useState(0);
+  const [paymentDueDate, setPaymentDueDate] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState(DEFAULT_PAYMENT_TERMS);
+  const [notes, setNotes] = useState("");
+  const [warningNote, setWarningNote] = useState("");
   const [factoryCost, setFactoryCost] = useState(0);
   const [factoryBillCode, setFactoryBillCode] = useState("");
 
@@ -705,6 +738,7 @@ export default function FactoryDepositOrderFormPage() {
 
           setRecordId(row.id);
           setLinkedOrderId(row.order_id || null);
+          setQuotationDraftId(row.quotation_draft_id || null);
           setCreatedByUserId(row.created_by_user_id || currentUser?.id || null);
           setStatus(row.status);
           setDepositNo(row.deposit_no);
@@ -712,10 +746,17 @@ export default function FactoryDepositOrderFormPage() {
           setOrderCode(row.order_code || "");
           setOrderDate(row.order_date || row.deposit_date || getLocalDateInputValue());
           setQuotationQuoteNo(row.quotation_quote_no || "");
+          const quotationSnapshot =
+            typeof row.quotation_snapshot === "object" && row.quotation_snapshot
+              ? (row.quotation_snapshot as Partial<QuotationDraft>)
+              : null;
+          setQuotationStatus(quotationSnapshot?.status || "draft");
           setCustomerName(row.customer_name || "");
           setCustomerPhone(row.customer_phone || "");
           setCustomerWhatsapp(row.customer_whatsapp || "");
           setCustomerFacebook(row.customer_facebook || "");
+          setStyleName(row.style_name || quotationSnapshot?.styleName || "");
+          setColorName(row.color_name || quotationSnapshot?.colorName || "");
           setTeamName(row.team_name || "");
           setProductionSentDate(row.production_sent_date || "");
           setCustomerDeliveryDate(row.delivery_date || "");
@@ -739,6 +780,10 @@ export default function FactoryDepositOrderFormPage() {
           setDesignDeposit(Number(row.design_deposit) || 0);
           setDiscount(Number(row.discount) || 0);
           setInitialDeposit(Number(row.initial_deposit) || 0);
+          setPaymentDueDate(row.payment_due_date || quotationSnapshot?.paymentDueDate || "");
+          setPaymentTerms(row.payment_terms || quotationSnapshot?.paymentTerms || DEFAULT_PAYMENT_TERMS);
+          setNotes(row.notes || quotationSnapshot?.notes || "");
+          setWarningNote(row.warning_note || quotationSnapshot?.warningNote || "");
           setFactoryCost(Math.max(0, (Number(row.factory_cost) || 0) - parsedPantsSummary.factoryCostTotal));
           setFactoryBillCode(row.factory_bill_code || "");
           setAdminUserId(row.admin_user_id || "");
@@ -768,6 +813,8 @@ export default function FactoryDepositOrderFormPage() {
         if (draftId) {
           const draft = await getQuotationDraftById(draftId);
           if (draft) {
+            setQuotationDraftId(draft.id || draftId);
+            setQuotationStatus(draft.status);
             setQuotationQuoteNo(draft.quoteNo);
             setOrderDate(draft.quoteDate || getLocalDateInputValue());
             setOrderCode((prev) => prev || draft.quoteNo || "");
@@ -776,6 +823,8 @@ export default function FactoryDepositOrderFormPage() {
             setCustomerWhatsapp(draft.customerWhatsapp);
             setCustomerFacebook(draft.customerFacebook);
             setFabricId(draft.fabricId);
+            setStyleName(draft.styleName);
+            setColorName(draft.colorName);
             setShortQty(draft.shortQty);
             setLongQty(draft.longQty);
             setFreeQty(draft.freeQty);
@@ -791,7 +840,11 @@ export default function FactoryDepositOrderFormPage() {
             setDesignDeposit(Number(draft.designDeposit) || 0);
             setDiscount(Number(draft.discount) || 0);
             setInitialDeposit(draft.deposit);
+            setPaymentDueDate(draft.paymentDueDate || "");
             setCustomerDeliveryDate(draft.deliveryDate || "");
+            setPaymentTerms(draft.paymentTerms || DEFAULT_PAYMENT_TERMS);
+            setNotes(draft.notes || "");
+            setWarningNote(draft.warningNote || "");
           }
         }
       } catch (error) {
@@ -953,10 +1006,10 @@ export default function FactoryDepositOrderFormPage() {
   };
 
   const buildQuotationDraft = (): QuotationDraft => ({
-    id: draftId || undefined,
+    id: quotationDraftId || draftId || undefined,
     quoteNo: quotationQuoteNo || orderCode || depositNo,
     quoteDate: orderDate || depositDate,
-    status: "draft" as QuotationDraftStatus,
+    status: quotationStatus,
     createdByName: "",
     customerName,
     customerPhone,
@@ -966,8 +1019,8 @@ export default function FactoryDepositOrderFormPage() {
     fabricName: selectedFabric?.name || "",
     fabricShortPrice: Number(selectedFabric?.short_price || 0),
     fabricLongPrice: Number(selectedFabric?.long_price || 0),
-    styleName: "",
-    colorName: "",
+    styleName,
+    colorName,
     sleeveType: shortQty > 0 && longQty > 0 ? "mixed" : longQty > 0 ? "long" : "short",
     shortQty,
     longQty,
@@ -983,11 +1036,11 @@ export default function FactoryDepositOrderFormPage() {
     designDeposit,
     discount,
     deposit: initialDeposit,
-    paymentDueDate: "",
+    paymentDueDate,
     deliveryDate: customerDeliveryDate,
-    paymentTerms: "",
-    notes: "",
-    warningNote: "",
+    paymentTerms,
+    notes,
+    warningNote,
     pantsItems,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1563,13 +1616,16 @@ export default function FactoryDepositOrderFormPage() {
 
     try {
       let quotationDraft = buildQuotationDraft();
-      if (draftId) {
+      if (quotationDraftId || draftId) {
         quotationDraft = await saveQuotationDraft(quotationDraft);
+        setQuotationDraftId(quotationDraft.id || null);
+        setQuotationStatus(quotationDraft.status);
+        setQuotationQuoteNo(quotationDraft.quoteNo);
       }
 
       const payload = {
         quotation_draft_id: quotationDraft.id || null,
-        quotation_quote_no: quotationQuoteNo.trim() || null,
+        quotation_quote_no: (quotationDraft.quoteNo || quotationQuoteNo).trim() || null,
         quotation_snapshot: quotationDraft,
         deposit_no: depositNo.trim(),
         deposit_date: depositDate,
@@ -1588,8 +1644,8 @@ export default function FactoryDepositOrderFormPage() {
         fabric_name: selectedFabric.name,
         fabric_short_price: Number(selectedFabric.short_price || 0),
         fabric_long_price: Number(selectedFabric.long_price || 0),
-        style_name: "",
-        color_name: "",
+        style_name: styleName.trim(),
+        color_name: colorName.trim(),
         sleeve_type: shortQty > 0 && longQty > 0 ? "mixed" : longQty > 0 ? "long" : "short",
         collar_type: collarType,
         collar_qty: Math.max(0, collarQty),
@@ -1611,12 +1667,12 @@ export default function FactoryDepositOrderFormPage() {
         gross_total: grossTotal,
         net_total: netTotal,
         balance,
-        payment_due_date: null,
+        payment_due_date: paymentDueDate || null,
         delivery_date: customerDeliveryDate || null,
         factory_bill_code: factoryBillCode.trim() || null,
-        payment_terms: "",
-        notes: "",
-        warning_note: "",
+        payment_terms: paymentTerms.trim(),
+        notes: notes.trim(),
+        warning_note: warningNote.trim(),
         factory_deposit_note: "",
         production_items: serializeProductionItems(activeProductionItems),
         created_by_user_id: createdByUserId || viewerUserId,
@@ -2185,6 +2241,99 @@ export default function FactoryDepositOrderFormPage() {
           </section>
 
           <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div className="mb-4">
+              <div className="text-sm font-black uppercase tracking-wider text-slate-700">ລາຍການ</div>
+              <div className="mt-1 text-sm font-medium text-slate-500">ຂໍ້ມູນສິນຄ້າ, ຈຳນວນ, ແລະ ລາຄາ</div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="xl:col-span-2">
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຊື່ຜ້າ</label>
+                <select value={fabricId} onChange={(e) => setFabricId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
+                  <option value="">ເລືອກຜ້າ</option>
+                  {fabrics.map((fabric) => (
+                    <option key={fabric.id} value={fabric.id}>
+                      {fabric.name} / ແຂນສັ້ນ {fabric.short_price.toLocaleString()} / ແຂນຍາວ {fabric.long_price.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Style</label>
+                <input value={styleName} onChange={(e) => setStyleName(e.target.value)} disabled={!canEdit} placeholder="ຊື່ແບບ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Color</label>
+                <input value={colorName} onChange={(e) => setColorName(e.target.value)} disabled={!canEdit} placeholder="ສີ / ລາຍ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7">
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ແຂນສັ້ນ</label>
+                <input type="number" min={0} value={shortQty} onChange={(e) => setShortQty(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ແຂນຍາວ</label>
+                <input type="number" min={0} value={longQty} onChange={(e) => setLongQty(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນແຖມ</label>
+                <input type="number" min={0} value={freeQty} onChange={(e) => setFreeQty(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-orange-600 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">3XL</label>
+                <input type="number" min={0} value={qty3XL} onChange={(e) => setQty3XL(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">4XL</label>
+                <input type="number" min={0} value={qty4XL} onChange={(e) => setQty4XL(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">5XL</label>
+                <input type="number" min={0} value={qty5XL} onChange={(e) => setQty5XL(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">6XL</label>
+                <input type="number" min={0} value={qty6XL} onChange={(e) => setQty6XL(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຄໍເສື້ອ</label>
+                <select
+                  value={collarType}
+                  onChange={(e) => {
+                    const nextValue = e.target.value as "none" | "polo" | "mandarin";
+                    setCollarType(nextValue);
+                    if (nextValue === "none") setCollarQty(0);
+                  }}
+                  disabled={!canEdit}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
+                >
+                  <option value="none">ຄໍປົກກະຕິ</option>
+                  <option value="polo">ຄໍໂປໂລ +20,000</option>
+                  <option value="mandarin">ຄໍຈີນ +20,000</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນຄໍເສື້ອທີ່ບວກເພີ່ມ</label>
+                <input type="number" min={0} value={collarQty} onChange={(e) => setCollarQty(Number(e.target.value))} disabled={!canEdit || collarType === "none"} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+                <div className="mt-1 text-[11px] font-bold text-slate-500">ລວມຄ່າບວກຄໍ: {formatMoney(collarTotal)}</div>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນແຂນເສື້ອທີ່ບວກເພີ່ມ</label>
+                <input type="number" min={0} value={sleeveChargeQty} onChange={(e) => setSleeveChargeQty(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+                <div className="mt-1 text-[11px] font-bold text-slate-500">ລວມຄ່າບວກແຂນ: {formatMoney(sleeveChargeTotal)}</div>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ບວກເພີ່ມອື່ນໆ</label>
+                <input type="number" min={0} value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-black uppercase tracking-wider text-slate-700">ລາຍການໂສ້ງພິມລາຍ</div>
@@ -2534,34 +2683,11 @@ export default function FactoryDepositOrderFormPage() {
           </section>
 
           <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ການເງິນ ແລະ ສະລິບ</div>
+            <div className="mb-4">
+              <div className="text-sm font-black uppercase tracking-wider text-slate-700">ສະຫຼຸບ ແລະ ສະລິບ</div>
+              <div className="mt-1 text-sm font-medium text-slate-500">ຫັກຄ່າແບບ, ສ່ວນຫຼຸດ, ມັດຈຳ ແລະ ຂໍ້ມູນອ້າງອີງຂອງ quotation</div>
+            </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ປະເພດຄໍເສື້ອ</label>
-                <select value={collarType} onChange={(e) => {
-                  const nextValue = e.target.value as "none" | "polo" | "mandarin";
-                  setCollarType(nextValue);
-                  if (nextValue === "none") setCollarQty(0);
-                }} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
-                  <option value="none">ບໍ່ບວກ</option>
-                  <option value="polo">ໂປໂລ</option>
-                  <option value="mandarin">ຄໍຈີນ</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນຄໍເສື້ອທີ່ບວກເພີ່ມ</label>
-                <input type="number" min={0} value={collarQty} onChange={(e) => setCollarQty(Number(e.target.value))} disabled={!canEdit || collarType === "none"} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-                <div className="mt-1 text-[11px] font-bold text-slate-500">ລວມຄ່າບວກຄໍ: {formatMoney(collarTotal)}</div>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນແຂນເສື້ອທີ່ບວກເພີ່ມ</label>
-                <input type="number" min={0} value={sleeveChargeQty} onChange={(e) => setSleeveChargeQty(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-                <div className="mt-1 text-[11px] font-bold text-slate-500">ລວມຄ່າບວກແຂນ: {formatMoney(sleeveChargeTotal)}</div>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ບວກເພີ່ມ (ງານດ່ວນ, ອື່ນໆ)</label>
-                <input type="number" min={0} value={extraCharge} onChange={(e) => setExtraCharge(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຫັກຄ່າແບບ</label>
                 <input type="number" min={0} value={designDeposit} onChange={(e) => setDesignDeposit(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
@@ -2571,12 +2697,32 @@ export default function FactoryDepositOrderFormPage() {
                 <input type="number" min={0} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ມັດຈຳສັ່ງຜະລິດຈາກລູກຄ້າ</label>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ມັດຈຳຈາກລູກຄ້າ</label>
                 <input type="number" min={0} value={initialDeposit} onChange={(e) => setInitialDeposit(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ວັນທີຊຳລະ</label>
+                <input type="date" value={paymentDueDate} onChange={(e) => setPaymentDueDate(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ລະຫັດບິນໂຮງງານ</label>
+                <input value={factoryBillCode} onChange={(e) => setFactoryBillCode(e.target.value)} disabled={!canEdit} placeholder="factory bill code" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຕົ້ນທຶນໂຮງງານສ່ວນເສື້ອ</label>
                 <input type="number" min={0} value={factoryCost} onChange={(e) => setFactoryCost(Number(e.target.value))} disabled={!canEdit} placeholder="0" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ເງື່ອນໄຂການຊຳລະ</label>
+                <textarea rows={3} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} disabled={!canEdit} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ໝາຍເຫດ quotation</label>
+                <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!canEdit} placeholder="ຂໍ້ຕົກລົງ, ລາຍລະອຽດເພີ່ມ..." className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">warning note</label>
+                <textarea rows={2} value={warningNote} onChange={(e) => setWarningNote(e.target.value)} disabled={!canEdit} placeholder="ຂໍ້ເຕືອນ ຫຼື ຂໍ້ກຳຊັບເພີ່ມ..." className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
               <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 md:col-span-2">
                 <div className="text-xs font-black uppercase tracking-wide text-indigo-700">ສະຫຼຸບລາຍການໂສ້ງ</div>

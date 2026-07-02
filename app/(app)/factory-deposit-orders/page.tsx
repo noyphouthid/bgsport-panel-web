@@ -93,8 +93,20 @@ type DepositSlipRow = {
 };
 
 type ProductionPlayerMode = "none" | "name_only" | "number_only" | "name_and_number";
-type ProductionSleeveType = "short" | "long" | "mixed";
-type ProductionCollarType = "crew" | "polo" | "mandarin" | "v_cut_polo" | "v_neck" | "cross_v" | "cut_v" | "pentagon";
+type ProductionSleeveType = "short" | "long" | "mixed" | "raglan" | "basketball";
+type ProductionCollarType =
+  | "crew"
+  | "polo"
+  | "mandarin"
+  | "v_cut_polo"
+  | "v_neck"
+  | "cross_v"
+  | "cut_v"
+  | "pentagon"
+  | "v_polo"
+  | "cross_v_polo"
+  | "y_neck"
+  | "sharp_v";
 type ProductionSizeKey = "xs" | "jxs" | "js" | "jm" | "jl" | "jxl" | "j2xl" | "s" | "m" | "l" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl";
 
 type ProductionPlayerRow = {
@@ -124,6 +136,8 @@ const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: str
   { value: "short", label: "ແຂນສັ້ນ" },
   { value: "long", label: "ແຂນຍາວ" },
   { value: "mixed", label: "ແຂນສັ້ນ/ແຂນຍາວ" },
+  { value: "raglan", label: "ແຂນກິ້ນ" },
+  { value: "basketball", label: "ເສື້ອບາສ" },
 ];
 
 const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: string }> = [
@@ -135,6 +149,10 @@ const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: str
   { value: "cross_v", label: "ຄໍວີໄຂວ່" },
   { value: "cut_v", label: "ຄໍວີຕັດ" },
   { value: "pentagon", label: "ຄໍ 5 ຫຼ່ຽມ" },
+  { value: "v_polo", label: "ຄໍໂປໂລວີ" },
+  { value: "cross_v_polo", label: "ຄໍໂປໂລວີໄຂວ່" },
+  { value: "y_neck", label: "ຄໍ Y" },
+  { value: "sharp_v", label: "ຄໍ V ໂຊສາບ" },
 ];
 
 const PRODUCTION_SIZE_FIELDS: Array<{ key: ProductionSizeKey; label: string }> = [
@@ -169,7 +187,11 @@ function parseProductionPreviewItems(raw: unknown): ProductionPreviewItem[] {
     return {
       client_id: typeof row.client_id === "string" ? row.client_id : `item-${index}`,
       sleeve_type:
-        row.sleeve_type === "long" || row.sleeve_type === "mixed" || row.sleeve_type === "short"
+        row.sleeve_type === "long" ||
+        row.sleeve_type === "mixed" ||
+        row.sleeve_type === "short" ||
+        row.sleeve_type === "raglan" ||
+        row.sleeve_type === "basketball"
           ? (row.sleeve_type as ProductionSleeveType)
           : "short",
       collar_type:

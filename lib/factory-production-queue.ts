@@ -12,6 +12,15 @@ export type FactoryProductionQueueStatusTimestamps = {
   sent_to_factory_at: string | null;
 };
 
+export type FactoryProductionQueueActorFields = {
+  assigned_by_user_id: string | null;
+  pattern_laid_by_user_id: string | null;
+  all_sizes_laid_by_user_id: string | null;
+  ready_for_print_by_user_id: string | null;
+  sent_to_factory_by_user_id: string | null;
+  last_status_updated_by_user_id: string | null;
+};
+
 export const FACTORY_PRODUCTION_QUEUE_STATUS_ORDER: FactoryProductionQueueStatus[] = [
   "queued",
   "pattern_laid",
@@ -46,7 +55,8 @@ export function isFactoryProductionQueueCompleted(status: FactoryProductionQueue
 
 export function buildFactoryProductionQueueStatusUpdate(
   status: FactoryProductionQueueStatus,
-  current: FactoryProductionQueueStatusTimestamps,
+  current: FactoryProductionQueueStatusTimestamps & FactoryProductionQueueActorFields,
+  actorUserId: string | null,
   now = new Date().toISOString()
 ) {
   const patternLaidAt =
@@ -61,6 +71,18 @@ export function buildFactoryProductionQueueStatusUpdate(
       : current.ready_for_print_at || now;
   const sentToFactoryAt =
     status === "sent_to_factory" ? current.sent_to_factory_at || now : null;
+  const patternLaidByUserId =
+    status === "queued" ? null : current.pattern_laid_by_user_id || actorUserId;
+  const allSizesLaidByUserId =
+    status === "queued" || status === "pattern_laid"
+      ? null
+      : current.all_sizes_laid_by_user_id || actorUserId;
+  const readyForPrintByUserId =
+    status === "queued" || status === "pattern_laid" || status === "all_sizes_laid"
+      ? null
+      : current.ready_for_print_by_user_id || actorUserId;
+  const sentToFactoryByUserId =
+    status === "sent_to_factory" ? current.sent_to_factory_by_user_id || actorUserId : null;
 
   return {
     status,
@@ -68,6 +90,28 @@ export function buildFactoryProductionQueueStatusUpdate(
     all_sizes_laid_at: allSizesLaidAt,
     ready_for_print_at: readyForPrintAt,
     sent_to_factory_at: sentToFactoryAt,
+    pattern_laid_by_user_id: patternLaidByUserId,
+    all_sizes_laid_by_user_id: allSizesLaidByUserId,
+    ready_for_print_by_user_id: readyForPrintByUserId,
+    sent_to_factory_by_user_id: sentToFactoryByUserId,
+    last_status_updated_by_user_id: actorUserId,
     updated_at: now,
   };
+}
+
+export function getFactoryProductionQueueStatusActorId(
+  status: FactoryProductionQueueStatus,
+  current: Pick<
+    FactoryProductionQueueActorFields,
+    | "pattern_laid_by_user_id"
+    | "all_sizes_laid_by_user_id"
+    | "ready_for_print_by_user_id"
+    | "sent_to_factory_by_user_id"
+  >
+) {
+  if (status === "pattern_laid") return current.pattern_laid_by_user_id;
+  if (status === "all_sizes_laid") return current.all_sizes_laid_by_user_id;
+  if (status === "ready_for_print") return current.ready_for_print_by_user_id;
+  if (status === "sent_to_factory") return current.sent_to_factory_by_user_id;
+  return null;
 }
