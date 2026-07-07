@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import toast from "react-hot-toast";
 import { BadgeCheck, Download, Printer, QrCode, RefreshCw, Search } from "lucide-react";
@@ -8,10 +8,17 @@ import { supabase } from "@/lib/supabase";
 import {
   buildOrderLookupOrFilter,
   buildOrderQrCode,
+  formatMoneyText,
   formatDateOnly,
   formatDateTime,
+  getOrderBalanceTotal,
+  getOrderNetTotal,
+  getOrderPaidTotal,
+  getOrderStickerQtyText,
+  getOrderStickerTitle,
   getOrderQrPrintHtml,
   getTotalUnits,
+  ORDER_QR_ORDER_SELECT,
   ORDER_QR_LABEL_SELECT,
   type OrderSummary,
   type QrLabelRow,
@@ -54,6 +61,7 @@ export default function InventoryQrPage() {
   const [searching, setSearching] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [results, setResults] = useState<SearchOrderRow[]>([]);
+  const [ordersById, setOrdersById] = useState<Record<string, SearchOrderRow>>({});
   const [labelsByOrderId, setLabelsByOrderId] = useState<Record<string, QrLabelRow>>({});
   const [activeLabel, setActiveLabel] = useState<QrLabelRow | null>(null);
   const [activePreviewUrl, setActivePreviewUrl] = useState("");
@@ -66,7 +74,42 @@ export default function InventoryQrPage() {
   const [importedToDate, setImportedToDate] = useState(today);
   const [recentPage, setRecentPage] = useState(1);
 
-  const loadRecentLabels = async () => {
+  const mergeOrders = useCallback((orders: SearchOrderRow[]) => {
+    if (orders.length === 0) return;
+    setOrdersById((prev) => {
+      const next = { ...prev };
+      orders.forEach((order) => {
+        next[order.id] = order;
+      });
+      return next;
+    });
+  }, []);
+
+  const loadOrdersByIds = useCallback(async (orderIds: string[]) => {
+    const uniqueOrderIds = Array.from(new Set(orderIds.filter(Boolean)));
+    if (uniqueOrderIds.length === 0) return;
+    const chunkSize = 100;
+    const collectedOrders: SearchOrderRow[] = [];
+
+    for (let index = 0; index < uniqueOrderIds.length; index += chunkSize) {
+      const chunkIds = uniqueOrderIds.slice(index, index + chunkSize);
+      const { data, error } = await supabase
+        .from("orders")
+        .select(ORDER_QR_ORDER_SELECT)
+        .in("id", chunkIds);
+
+      if (error) {
+        toast.error(`ໂຫຼດຂໍ້ມູນອໍເດີບໍ່ສຳເລັດ: ${error.message}`);
+        return;
+      }
+
+      collectedOrders.push(...((data ?? []) as SearchOrderRow[]));
+    }
+
+    mergeOrders(collectedOrders);
+  }, [mergeOrders]);
+
+  const loadRecentLabels = useCallback(async () => {
     const { data, error } = await supabase
       .from("order_qr_labels")
       .select(ORDER_QR_LABEL_SELECT)
@@ -77,10 +120,12 @@ export default function InventoryQrPage() {
       return;
     }
 
-    setRecentLabels((data ?? []) as QrLabelRow[]);
-  };
+    const labels = (data ?? []) as QrLabelRow[];
+    setRecentLabels(labels);
+    await loadOrdersByIds(labels.map((label) => label.order_id));
+  }, [loadOrdersByIds]);
 
-  const loadCurrentPrinter = async () => {
+  const loadCurrentPrinter = useCallback(async () => {
     const { data: sessionData } = await supabase.auth.getSession();
     const authUserId = sessionData.session?.user.id ?? null;
     const sessionEmail = String(sessionData.session?.user.email || "").trim();
@@ -111,7 +156,7 @@ export default function InventoryQrPage() {
     }
 
     setCurrentPrinter(sessionEmail);
-  };
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -119,7 +164,7 @@ export default function InventoryQrPage() {
       void loadCurrentPrinter();
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [loadCurrentPrinter, loadRecentLabels]);
 
   const generatePreviewDataUrl = async (qrCode: string) =>
     QRCode.toDataURL(qrCode, {
@@ -151,7 +196,7 @@ export default function InventoryQrPage() {
     setSearching(true);
     const { data, error } = await supabase
       .from("orders")
-      .select("id,order_code,factory_bill_code,order_date,production_completed_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,status")
+      .select(ORDER_QR_ORDER_SELECT)
       .or(buildOrderLookupOrFilter(term))
       .order("order_date", { ascending: false })
       .limit(20);
@@ -165,6 +210,7 @@ export default function InventoryQrPage() {
 
     const orders = (data ?? []) as SearchOrderRow[];
     setResults(orders);
+    mergeOrders(orders);
 
     if (orders.length === 0) {
       setLabelsByOrderId({});
@@ -224,6 +270,7 @@ export default function InventoryQrPage() {
     }
 
     const label = data as QrLabelRow;
+    mergeOrders([order]);
     setLabelsByOrderId((prev) => ({ ...prev, [label.order_id]: label }));
     setRecentLabels((prev) => {
       const next = [label, ...prev.filter((item) => item.id !== label.id)];
@@ -310,7 +357,7 @@ export default function InventoryQrPage() {
         return;
       }
 
-      popup.document.write(getOrderQrPrintHtml(selectedLabels, nextPreviewUrls));
+      popup.document.write(getOrderQrPrintHtml(selectedLabels, nextPreviewUrls, ordersById));
       popup.document.close();
       popup.focus();
       popup.print();
@@ -448,8 +495,8 @@ export default function InventoryQrPage() {
 
   const selectedOrder = useMemo(() => {
     if (!activeLabel) return null;
-    return results.find((item) => item.id === activeLabel.order_id) ?? null;
-  }, [activeLabel, results]);
+    return ordersById[activeLabel.order_id] ?? results.find((item) => item.id === activeLabel.order_id) ?? null;
+  }, [activeLabel, ordersById, results]);
 
   return (
     <div className="space-y-6 text-slate-900">
@@ -590,17 +637,42 @@ export default function InventoryQrPage() {
 
           {activeLabel ? (
             <div className="mt-5 rounded-[2rem] border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-5">
-              <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-white p-5 shadow-inner">
-                <div className="text-center text-xs font-black uppercase tracking-[0.35em] text-slate-400">ສະຕິກເກີ QR BG SPORT</div>
-                <div className="mt-4 flex justify-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={activePreviewUrl} alt={activeLabel.order_code} className="h-56 w-56 rounded-2xl border border-slate-100 object-contain p-3 shadow-sm" />
+              <div className="overflow-hidden rounded-[1.75rem] border-2 border-slate-950 bg-white shadow-inner">
+                <div className="grid grid-cols-[9rem_1fr] gap-3 border-b-2 border-slate-950 p-3 sm:grid-cols-[10.5rem_1fr]">
+                  <div className="flex items-start justify-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={activePreviewUrl} alt={activeLabel.order_code} className="h-36 w-36 border border-slate-300 object-contain p-2 sm:h-40 sm:w-40" />
+                  </div>
+                  <div className="min-w-0 pt-1">
+                    <div className="truncate text-[2rem] font-black leading-none tracking-tight text-slate-950 sm:text-[2.35rem]">
+                      {getOrderStickerTitle(activeLabel.order_code)}
+                    </div>
+                    {selectedOrder ? (
+                      <div className="mt-1 text-[1.95rem] font-black leading-none tracking-tight text-slate-950 sm:text-[2.2rem]">
+                        {getOrderStickerQtyText(selectedOrder)}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 text-sm font-black leading-tight text-slate-700">
+                      ລະຫັດບິນໂຮງງານ: {activeLabel.factory_bill_code?.trim() || "-"}
+                    </div>
+                    <div className="mt-1 text-sm font-black leading-tight text-slate-700">
+                      ວັນທີນຳເຂົ້າ: {formatDateOnly(activeLabel.received_at)}
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-4 text-center">
-                  <div className="text-2xl font-black tracking-tight text-slate-950">{activeLabel.order_code}</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-500">ລະຫັດບິນໂຮງງານ: {activeLabel.factory_bill_code?.trim() || "-"}</div>
-                  <div className="mt-1 text-sm font-semibold text-emerald-700">ວັນທີນຳເຂົ້າ: {formatDateOnly(activeLabel.received_at)}</div>
-                  <div className="mt-2 break-all text-xs font-semibold text-slate-400">{activeLabel.qr_code}</div>
+                <div className="grid grid-cols-[8.8rem_1fr] border-b-2 border-slate-950 text-sm font-black text-slate-950 sm:grid-cols-[10rem_1fr]">
+                  <div className="border-r-2 border-slate-950 px-3 py-2">ຍອດທັງໝົດ:</div>
+                  <div className="px-3 py-2 text-center">{formatMoneyText(getOrderNetTotal(selectedOrder))}</div>
+                </div>
+                <div className="grid grid-cols-[8.8rem_1fr] border-b-2 border-slate-950 text-sm font-black text-slate-950 sm:grid-cols-[10rem_1fr]">
+                  <div className="border-r-2 border-slate-950 px-3 py-2">ມັດຈຳແລ້ວ:</div>
+                  <div className="px-3 py-2 text-center">{formatMoneyText(getOrderPaidTotal(selectedOrder))}</div>
+                </div>
+                <div className="grid grid-cols-[8.8rem_1fr] sm:grid-cols-[10rem_1fr]">
+                  <div className="bg-slate-950 px-3 py-3 text-[1.65rem] font-black leading-none text-white sm:text-[1.9rem]">ຄ້າງຈ່າຍ:</div>
+                  <div className="flex items-center justify-center px-3 py-3 text-[1.9rem] font-black leading-none text-slate-950 sm:text-[2.15rem]">
+                    {formatMoneyText(getOrderBalanceTotal(selectedOrder))}
+                  </div>
                 </div>
               </div>
 
@@ -623,6 +695,7 @@ export default function InventoryQrPage() {
                   </div>
                 </div>
               )}
+              <div className="mt-3 break-all text-xs font-semibold text-slate-400">{activeLabel.qr_code}</div>
             </div>
           ) : (
             <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">

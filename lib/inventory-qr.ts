@@ -151,20 +151,75 @@ export function buildOrderLookupOrFilter(term: string) {
   return `order_code.ilike.%${escaped}%,factory_bill_code.ilike.%${escaped}%`;
 }
 
-export function getOrderQrPrintHtml(labels: QrLabelRow[], previewMap: Record<string, string>) {
+export function getOrderStickerTitle(orderCode: string) {
+  return orderCode;
+}
+
+export function getOrderStickerQtyText(order?: Partial<OrderSummary> | null) {
+  if (!order) return "";
+  return `ຈຳນວນ ${getTotalUnits(order)} ໂຕ`;
+}
+
+export function getOrderNetTotal(order?: Partial<OrderSummary> | null) {
+  return Math.max(0, Number(order?.net_total) || 0);
+}
+
+export function getOrderBalanceTotal(order?: Partial<OrderSummary> | null) {
+  return Math.max(0, Number(order?.balance) || 0);
+}
+
+export function getOrderPaidTotal(order?: Partial<OrderSummary> | null) {
+  return Math.max(0, getOrderNetTotal(order) - getOrderBalanceTotal(order));
+}
+
+export function formatMoneyText(value?: number | null) {
+  return `${formatCurrency(value)} ກີບ`;
+}
+
+export function getOrderQrPrintHtml(
+  labels: QrLabelRow[],
+  previewMap: Record<string, string>,
+  ordersById: Record<string, Partial<OrderSummary>>
+) {
   const stickersHtml = labels
     .map((label) => {
       const qrImage = previewMap[label.id] || "";
       const importedDate = formatDateOnly(label.received_at);
+      const order = ordersById[label.order_id];
+      const orderTitle = getOrderStickerTitle(label.order_code);
+      const qtyText = getOrderStickerQtyText(order);
+      const totalText = formatMoneyText(getOrderNetTotal(order));
+      const paidText = formatMoneyText(getOrderPaidTotal(order));
+      const balanceText = formatMoneyText(getOrderBalanceTotal(order));
       return `
         <section class="sticker">
-          <div class="title">${getOrderQrLabelTitle()}</div>
-          <div class="qr-shell">
-            <img src="${qrImage}" alt="${label.order_code}" />
+          <div class="content">
+            <div class="top-row">
+              <div class="qr-shell">
+                <img src="${qrImage}" alt="${label.order_code}" />
+              </div>
+              <div class="meta">
+                <div class="order-code">${orderTitle}</div>
+                ${qtyText ? `<div class="order-qty">${qtyText}</div>` : ""}
+                <div class="factory-bill">ລະຫັດບິນໂຮງງານ: ${label.factory_bill_code?.trim() || "-"}</div>
+                <div class="import-date">ວັນທີນຳເຂົ້າ: ${importedDate}</div>
+              </div>
+            </div>
+            <div class="payment-grid">
+              <div class="payment-row">
+                <div class="payment-label">ຍອດທັງໝົດ:</div>
+                <div class="payment-value">${totalText}</div>
+              </div>
+              <div class="payment-row">
+                <div class="payment-label">ມັດຈຳແລ້ວ:</div>
+                <div class="payment-value">${paidText}</div>
+              </div>
+            </div>
+            <div class="balance-row">
+              <div class="balance-label">ຄ້າງຈ່າຍ:</div>
+              <div class="balance-value">${balanceText}</div>
+            </div>
           </div>
-          <div class="order-code">${label.order_code}</div>
-          <div class="factory-bill">ລະຫັດບິນໂຮງງານ: ${label.factory_bill_code?.trim() || "-"}</div>
-          <div class="import-date">ວັນທີນຳເຂົ້າ: ${importedDate}</div>
         </section>
       `;
     })
@@ -178,7 +233,7 @@ export function getOrderQrPrintHtml(labels: QrLabelRow[], previewMap: Record<str
         <title>ສະຕິກເກີ QR BG SPORT</title>
         <style>
           @page {
-            size: 80mm 100mm;
+            size: 100mm 80mm;
             margin: 0;
           }
           * {
@@ -188,78 +243,152 @@ export function getOrderQrPrintHtml(labels: QrLabelRow[], previewMap: Record<str
           }
           body {
             margin: 0;
-            background: #ecebea;
+            background: #ffffff;
             font-family: "Noto Sans Lao Looped", "Noto Sans Lao", Tahoma, Arial, Helvetica, sans-serif;
           }
           .sticker {
-            width: 80mm;
-            height: 100mm;
-            padding: 6mm 7mm 8mm;
+            width: 100mm;
+            height: 80mm;
+            padding: 0;
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: #f6f4f1;
+            background: #ffffff;
             page-break-after: always;
             overflow: hidden;
           }
-          .title {
-            margin-top: 0;
-            color: #8a98b6;
-            font-size: 3.1mm;
-            font-weight: 700;
-            letter-spacing: 0.35mm;
-            text-align: center;
-            white-space: nowrap;
+          .content {
+            width: 100%;
+            height: 100%;
+            border: 0.4mm solid #111111;
+            display: flex;
+            flex-direction: column;
+            background: #ffffff;
+          }
+          .top-row {
+            display: grid;
+            grid-template-columns: 40mm 1fr;
+            gap: 3mm;
+            padding: 3.2mm 3.2mm 2.6mm;
+            align-items: start;
+            min-height: 46mm;
           }
           .qr-shell {
-            width: 56mm;
-            height: 56mm;
-            margin-top: 5.5mm;
-            border-radius: 5.5mm;
-            border: 0.4mm solid #e5e7eb;
+            width: 37mm;
+            height: 37mm;
+            border-radius: 0;
+            border: 0.35mm solid #cbd5e1;
             background: #ffffff;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 1mm 2mm rgba(15, 23, 42, 0.08);
             flex-shrink: 0;
           }
           .qr-shell img {
-            width: 48mm;
-            height: 48mm;
+            width: 33.5mm;
+            height: 33.5mm;
             display: block;
           }
+          .meta {
+            min-width: 0;
+            padding-top: 0.5mm;
+          }
           .order-code {
-            margin-top: 7.5mm;
             color: #111827;
-            font-size: 8mm;
+            font-size: 6.6mm;
             font-weight: 900;
-            letter-spacing: -0.1mm;
-            line-height: 1.05;
-            text-align: center;
-            white-space: nowrap;
+            letter-spacing: -0.12mm;
+            line-height: 1;
+            text-align: left;
             max-width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .order-qty {
+            margin-top: 1.3mm;
+            color: #111827;
+            font-size: 6mm;
+            font-weight: 900;
+            line-height: 1.05;
+            text-align: left;
+            max-width: 100%;
+            white-space: nowrap;
           }
           .factory-bill {
-            margin-top: 3.6mm;
-            color: #6b7280;
-            font-size: 3.3mm;
-            font-weight: 700;
-            text-align: center;
-            line-height: 1.3;
+            margin-top: 2.4mm;
+            color: #374151;
+            font-size: 2.9mm;
+            font-weight: 800;
+            text-align: left;
+            line-height: 1.2;
             max-width: 100%;
             white-space: nowrap;
           }
           .import-date {
-            margin-top: 1.6mm;
-            color: #475569;
-            font-size: 3.1mm;
-            font-weight: 700;
-            text-align: center;
-            line-height: 1.25;
+            margin-top: 0.6mm;
+            color: #374151;
+            font-size: 2.9mm;
+            font-weight: 800;
+            text-align: left;
+            line-height: 1.2;
             max-width: 100%;
             white-space: nowrap;
+          }
+          .payment-grid {
+            border-top: 0.35mm solid #111111;
+            border-bottom: 0.35mm solid #111111;
+          }
+          .payment-row {
+            display: grid;
+            grid-template-columns: 34mm 1fr;
+            min-height: 7.4mm;
+          }
+          .payment-row + .payment-row {
+            border-top: 0.35mm solid #111111;
+          }
+          .payment-label {
+            border-right: 0.35mm solid #111111;
+            padding: 1.1mm 2mm;
+            font-size: 2.85mm;
+            font-weight: 900;
+            color: #111111;
+            display: flex;
+            align-items: center;
+          }
+          .payment-value {
+            padding: 1.1mm 2mm;
+            font-size: 3.1mm;
+            font-weight: 900;
+            color: #111111;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .balance-row {
+            display: grid;
+            grid-template-columns: 34mm 1fr;
+            flex: 1;
+            min-height: 0;
+          }
+          .balance-label {
+            background: #111111;
+            color: #ffffff;
+            padding: 1.8mm 2.2mm;
+            font-size: 5.4mm;
+            font-weight: 900;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+          }
+          .balance-value {
+            background: #ffffff;
+            color: #111111;
+            padding: 1.8mm 2.2mm;
+            font-size: 6.3mm;
+            font-weight: 900;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
           }
         </style>
       </head>

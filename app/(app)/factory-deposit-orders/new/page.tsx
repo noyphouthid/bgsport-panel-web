@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
-import { ArrowLeft, Eye, FileImage, FileText, FileUp, Printer, Save, Shirt, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Eye, FileImage, FileText, FileUp, Printer, Save, Shirt, Trash2 } from "lucide-react";
 import {
   buildEmptyPantsOrderItem,
   buildPantsOrderItemPayload,
@@ -172,6 +172,8 @@ type PantsProductionItem = PantsOrderItemDraft & {
   player_mode: ProductionPlayerMode;
   player_rows: ProductionPlayerRow[];
 };
+
+type CsvCell = string | number;
 
 const COLLAR_PRICE = 20000;
 const SLEEVE_PRICE = 20000;
@@ -393,10 +395,124 @@ function getPlayerModePreviewTitle(mode: ProductionPlayerMode, numberLabel = "�
   return `ຊື່ ແລະ ${numberLabel}`;
 }
 
+function getPlayerModeCsvLabel(mode: ProductionPlayerMode) {
+  if (mode === "name_only") return "ຊື່";
+  if (mode === "number_only") return "ເບີເສື້ອ";
+  if (mode === "name_and_number") return "ຊື່+ເບີເສື້ອ";
+  return "ຈຳນວນໄຊສ໌";
+}
+
 function getPlayerPreviewTextClass(mode: ProductionPlayerMode) {
   if (mode === "name_and_number") return "text-[11px] leading-tight tracking-tight";
   if (mode === "name_only") return "text-[12px] leading-[1.3]";
   return "text-[13px] leading-snug";
+}
+
+function getProductionSleeveLabel(value: ProductionSleeveType) {
+  return PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === value)?.label || "-";
+}
+
+function getProductionCollarLabel(value: ProductionCollarType) {
+  return PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === value)?.label || "-";
+}
+
+function buildNameAndNumberValue(name: string, number: string) {
+  const trimmedName = name.trim();
+  const trimmedNumber = number.trim();
+  if (trimmedName && trimmedNumber) return `${trimmedName} | ${trimmedNumber}`;
+  return trimmedName || trimmedNumber || "";
+}
+
+function toCsvValue(value: CsvCell | null | undefined) {
+  const text = String(value ?? "");
+  if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, "\"\"")}"`;
+  return text;
+}
+
+function downloadCsvFile(fileName: string, rows: CsvCell[][]) {
+  const content = rows.map((row) => row.map((cell) => toCsvValue(cell)).join(",")).join("\r\n");
+  const blob = new Blob(["\uFEFF", content], { type: "text/csv;charset=utf-8;" });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function sanitizeCsvFileName(value: string) {
+  return value.replace(/[^a-zA-Z0-9-_]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "production-order";
+}
+
+function buildProductionCsvRowsFromDraft({
+  documentCode,
+  orderCode,
+  teamName,
+  customerName,
+  productionSentDate,
+  fabricName,
+  items,
+}: {
+  documentCode: string;
+  orderCode: string;
+  teamName: string;
+  customerName: string;
+  productionSentDate: string;
+  fabricName: string;
+  items: ProductionItem[];
+}): CsvCell[][] {
+  const exportItems = items.filter((item) => {
+    const sizeMap = getProductionItemSizeMap(item);
+    const hasSizes = PRODUCTION_SIZE_FIELDS.some((field) => Number(sizeMap[field.key]) > 0);
+    return hasSizes || getFilledPlayerRows(item).length > 0;
+  });
+
+  if (exportItems.length === 0) return [];
+
+  const csvRows: CsvCell[][] = [
+    ["ເອກະສານ", documentCode || "-"],
+    ["ລະຫັດອໍເດີ", orderCode || "-"],
+    ["ຊື່ທີມ", teamName || "-"],
+    ["ລູກຄ້າ", customerName || "-"],
+    ["ຜ້າ", fabricName || "-"],
+    ["ວັນທີສົ່ງຜະລິດ", productionSentDate || "-"],
+    [],
+  ];
+
+  exportItems.forEach((item, index) => {
+    const styleLabel = `ແບບ ${index + 1}`;
+    const sizeMap = getProductionItemSizeMap(item);
+    const filledRows = getFilledPlayerRows(item);
+
+    csvRows.push([styleLabel, `ແຂນ: ${getProductionSleeveLabel(item.sleeve_type)}`, `ຄໍ: ${getProductionCollarLabel(item.collar_type)}`]);
+    csvRows.push(["ແບບເສື້ອ", "ປະເພດຂໍ້ມູນ", "ໄຊສ໌ເສື້ອ", "ຈຳນວນ", "ເບີເສື້ອ", "ຊື່", "ຊື່+ເບີເສື້ອ", "ໝາຍເຫດ"]);
+
+    if (filledRows.length > 0) {
+      filledRows.forEach((player) => {
+        const sizeLabel = PRODUCTION_SIZE_FIELDS.find((field) => field.key === player.size)?.label || "-";
+        csvRows.push([
+          styleLabel,
+          getPlayerModeCsvLabel(item.player_mode),
+          sizeLabel,
+          1,
+          player.jersey_number || "",
+          player.player_name || "",
+          buildNameAndNumberValue(player.player_name, player.jersey_number),
+          player.note || "",
+        ]);
+      });
+    } else {
+      PRODUCTION_SIZE_FIELDS.filter((field) => Number(sizeMap[field.key]) > 0).forEach((field) => {
+        csvRows.push([styleLabel, "SIZE QTY", field.label, Number(sizeMap[field.key]) || 0, "", "", "", ""]);
+      });
+    }
+
+    csvRows.push([]);
+  });
+
+  return csvRows;
 }
 
 function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType, fallbackCollar: ProductionCollarType) {
@@ -626,6 +742,7 @@ export default function FactoryDepositOrderFormPage() {
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [workingAction, setWorkingAction] = useState<"approve" | "convert" | null>(null);
   const [uploadingSlip, setUploadingSlip] = useState(false);
   const [deletingSlipId, setDeletingSlipId] = useState<string | null>(null);
@@ -1473,6 +1590,35 @@ export default function FactoryDepositOrderFormPage() {
     window.print();
   };
 
+  const handleExportCsv = () => {
+    setExportingCsv(true);
+    try {
+      const documentCode = quotationQuoteNo.trim() || orderCode.trim() || depositNo.trim();
+      const csvRows = buildProductionCsvRowsFromDraft({
+        documentCode,
+        orderCode: orderCode.trim(),
+        teamName: teamName.trim(),
+        customerName: customerName.trim(),
+        productionSentDate: productionSentDate.trim(),
+        fabricName: selectedFabric?.name || "",
+        items: activeProductionItems,
+      });
+
+      if (csvRows.length === 0) {
+        toast.error("ບໍ່ພົບຂໍ້ມູນໄຊສ໌ / ຊື່ / ເບີ ສຳລັບ export");
+        return;
+      }
+
+      downloadCsvFile(`${sanitizeCsvFileName(documentCode)}-production-details.csv`, csvRows);
+      toast.success("Export CSV ສຳເລັດ");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Export CSV ບໍ່ສຳເລັດ";
+      toast.error(message);
+    } finally {
+      setExportingCsv(false);
+    }
+  };
+
   const persistDepositOrder = async ({
     nextStatus,
     action,
@@ -2049,6 +2195,15 @@ export default function FactoryDepositOrderFormPage() {
           >
             <Printer size={16} />
             ພິມ A4
+          </button>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={exportingCsv}
+            className="inline-flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+          >
+            <Download size={16} />
+            {exportingCsv ? "ກຳລັງ Export..." : "Export CSV"}
           </button>
           <button
             type="button"

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
-import { ExternalLink, Eye, FileImage, FilePlus2, FileText, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
+import { Download, ExternalLink, Eye, FileImage, FilePlus2, FileText, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
 import {
   buildPantsOrderItemPayload,
   buildShirtOrderItemPayload,
@@ -132,6 +132,8 @@ type FabricRow = {
   name: string;
 };
 
+type CsvCell = string | number;
+
 const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: string }> = [
   { value: "short", label: "ແຂນສັ້ນ" },
   { value: "long", label: "ແຂນຍາວ" },
@@ -242,6 +244,70 @@ function parseProductionPreviewItems(raw: unknown): ProductionPreviewItem[] {
   });
 }
 
+function parseProductionExportItems(raw: unknown): ProductionPreviewItem[] {
+  if (!Array.isArray(raw)) return [] as ProductionPreviewItem[];
+  return raw.slice(0, 6).map((entry, index) => {
+    const row = typeof entry === "object" && entry ? (entry as Record<string, unknown>) : {};
+    const nestedSizes = typeof row.sizes === "object" && row.sizes ? (row.sizes as Record<string, unknown>) : {};
+    const nestedPlayers = Array.isArray(row.player_rows) ? row.player_rows : [];
+    return {
+      client_id: typeof row.client_id === "string" ? row.client_id : `item-${index}`,
+      sleeve_type:
+        row.sleeve_type === "long" ||
+        row.sleeve_type === "mixed" ||
+        row.sleeve_type === "short" ||
+        row.sleeve_type === "raglan" ||
+        row.sleeve_type === "basketball"
+          ? (row.sleeve_type as ProductionSleeveType)
+          : "short",
+      collar_type:
+        typeof row.collar_type === "string" && PRODUCTION_COLLAR_OPTIONS.some((option) => option.value === row.collar_type)
+          ? (row.collar_type as ProductionCollarType)
+          : "crew",
+      mockup_url: typeof row.mockup_url === "string" ? row.mockup_url : null,
+      player_mode:
+        row.player_mode === "name_only" ||
+        row.player_mode === "number_only" ||
+        row.player_mode === "name_and_number" ||
+        row.player_mode === "none"
+          ? (row.player_mode as ProductionPlayerMode)
+          : "none",
+      player_rows: nestedPlayers.map((player, playerIndex): ProductionPlayerRow => {
+        const playerRow = typeof player === "object" && player ? (player as Record<string, unknown>) : {};
+        const sizeValue = typeof playerRow.size === "string" ? playerRow.size : "";
+        const parsedSize: ProductionPlayerRow["size"] = PRODUCTION_SIZE_FIELDS.some((field) => field.key === sizeValue)
+          ? (sizeValue as ProductionSizeKey)
+          : "";
+        return {
+          id: typeof playerRow.id === "string" ? playerRow.id : `player-${index}-${playerIndex}`,
+          size: parsedSize,
+          player_name: typeof playerRow.player_name === "string" ? playerRow.player_name : "",
+          jersey_number: typeof playerRow.jersey_number === "string" ? playerRow.jersey_number : "",
+          note: typeof playerRow.note === "string" ? playerRow.note : "",
+        };
+      }),
+      sizes: {
+        xs: toPositiveInt(nestedSizes.xs),
+        jxs: toPositiveInt(nestedSizes.jxs),
+        js: toPositiveInt(nestedSizes.js),
+        jm: toPositiveInt(nestedSizes.jm),
+        jl: toPositiveInt(nestedSizes.jl),
+        jxl: toPositiveInt(nestedSizes.jxl),
+        j2xl: toPositiveInt(nestedSizes.j2xl),
+        s: toPositiveInt(nestedSizes.s),
+        m: toPositiveInt(nestedSizes.m),
+        l: toPositiveInt(nestedSizes.l),
+        xl: toPositiveInt(nestedSizes.xl),
+        "2xl": toPositiveInt(nestedSizes["2xl"]),
+        "3xl": toPositiveInt(nestedSizes["3xl"]),
+        "4xl": toPositiveInt(nestedSizes["4xl"]),
+        "5xl": toPositiveInt(nestedSizes["5xl"]),
+        "6xl": toPositiveInt(nestedSizes["6xl"]),
+      },
+    };
+  });
+}
+
 function getFilledPlayerRows(item: ProductionPreviewItem) {
   return item.player_rows.filter((row) => row.size || row.player_name.trim() || row.jersey_number.trim() || row.note.trim());
 }
@@ -258,6 +324,21 @@ function getPlayerModePreviewTitle(mode: ProductionPlayerMode) {
   if (mode === "name_only") return "NAME LIST";
   if (mode === "number_only") return "NO. LIST";
   return "PLAYER / NO.";
+}
+
+function getPlayerModeCsvLabel(mode: ProductionPlayerMode) {
+  if (mode === "name_only") return "ຊື່";
+  if (mode === "number_only") return "ເບີເສື້ອ";
+  if (mode === "name_and_number") return "ຊື່+ເບີເສື້ອ";
+  return "ຈຳນວນໄຊສ໌";
+}
+
+function getProductionSleeveLabel(value: ProductionSleeveType) {
+  return PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === value)?.label || "-";
+}
+
+function getProductionCollarLabel(value: ProductionCollarType) {
+  return PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === value)?.label || "-";
 }
 
 function isImageFileName(name: string) {
@@ -283,6 +364,89 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function buildNameAndNumberValue(name: string, number: string) {
+  const trimmedName = name.trim();
+  const trimmedNumber = number.trim();
+  if (trimmedName && trimmedNumber) return `${trimmedName} | ${trimmedNumber}`;
+  return trimmedName || trimmedNumber || "";
+}
+
+function toCsvValue(value: CsvCell | null | undefined) {
+  const text = String(value ?? "");
+  if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, "\"\"")}"`;
+  return text;
+}
+
+function downloadCsvFile(fileName: string, rows: CsvCell[][]) {
+  const content = rows.map((row) => row.map((cell) => toCsvValue(cell)).join(",")).join("\r\n");
+  const blob = new Blob(["\uFEFF", content], { type: "text/csv;charset=utf-8;" });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function buildProductionCsvRows(row: DepositRow): CsvCell[][] {
+  const items = parseProductionExportItems(row.production_items).filter((item) => {
+    const hasSizes = PRODUCTION_SIZE_FIELDS.some((field) => Number(item.sizes[field.key]) > 0);
+    return hasSizes || getFilledPlayerRows(item).length > 0;
+  });
+
+  if (items.length === 0) return [];
+
+  const csvRows: CsvCell[][] = [
+    ["ເອກະສານ", getPrimaryDocumentCode(row)],
+    ["ລະຫັດອໍເດີ", row.order_code || "-"],
+    ["ຊື່ທີມ", row.team_name || "-"],
+    ["ລູກຄ້າ", row.customer_name || "-"],
+    ["ວັນທີສົ່ງຜະລິດ", row.production_sent_date || "-"],
+    [],
+  ];
+
+  items.forEach((item, index) => {
+    const styleLabel = `ແບບ ${index + 1}`;
+    const sleeveLabel = getProductionSleeveLabel(item.sleeve_type);
+    const collarLabel = getProductionCollarLabel(item.collar_type);
+    const filledPlayerRows = getFilledPlayerRows(item);
+
+    csvRows.push([styleLabel, `ແຂນ: ${sleeveLabel}`, `ຄໍ: ${collarLabel}`]);
+    csvRows.push(["ແບບເສື້ອ", "ປະເພດຂໍ້ມູນ", "ໄຊສ໌ເສື້ອ", "ຈຳນວນ", "ເບີເສື້ອ", "ຊື່", "ຊື່+ເບີເສື້ອ", "ໝາຍເຫດ"]);
+
+    if (filledPlayerRows.length > 0) {
+      filledPlayerRows.forEach((player) => {
+        const sizeLabel = PRODUCTION_SIZE_FIELDS.find((field) => field.key === player.size)?.label || "-";
+        csvRows.push([
+          styleLabel,
+          getPlayerModeCsvLabel(item.player_mode),
+          sizeLabel,
+          1,
+          player.jersey_number || "",
+          player.player_name || "",
+          buildNameAndNumberValue(player.player_name, player.jersey_number),
+          player.note || "",
+        ]);
+      });
+    } else {
+      PRODUCTION_SIZE_FIELDS.filter((field) => Number(item.sizes[field.key]) > 0).forEach((field) => {
+        csvRows.push([styleLabel, "SIZE QTY", field.label, Number(item.sizes[field.key]) || 0, "", "", "", ""]);
+      });
+    }
+
+    csvRows.push([]);
+  });
+
+  return csvRows;
+}
+
+function buildProductionCsvFileName(row: DepositRow) {
+  const baseCode = getPrimaryDocumentCode(row).replace(/[^a-zA-Z0-9-_]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "production-order";
+  return `${baseCode}-production-details.csv`;
+}
+
 export default function FactoryDepositOrdersPage() {
   const [rows, setRows] = useState<DepositRow[]>([]);
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
@@ -293,6 +457,7 @@ export default function FactoryDepositOrdersPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<FactoryDepositOrderStatus | "all">("all");
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [previewRow, setPreviewRow] = useState<DepositRow | null>(null);
   const [quotationPreviewRow, setQuotationPreviewRow] = useState<DepositRow | null>(null);
   const [quotationPreviewDraft, setQuotationPreviewDraft] = useState<QuotationDraft | null>(null);
@@ -746,6 +911,24 @@ export default function FactoryDepositOrdersPage() {
     }
   };
 
+  const handleExportCsv = (row: DepositRow) => {
+    setExportingId(row.id);
+    try {
+      const csvRows = buildProductionCsvRows(row);
+      if (csvRows.length === 0) {
+        toast.error("ບໍ່ພົບຂໍ້ມູນໄຊສ໌ / ຊື່ / ເບີ ສຳລັບ export");
+        return;
+      }
+
+      downloadCsvFile(buildProductionCsvFileName(row), csvRows);
+      toast.success("Export CSV ສຳເລັດ");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Export CSV ບໍ່ສຳເລັດ"));
+    } finally {
+      setExportingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -880,6 +1063,15 @@ export default function FactoryDepositOrdersPage() {
                         >
                           <Eye size={14} />
                           ເບິ່ງໃບສັ່ງຜະລິດ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleExportCsv(row)}
+                          disabled={exportingId === row.id}
+                          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-black text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Download size={14} />
+                          {exportingId === row.id ? "ກຳລັງ Export..." : "Export CSV"}
                         </button>
                         <button
                           type="button"
