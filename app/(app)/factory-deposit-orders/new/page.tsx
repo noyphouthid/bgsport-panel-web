@@ -3500,11 +3500,10 @@ export default function FactoryDepositOrderFormPage() {
                     : null}
                 </div>
 
-                <div className="mt-5 grid grid-cols-2 gap-x-10 gap-y-6 px-8 text-center text-[12px] text-slate-900">
+                <div className="mt-5 grid grid-cols-4 gap-6 px-8 text-center text-[12px] text-slate-900">
                   {signatureFields.map((field) => (
                     <div key={field.label}>
-                      <div className="h-12 border-b border-slate-900" />
-                      <div className="mt-2 font-black">{field.label}</div>
+                      <div className="font-black">{field.label}</div>
                       <div className="mt-1 min-h-[16px] text-[11px] font-bold text-slate-700">{field.name || "\u00A0"}</div>
                     </div>
                   ))}
