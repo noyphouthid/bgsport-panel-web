@@ -96,6 +96,8 @@ type ProductionPlayerMode = "none" | "name_only" | "number_only" | "name_and_num
 type ProductionSleeveType = "short" | "long" | "mixed" | "raglan" | "basketball";
 type ProductionCollarType =
   | "crew"
+  | "crew_dyed_rib"
+  | "crew_printed_rib"
   | "polo"
   | "mandarin"
   | "v_cut_polo"
@@ -144,6 +146,8 @@ const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: str
 
 const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: string }> = [
   { value: "crew", label: "ຄໍມົນ" },
+  { value: "crew_dyed_rib", label: "ຄໍມົນຜ້າບຸ້ງຍ້ອມ" },
+  { value: "crew_printed_rib", label: "ຄໍມົນຜ້າບຸ້ງພິມລາຍ" },
   { value: "polo", label: "ໂປໂລ" },
   { value: "mandarin", label: "ຄໍຈີນ" },
   { value: "v_cut_polo", label: "ຄໍໂປໂລວີຕັດ" },

@@ -122,6 +122,8 @@ type DepositOrderRow = {
 type ProductionSleeveType = "short" | "long" | "mixed" | "raglan" | "basketball";
 type ProductionCollarType =
   | "crew"
+  | "crew_dyed_rib"
+  | "crew_printed_rib"
   | "polo"
   | "mandarin"
   | "v_cut_polo"
@@ -133,6 +135,7 @@ type ProductionCollarType =
   | "cross_v_polo"
   | "y_neck"
   | "sharp_v";
+type ProductionHemType = "straight" | "curved";
 type ProductionSlotCount = 1 | 2 | 3 | 4 | 5 | 6;
 type ProductionSizeKey = "xs" | "jxs" | "js" | "jm" | "jl" | "jxl" | "j2xl" | "s" | "m" | "l" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl";
 type ProductionPriority = "normal" | "urgent";
@@ -152,6 +155,7 @@ type ProductionItem = {
   client_id: string;
   sleeve_type: ProductionSleeveType;
   collar_type: ProductionCollarType;
+  hem_type: ProductionHemType;
   mockup_url: string | null;
   mockup_path: string | null;
   mockup_file_name: string | null;
@@ -195,6 +199,8 @@ const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: str
 
 const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: string }> = [
   { value: "crew", label: "ຄໍມົນ" },
+  { value: "crew_dyed_rib", label: "ຄໍມົນຜ້າບຸ້ງຍ້ອມ" },
+  { value: "crew_printed_rib", label: "ຄໍມົນຜ້າບຸ້ງພິມລາຍ" },
   { value: "polo", label: "ໂປໂລ" },
   { value: "mandarin", label: "ຄໍຈີນ" },
   { value: "v_cut_polo", label: "ຄໍໂປໂລວີຕັດ" },
@@ -206,6 +212,11 @@ const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: str
   { value: "cross_v_polo", label: "ຄໍໂປໂລວີໄຂວ່" },
   { value: "y_neck", label: "ຄໍ Y" },
   { value: "sharp_v", label: "ຄໍ V ໂຊສາບ" },
+];
+
+const PRODUCTION_HEM_OPTIONS: Array<{ value: ProductionHemType; label: string }> = [
+  { value: "straight", label: "ຕີນຊື່" },
+  { value: "curved", label: "ຕີນໂຄ້ງ" },
 ];
 
 const PRODUCTION_PLAYER_MODE_OPTIONS: Array<{ value: ProductionPlayerMode; label: string }> = [
@@ -336,6 +347,7 @@ function buildEmptyProductionItem(
     client_id: buildClientId(),
     sleeve_type: overrides?.sleeve_type ?? "short",
     collar_type: overrides?.collar_type ?? "crew",
+    hem_type: overrides?.hem_type ?? "straight",
     mockup_url: overrides?.mockup_url ?? null,
     mockup_path: overrides?.mockup_path ?? null,
     mockup_file_name: overrides?.mockup_file_name ?? null,
@@ -416,6 +428,10 @@ function getProductionCollarLabel(value: ProductionCollarType) {
   return PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === value)?.label || "-";
 }
 
+function getProductionHemLabel(value: ProductionHemType) {
+  return PRODUCTION_HEM_OPTIONS.find((option) => option.value === value)?.label || "-";
+}
+
 function buildNameAndNumberValue(name: string, number: string) {
   const trimmedName = name.trim();
   const trimmedNumber = number.trim();
@@ -486,7 +502,12 @@ function buildProductionCsvRowsFromDraft({
     const sizeMap = getProductionItemSizeMap(item);
     const filledRows = getFilledPlayerRows(item);
 
-    csvRows.push([styleLabel, `ແຂນ: ${getProductionSleeveLabel(item.sleeve_type)}`, `ຄໍ: ${getProductionCollarLabel(item.collar_type)}`]);
+    csvRows.push([
+      styleLabel,
+      `ແຂນ: ${getProductionSleeveLabel(item.sleeve_type)}`,
+      `ຄໍ: ${getProductionCollarLabel(item.collar_type)}`,
+      `ຕີນເສື້ອ: ${getProductionHemLabel(item.hem_type)}`,
+    ]);
     csvRows.push(["ແບບເສື້ອ", "ປະເພດຂໍ້ມູນ", "ໄຊສ໌ເສື້ອ", "ຈຳນວນ", "ເບີເສື້ອ", "ຊື່", "ຊື່+ເບີເສື້ອ", "ໝາຍເຫດ"]);
 
     if (filledRows.length > 0) {
@@ -540,6 +561,10 @@ function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType
           PRODUCTION_COLLAR_OPTIONS.some((option) => option.value === row.collar_type)
             ? (row.collar_type as ProductionCollarType)
             : fallbackCollar,
+        hem_type:
+          row.hem_type === "curved" || row.hem_type === "straight"
+            ? (row.hem_type as ProductionHemType)
+            : "straight",
         mockup_url: typeof row.mockup_url === "string" ? row.mockup_url : null,
         mockup_path: typeof row.mockup_path === "string" ? row.mockup_path : null,
         mockup_file_name: typeof row.mockup_file_name === "string" ? row.mockup_file_name : null,
@@ -1293,6 +1318,7 @@ export default function FactoryDepositOrderFormPage() {
       order: index + 1,
       sleeve_type: item.sleeve_type,
       collar_type: item.collar_type,
+      hem_type: item.hem_type,
       mockup_url: item.mockup_url,
       mockup_path: item.mockup_path,
       mockup_file_name: item.mockup_file_name,
@@ -3048,6 +3074,7 @@ export default function FactoryDepositOrderFormPage() {
                 const imageUrl = item.mockup_preview_url || item.mockup_url;
                 const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
                 const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
+                const hemLabel = getProductionHemLabel(item.hem_type);
                 return (
                   <div key={item.client_id} className="rounded-[28px] border border-slate-200 bg-slate-50/70 p-5">
                     <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -3057,7 +3084,7 @@ export default function FactoryDepositOrderFormPage() {
                           ແບບທີ {index + 1}
                         </div>
                         <div className="mt-2 text-sm font-medium text-slate-500">
-                          ແຂນເສື້ອ: <span className="font-bold text-slate-700">{sleeveLabel}</span> / ຄໍເສື້ອ: <span className="font-bold text-slate-700">{collarLabel}</span>
+                          ແຂນເສື້ອ: <span className="font-bold text-slate-700">{sleeveLabel}</span> / ຄໍເສື້ອ: <span className="font-bold text-slate-700">{collarLabel}</span> / ຕີນເສື້ອ: <span className="font-bold text-slate-700">{hemLabel}</span>
                         </div>
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right">
@@ -3114,6 +3141,12 @@ export default function FactoryDepositOrderFormPage() {
                             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຄໍເສື້ອ</label>
                             <select value={item.collar_type} onChange={(e) => updateProductionItem(index, (current) => ({ ...current, collar_type: e.target.value as ProductionCollarType }))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100">
                               {PRODUCTION_COLLAR_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຕີນເສື້ອ</label>
+                            <select value={item.hem_type} onChange={(e) => updateProductionItem(index, (current) => ({ ...current, hem_type: e.target.value as ProductionHemType }))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100">
+                              {PRODUCTION_HEM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                             </select>
                           </div>
                           <div>
@@ -3330,6 +3363,12 @@ export default function FactoryDepositOrderFormPage() {
                     <div className="mt-1 text-[18px] font-black leading-tight text-slate-900">{teamName || "-"}</div>
                     <div className="mt-3 text-[15px] font-black text-slate-700">ລະຫັດອໍເດີ້: <span className="font-black text-sky-700">{orderCode || "-"}</span></div>
                     <div className="mt-1 text-[15px] font-black text-slate-700">ຜ້າ: <span className="font-bold text-slate-900">{selectedFabric?.name || "-"}</span></div>
+                    <div className="mt-1 text-[15px] font-black text-slate-700">
+                      ຕີນເສື້ອ:{" "}
+                      <span className="font-bold text-slate-900">
+                        {Array.from(new Set(activeProductionItems.map((item) => getProductionHemLabel(item.hem_type)))).join(", ") || "-"}
+                      </span>
+                    </div>
                   </div>
                   <div className="rounded-md border border-slate-700 p-4">
                     <div className="text-[15px] font-black text-slate-700">ວັນທີ່ສົ່ງຜະລິດ: <span className="font-black text-slate-900">{productionSentDate || "-"}</span></div>
@@ -3363,13 +3402,14 @@ export default function FactoryDepositOrderFormPage() {
                     const usesWidePreviewCard = item.player_mode === "name_and_number";
                     const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
                     const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
+                    const hemLabel = getProductionHemLabel(item.hem_type);
                     const imageUrl = item.mockup_preview_url || item.mockup_url;
                     const filledPlayerRows = getFilledPlayerRows(item);
                     const itemSizeMap = getProductionItemSizeMap(item);
                     return (
                       <div key={item.client_id} className={`flex min-h-0 flex-col ${usesWidePreviewCard ? "col-span-2" : ""}`}>
                         <div className={`rounded-md border border-slate-700 text-center font-black text-slate-700 ${usesExpandedProductionSheetLayout ? "mb-1 px-1.5 py-1 text-[9px]" : "mb-2 px-2 py-1.5 text-[11px]"}`}>
-                          ແບບ {index + 1} • {sleeveLabel} • {collarLabel}
+                          ແບບ {index + 1} • {sleeveLabel} • {collarLabel} • {hemLabel}
                         </div>
                         <div className={`${usesWidePreviewCard ? (usesExpandedProductionSheetLayout ? "h-[122px]" : "h-[176px]") : "aspect-square"} overflow-hidden rounded-md border border-slate-700 bg-white`}>
                           {imageUrl ? (

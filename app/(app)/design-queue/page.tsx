@@ -1,16 +1,19 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import Link from "next/link";
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import toast from "react-hot-toast";
-import { Check, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Check, Images, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { mergeOrderTypeOptions, useOrderTypeOptions } from "@/lib/order-code-options";
 import type { AppRole } from "@/lib/access-control";
 import { GRAPHIC_ASSIGNABLE_ROLES } from "@/lib/role-groups";
 import { buildYearOptions, type MonthFilter } from "../reports/_lib";
 import { canEditWithPermissions, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
+import { MockupUploadModal } from "./_components/mockup-upload-modal";
+import { getDesignQueueMockupUrl, type DesignQueueMockupRow, type DesignQueueUploadTarget } from "@/lib/design-queue-media";
 
 type DesignQueueRow = {
   id: string;
@@ -46,6 +49,7 @@ type ViewerProfile = {
   full_name: string;
   permission_settings?: UserPermissionSettings | null;
 };
+type DesignQueueMockupSummaryRow = Pick<DesignQueueMockupRow, "id" | "queue_entry_id" | "file_url" | "uploaded_at">;
 
 const URGENT_WORK_TYPE = "ງານດ່ວນ";
 const NORMAL_WORK_TYPE = "ງານປົກກະຕິ";
@@ -113,6 +117,16 @@ function getWorkTypeBadgeClass(value: string) {
   return "bg-sky-100 text-sky-700 border border-sky-200";
 }
 
+function toUploadTarget(row: DesignQueueRow): DesignQueueUploadTarget {
+  return {
+    id: row.id,
+    queue_number: row.queue_number,
+    order_no: row.order_no,
+    type_code: row.type_code,
+    style_name: row.style_name,
+  };
+}
+
 type DesignQueuePageContentProps = {
   statusView?: "pending" | "completed";
 };
@@ -122,6 +136,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const today = useMemo(() => new Date(), []);
   const [rows, setRows] = useState<DesignQueueRow[]>([]);
   const [graphicUsers, setGraphicUsers] = useState<GraphicUserRow[]>([]);
+  const [mockupRows, setMockupRows] = useState<DesignQueueMockupSummaryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -129,6 +144,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [viewerPermissions, setViewerPermissions] = useState<UserPermissionSettings>({});
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [activeMockupQueue, setActiveMockupQueue] = useState<DesignQueueUploadTarget | null>(null);
 
   const [queueDate, setQueueDate] = useState(getLocalDateInputValue);
   const [typeTemplate, setTypeTemplate] = useState("");
@@ -176,9 +192,10 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       queueQuery = queueQuery.eq("graphic_user_id", creatorUserId);
     }
 
-    const [queueResult, graphicResult] = await Promise.all([
+    const [queueResult, graphicResult, mockupResult] = await Promise.all([
       queueQuery,
       supabase.from("users").select("id,full_name,role,is_active").eq("is_active", true).in("role", GRAPHIC_ASSIGNABLE_ROLES).order("full_name", { ascending: true }),
+      supabase.from("design_queue_mockups").select("id,queue_entry_id,file_url,uploaded_at").order("uploaded_at", { ascending: false }),
     ]);
 
     if (queueResult.error) {
@@ -195,8 +212,16 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       return;
     }
 
+    if (mockupResult.error) {
+      setMockupRows([]);
+      setErr(mockupResult.error.message);
+      setLoading(false);
+      return;
+    }
+
     setRows((queueResult.data ?? []) as DesignQueueRow[]);
     setGraphicUsers((graphicResult.data ?? []) as GraphicUserRow[]);
+    setMockupRows((mockupResult.data ?? []) as DesignQueueMockupSummaryRow[]);
     setLoading(false);
   };
 
@@ -243,6 +268,24 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
 
   const resolvedTypeCode = useMemo(() => syncTypeCodeYear(selectedTypeTemplate, queueDate), [queueDate, selectedTypeTemplate]);
   const graphicNameMap = useMemo(() => new Map(graphicUsers.map((user) => [user.id, user.full_name])), [graphicUsers]);
+  const mockupSummaryMap = useMemo(() => {
+    const map = new Map<string, { count: number; previewUrl: string | null }>();
+
+    for (const row of mockupRows) {
+      const existing = map.get(row.queue_entry_id);
+      const previewUrl = getDesignQueueMockupUrl(row);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(row.queue_entry_id, {
+          count: 1,
+          previewUrl,
+        });
+      }
+    }
+
+    return map;
+  }, [mockupRows]);
   const availableGraphicUsers = useMemo(
     () => (isGraphicViewer && creatorUserId ? graphicUsers.filter((user) => user.id === creatorUserId) : graphicUsers),
     [creatorUserId, graphicUsers, isGraphicViewer]
@@ -412,7 +455,14 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     }
 
     toast.success(nextDesigned ? `ຄິວ ${row.order_no} ອອກແບບແລ້ວ` : `ຄິວ ${row.order_no} ກັບໄປລໍຖ້າອອກແບບ`);
+    if (nextDesigned) {
+      setActiveMockupQueue(toUploadTarget(row));
+    }
     await load();
+  };
+
+  const openMockupManager = (row: DesignQueueRow) => {
+    setActiveMockupQueue(toUploadTarget(row));
   };
 
   const deleteRow = async (row: DesignQueueRow) => {
@@ -446,14 +496,23 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
               : "ອໍເດີທີ່ຍັງບໍ່ທັນອອກແບບຈະຢູ່ໜ້ານີ້ ແລະ ເມື່ອກົດສຳເລັດຈະຍ້າຍໄປໜ້າລາຍການອອກແບບສຳເລັດ"}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
-        >
-          <RefreshCw size={16} />
-          ໂຫຼດຄືນ
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/design-queue/assets"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
+          >
+            <Images size={16} />
+            ຄັງຮູບເສື້ອ
+          </Link>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            <RefreshCw size={16} />
+            ໂຫຼດຄືນ
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3">
@@ -476,6 +535,16 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
           }`}
         >
           ລາຍການອອກແບບສຳເລັດ
+        </Link>
+        <Link
+          href="/design-queue/assets"
+          className={`inline-flex items-center rounded-2xl px-4 py-2.5 text-sm font-black transition ${
+            pathname === "/design-queue/assets"
+              ? "bg-sky-600 text-white shadow-sm"
+              : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          ຄັງຮູບເສື້ອ
         </Link>
       </div>
 
@@ -730,6 +799,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                     <th className="px-4 py-3 font-black">ກຣາຟິກ</th>
                     <th className="px-4 py-3 font-black">ເບີໂທ</th>
                     <th className="px-4 py-3 font-black">ຮູບແບບວຽກ</th>
+                    <th className="px-4 py-3 font-black">ຮູບເສື້ອ</th>
                     <th className="px-4 py-3 font-black">ສະຖານະ</th>
                     <th className="px-4 py-3 text-right font-black">ຈັດການ</th>
                   </tr>
@@ -737,19 +807,23 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                 <tbody className="divide-y divide-slate-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-16 text-center text-sm font-bold text-slate-500">
+                      <td colSpan={10} className="px-4 py-16 text-center text-sm font-bold text-slate-500">
                         ກຳລັງໂຫຼດຂໍ້ມູນ...
                       </td>
                     </tr>
                   ) : filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-16 text-center text-sm font-bold text-slate-500">
+                      <td colSpan={10} className="px-4 py-16 text-center text-sm font-bold text-slate-500">
                         ຍັງບໍ່ມີຂໍ້ມູນຄິວໃນຊ່ວງທີ່ເລືອກ
                       </td>
                     </tr>
                   ) : (
-                    filteredRows.map((row) => (
-                      <tr key={row.id} className={`align-top ${isUrgentWorkType(row.style_name) ? "bg-rose-50/40" : ""}`}>
+                    filteredRows.map((row) => {
+                      const mockupSummary = mockupSummaryMap.get(row.id);
+                      const hasMockups = Boolean(mockupSummary?.count);
+
+                      return (
+                        <tr key={row.id} className={`align-top ${isUrgentWorkType(row.style_name) ? "bg-rose-50/40" : ""}`}>
                         <td className="px-4 py-4 font-bold text-slate-700">{formatDisplayDate(row.queue_date)}</td>
                         <td className="px-4 py-4">
                           <div className="font-black text-slate-900">#{row.queue_number}</div>
@@ -773,6 +847,21 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                           {row.notes ? <div className="mt-1 text-xs font-medium text-slate-500">{row.notes}</div> : null}
                         </td>
                         <td className="px-4 py-4">
+                          {mockupSummary?.previewUrl ? (
+                            <div className="flex items-center gap-3">
+                              <img src={mockupSummary.previewUrl} alt={`${row.type_code}-${row.order_no}`} className="h-14 w-14 rounded-2xl border border-slate-200 object-cover bg-white" />
+                              <div>
+                                <div className="text-sm font-black text-slate-900">{mockupSummary.count.toLocaleString()} ໄຟລ໌</div>
+                                <div className="text-xs font-medium text-slate-500">ພ້ອມ export</div>
+                              </div>
+                            </div>
+                          ) : row.is_designed ? (
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700">ລໍຖ້າອັບຮູບ</div>
+                          ) : (
+                            <div className="text-xs font-bold text-slate-400">-</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-4">
                           <span
                             className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${
                               row.is_designed
@@ -782,9 +871,10 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                           >
                             {row.is_designed ? "ອອກແບບແລ້ວ" : "ລໍຖ້າອອກແບບ"}
                           </span>
+                          {row.is_designed && !hasMockups ? <div className="mt-1 text-xs font-bold text-amber-700">ຄວນອັບຮູບເສື້ອ</div> : null}
                         </td>
                         <td className="px-4 py-4">
-                          <div className="flex justify-end gap-2">
+                          <div className="flex flex-wrap justify-end gap-2">
                               <button
                                 type="button"
                                 onClick={() => startEdit(row)}
@@ -807,6 +897,20 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                               <Check size={14} />
                               {row.is_designed ? "ຍົກເລີກສຳເລັດ" : "ຕິກສຳເລັດ"}
                             </button>
+                            {row.is_designed ? (
+                              <button
+                                type="button"
+                                onClick={() => openMockupManager(row)}
+                                className={`inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-black transition ${
+                                  hasMockups
+                                    ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                    : "border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                                }`}
+                              >
+                                <Images size={14} />
+                                {hasMockups ? "ຈັດການຮູບ" : "ອັບຮູບເສື້ອ"}
+                              </button>
+                            ) : null}
                             {canDeleteRows ? (
                               <button
                                 type="button"
@@ -819,8 +923,9 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                             ) : null}
                           </div>
                         </td>
-                      </tr>
-                    ))
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -828,6 +933,16 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
           </div>
         </section>
       </div>
+
+      <MockupUploadModal
+        canEdit={canEditQueue}
+        queue={activeMockupQueue}
+        viewerUserId={creatorUserId}
+        onClose={() => setActiveMockupQueue(null)}
+        onUpdated={() => {
+          void load();
+        }}
+      />
     </div>
   );
 }
