@@ -1,3 +1,5 @@
+import type { AppRole } from "@/lib/access-control";
+
 export type FactoryDepositOrderStatus =
   | "draft"
   | "submitted"
@@ -96,32 +98,32 @@ export type FactoryDepositOrder = {
 
 export function canEditFactoryDepositOrder(
   status: FactoryDepositOrderStatus,
-  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant"
+  role: AppRole
 ) {
   if (role === "superadmin" || role === "accountant" || role === "admin") return status !== "converted";
   return status === "draft" || status === "submitted";
 }
 
 export function canManageAllFactoryDepositOrders(
-  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant" | null
+  role: AppRole | null
 ) {
   return role === "superadmin" || role === "admin";
 }
 
 export function canApproveFactoryDepositOrder(
-  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant"
+  role: AppRole
 ) {
   return role === "superadmin" || role === "accountant";
 }
 
 export function canConvertFactoryDepositOrder(
-  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant"
+  role: AppRole
 ) {
   return role === "superadmin" || role === "accountant";
 }
 
 export function canDeleteFactoryDepositOrder(
-  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant"
+  role: AppRole
 ) {
   return role === "superadmin" || role === "accountant" || role === "admin";
 }

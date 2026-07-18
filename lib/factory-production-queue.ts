@@ -5,6 +5,12 @@ export type FactoryProductionQueueStatus =
   | "ready_for_print"
   | "sent_to_factory";
 
+export type FactoryProductionQueueVisibleStatus =
+  | "queued"
+  | "pattern_laid"
+  | "ready_for_print"
+  | "sent_to_factory";
+
 export type FactoryProductionQueueStatusTimestamps = {
   pattern_laid_at: string | null;
   all_sizes_laid_at: string | null;
@@ -29,11 +35,25 @@ export const FACTORY_PRODUCTION_QUEUE_STATUS_ORDER: FactoryProductionQueueStatus
   "sent_to_factory",
 ];
 
+export const FACTORY_PRODUCTION_QUEUE_VISIBLE_STATUS_ORDER: FactoryProductionQueueVisibleStatus[] = [
+  "queued",
+  "pattern_laid",
+  "ready_for_print",
+  "sent_to_factory",
+];
+
 export const FACTORY_PRODUCTION_QUEUE_STATUS_LABELS: Record<FactoryProductionQueueStatus, string> = {
   queued: "ລໍຖ້າວາງ Pattern",
   pattern_laid: "ວາງແພທເທິນແລ້ວ",
   all_sizes_laid: "ວາງແພທເທິນຄົບໄຊທ໌",
   ready_for_print: "ວາງແພທເທິນພ້ອມພິມ",
+  sent_to_factory: "ສົ່ງໂຮງງານແລ້ວ",
+};
+
+export const FACTORY_PRODUCTION_QUEUE_VISIBLE_STATUS_LABELS: Record<FactoryProductionQueueVisibleStatus, string> = {
+  queued: "ລໍຖ້າວາງ",
+  pattern_laid: "ວາງ Pattern ແລ້ວ",
+  ready_for_print: "ວາງພ້ອມພິມແລ້ວ",
   sent_to_factory: "ສົ່ງໂຮງງານແລ້ວ",
 };
 
@@ -45,12 +65,33 @@ export const FACTORY_PRODUCTION_QUEUE_STATUS_STYLES: Record<FactoryProductionQue
   sent_to_factory: "border border-emerald-200 bg-emerald-50 text-emerald-700",
 };
 
+export function normalizeFactoryProductionQueueStatus(status: FactoryProductionQueueStatus): FactoryProductionQueueVisibleStatus {
+  if (status === "all_sizes_laid") return "pattern_laid";
+  return status;
+}
+
 export function getFactoryProductionQueueStatusIndex(status: FactoryProductionQueueStatus) {
-  return FACTORY_PRODUCTION_QUEUE_STATUS_ORDER.indexOf(status);
+  return FACTORY_PRODUCTION_QUEUE_VISIBLE_STATUS_ORDER.indexOf(normalizeFactoryProductionQueueStatus(status));
 }
 
 export function isFactoryProductionQueueCompleted(status: FactoryProductionQueueStatus) {
-  return status === "sent_to_factory";
+  return normalizeFactoryProductionQueueStatus(status) === "sent_to_factory";
+}
+
+export function getFactoryProductionQueueNextStatus(status: FactoryProductionQueueStatus): FactoryProductionQueueVisibleStatus | null {
+  const current = normalizeFactoryProductionQueueStatus(status);
+  if (current === "queued") return "pattern_laid";
+  if (current === "pattern_laid") return "ready_for_print";
+  if (current === "ready_for_print") return "sent_to_factory";
+  return null;
+}
+
+export function getFactoryProductionQueuePreviousStatus(status: FactoryProductionQueueStatus): FactoryProductionQueueVisibleStatus | null {
+  const current = normalizeFactoryProductionQueueStatus(status);
+  if (current === "pattern_laid") return "queued";
+  if (current === "ready_for_print") return "pattern_laid";
+  if (current === "sent_to_factory") return "ready_for_print";
+  return null;
 }
 
 export function buildFactoryProductionQueueStatusUpdate(
@@ -59,33 +100,21 @@ export function buildFactoryProductionQueueStatusUpdate(
   actorUserId: string | null,
   now = new Date().toISOString()
 ) {
-  const patternLaidAt =
-    status === "queued" ? null : current.pattern_laid_at || now;
-  const allSizesLaidAt =
-    status === "queued" || status === "pattern_laid"
-      ? null
-      : current.all_sizes_laid_at || now;
-  const readyForPrintAt =
-    status === "queued" || status === "pattern_laid" || status === "all_sizes_laid"
-      ? null
-      : current.ready_for_print_at || now;
-  const sentToFactoryAt =
-    status === "sent_to_factory" ? current.sent_to_factory_at || now : null;
-  const patternLaidByUserId =
-    status === "queued" ? null : current.pattern_laid_by_user_id || actorUserId;
-  const allSizesLaidByUserId =
-    status === "queued" || status === "pattern_laid"
-      ? null
-      : current.all_sizes_laid_by_user_id || actorUserId;
+  const nextVisibleStatus = normalizeFactoryProductionQueueStatus(status);
+  const patternLaidAt = nextVisibleStatus === "queued" ? null : current.pattern_laid_at || now;
+  const allSizesLaidAt = nextVisibleStatus === "queued" || nextVisibleStatus === "pattern_laid" ? null : current.all_sizes_laid_at;
+  const readyForPrintAt = nextVisibleStatus === "ready_for_print" || nextVisibleStatus === "sent_to_factory" ? current.ready_for_print_at || now : null;
+  const sentToFactoryAt = nextVisibleStatus === "sent_to_factory" ? current.sent_to_factory_at || now : null;
+  const patternLaidByUserId = nextVisibleStatus === "queued" ? null : current.pattern_laid_by_user_id || actorUserId;
+  const allSizesLaidByUserId = nextVisibleStatus === "queued" || nextVisibleStatus === "pattern_laid" ? null : current.all_sizes_laid_by_user_id;
   const readyForPrintByUserId =
-    status === "queued" || status === "pattern_laid" || status === "all_sizes_laid"
-      ? null
-      : current.ready_for_print_by_user_id || actorUserId;
-  const sentToFactoryByUserId =
-    status === "sent_to_factory" ? current.sent_to_factory_by_user_id || actorUserId : null;
+    nextVisibleStatus === "ready_for_print" || nextVisibleStatus === "sent_to_factory"
+      ? current.ready_for_print_by_user_id || actorUserId
+      : null;
+  const sentToFactoryByUserId = nextVisibleStatus === "sent_to_factory" ? current.sent_to_factory_by_user_id || actorUserId : null;
 
   return {
-    status,
+    status: nextVisibleStatus,
     pattern_laid_at: patternLaidAt,
     all_sizes_laid_at: allSizesLaidAt,
     ready_for_print_at: readyForPrintAt,

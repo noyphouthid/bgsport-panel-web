@@ -6,13 +6,14 @@ import { supabase } from "@/lib/supabase";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
+import type { AppRole } from "@/lib/access-control";
 
 type User = {
   id: string;
   full_name: string;
   phone: string | null;
   email: string | null;
-  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
+  role: AppRole;
   is_active: boolean;
   notes: string | null;
   created_at: string;
@@ -29,6 +30,7 @@ const ROLES = [
   { value: "manager", label: "ຜູ້ຈັດການ (Manager)" },
   { value: "staff", label: "ພະນັກງານ (Staff)" },
   { value: "graphic", label: "Graphic" },
+  { value: "production", label: "ຝ່າຍວາງຜະລິດ" },
   { value: "accountant", label: "Accountant" },
 ] as const;
 
@@ -39,7 +41,7 @@ export default function UsersPage() {
   const [err, setErr] = useState<string | null>(null);
 
   // Filter
-  const [roleFilter, setRoleFilter] = useState<"all" | "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant">("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | AppRole>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -381,6 +383,8 @@ export default function UsersPage() {
         return <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-black uppercase border border-slate-200">Staff</span>;
       case "graphic":
         return <span className="px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 text-[10px] font-black uppercase border border-pink-200">Graphic</span>;
+      case "production":
+        return <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase border border-emerald-200">Production</span>;
       case "accountant":
         return <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-black uppercase border border-amber-200">Accountant</span>;
     }
@@ -511,7 +515,7 @@ export default function UsersPage() {
               <select
                 data-unsaved-ignore="true"
                 value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value as "all" | "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant")}
+                onChange={(e) => setRoleFilter(e.target.value as "all" | AppRole)}
                 className="w-full bg-slate-700 border border-slate-600 rounded-xl px-4 py-2 text-sm font-bold text-white outline-none cursor-pointer"
               >
               <option value="all">ທັງໝົດ</option>
@@ -520,6 +524,7 @@ export default function UsersPage() {
               <option value="manager">Manager</option>
               <option value="staff">Staff</option>
               <option value="graphic">Graphic</option>
+              <option value="production">ຝ່າຍວາງຜະລິດ</option>
               <option value="accountant">Accountant</option>
             </select>
           </div>

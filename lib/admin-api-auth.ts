@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
-export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
+export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant";
 
 export type AdminActor = {
   authUserId: string;

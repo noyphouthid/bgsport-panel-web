@@ -1,13 +1,13 @@
 import { findAccessPermissionKey, getAccessPermissionMode, resolvePermissionMode, type UserPermissionSettings } from "@/lib/user-permissions";
 
-export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
+export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant";
 
 type RouteRule = {
   prefix: string;
   roles: AppRole[];
 };
 
-const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphic", "accountant"];
+const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant"];
 const ROLE_LOCKED_PATHS = [
   "/reports/admin-sales",
   "/reports/design-phone-status",
@@ -39,7 +39,7 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/factory-payments", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/design-queue", roles: ["superadmin", "admin", "manager", "staff", "graphic"] },
   { prefix: "/factory-deposit-orders", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
-  { prefix: "/factory-production-queue", roles: ["superadmin", "admin", "manager", "staff", "graphic"] },
+  { prefix: "/factory-production-queue", roles: ["superadmin", "production"] },
   { prefix: "/order-alerts", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/factory-production-status", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/inventory-qr", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
@@ -77,6 +77,7 @@ function matchesPrefix(pathname: string, prefix: string) {
 
 export function getDefaultPathForRole(role: AppRole) {
   if (role === "staff") return "/search";
+  if (role === "production") return "/factory-production-queue";
   return "/dashboard";
 }
 

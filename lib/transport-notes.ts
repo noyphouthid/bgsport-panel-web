@@ -65,7 +65,7 @@ const TRANSPORT_NOTE_QR_PREFIX = "BGSPORT-TRANSPORT-NOTE";
 const TRANSPORT_NOTE_QR_SPLITTER = /\|/;
 
 export function canManageAllTransportNotes(
-  role: "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant" | null
+  role: AppRole | null
 ) {
   return role === "superadmin" || role === "admin" || role === "manager" || role === "staff" || role === "accountant";
 }
@@ -295,3 +295,4 @@ export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
   </body>
 </html>`;
 }
+import type { AppRole } from "@/lib/access-control";

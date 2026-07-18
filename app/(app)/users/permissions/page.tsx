@@ -16,8 +16,9 @@ import {
   type PermissionMode,
   type UserPermissionSettings,
 } from "@/lib/user-permissions";
+import type { AppRole } from "@/lib/access-control";
 
-type UserRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
+type UserRole = AppRole;
 
 type UserRow = {
   id: string;

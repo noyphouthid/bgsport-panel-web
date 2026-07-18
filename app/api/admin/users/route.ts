@@ -3,7 +3,7 @@ import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { buildDefaultPermissionSettings, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
-type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
+type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant";
 
 type CreateUserBody = {
   full_name?: string;
@@ -16,7 +16,7 @@ type CreateUserBody = {
   permission_settings?: UserPermissionSettings;
 };
 
-const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "accountant"]);
+const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant"]);
 
 export async function POST(req: NextRequest) {
   const supabaseAdmin = getSupabaseAdmin();

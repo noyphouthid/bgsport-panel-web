@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AppRole, canAccessPath, getDefaultPathForRole } from "@/lib/access-control";
-import { fetchNavBadgeCounts, type NavBadgeCounts, type NavBadgePath } from "@/lib/nav-badge-counts";
+import { type NavBadgeCounts, type NavBadgePath } from "@/lib/nav-badge-counts";
 import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
 type UserProfile = {
@@ -140,6 +140,27 @@ function isNavBadgeRouteActive(pathname: string, href: string) {
 
 function getSeenNavBadgeStorageKey(userId: string) {
   return `bgsport:seen-nav-badges:${userId}`;
+}
+
+async function fetchNavBadgeCountsViaApi() {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) {
+    throw new Error("no_session");
+  }
+
+  const response = await fetch("/api/nav-badge-counts", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as { counts?: NavBadgeCounts; error?: string; message?: string };
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || "load_nav_badge_counts_failed");
+  }
+
+  return payload.counts || {};
 }
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -286,10 +307,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
     const loadNavBadgeCounts = async () => {
       try {
-        const nextCounts = await fetchNavBadgeCounts({
-          id: profile.id,
-          role: profile.role,
-        });
+        const nextCounts = await fetchNavBadgeCountsViaApi();
         if (active) {
           const activeEntry = (Object.keys(nextCounts) as NavBadgePath[]).find((href) => isNavBadgeRouteActive(pathname, href));
           if (activeEntry) {

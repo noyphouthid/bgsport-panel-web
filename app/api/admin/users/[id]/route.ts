@@ -3,7 +3,7 @@ import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
-type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "accountant";
+type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant";
 
 type UpdateUserBody = {
   full_name?: string;
@@ -16,7 +16,7 @@ type UpdateUserBody = {
   permission_settings?: UserPermissionSettings;
 };
 
-const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "accountant"]);
+const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant"]);
 
 async function findAuthUserIdByEmail(
   supabaseAdmin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,

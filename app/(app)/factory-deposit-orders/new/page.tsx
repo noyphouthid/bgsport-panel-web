@@ -18,7 +18,7 @@ import {
 } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
-import { isFactoryDepositAdminRole, isGraphicRole } from "@/lib/role-groups";
+import { isAdminRole, isGraphicRole } from "@/lib/role-groups";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
   canApproveFactoryDepositOrder,
@@ -1018,7 +1018,7 @@ export default function FactoryDepositOrderFormPage() {
   const selectedFabric = useMemo(() => fabrics.find((item) => item.id === fabricId) ?? null, [fabrics, fabricId]);
   const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
-  const adminOptions = useMemo(() => users.filter((item) => isFactoryDepositAdminRole(item.role)), [users]);
+  const adminOptions = useMemo(() => users.filter((item) => isAdminRole(item.role)), [users]);
   const plannerOptions = useMemo(() => users.filter((item) => isGraphicRole(item.role)), [users]);
   const canEdit = canEditWithPermissions(viewerPermissions, "factory_deposit_orders", viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false);
   const isSuperAdmin = viewerRole === "superadmin";

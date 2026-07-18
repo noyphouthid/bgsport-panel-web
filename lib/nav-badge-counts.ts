@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppRole } from "@/lib/access-control";
 import { canManageAllFactoryDepositOrders } from "@/lib/factory-deposit-orders";
 import { supabase } from "@/lib/supabase";
@@ -79,6 +80,11 @@ type DesignQueueBadgeRow = {
 type FactoryProductionQueueBadgeRow = {
   id: string;
   updated_at: string | null;
+  status: string | null;
+  planner_user_id: string | null;
+  pattern_laid_by_user_id?: string | null;
+  ready_for_print_by_user_id?: string | null;
+  sent_to_factory_by_user_id?: string | null;
 };
 
 function buildSignature(parts: Array<string | null | undefined>) {
@@ -115,8 +121,8 @@ function isOrderStillOpen(order: OrderAlertOrderState | null) {
   return true;
 }
 
-async function fetchFactoryDepositOrderBadgeCount(profile: NavBadgeProfile) {
-  let query = supabase.from("factory_deposit_orders").select("id,updated_at").eq("status", "submitted");
+async function fetchFactoryDepositOrderBadgeCountWithClient(client: SupabaseClient, profile: NavBadgeProfile) {
+  let query = client.from("factory_deposit_orders").select("id,updated_at").eq("status", "submitted");
   if (!canManageAllFactoryDepositOrders(profile.role)) {
     query = query.eq("created_by_user_id", profile.id);
   }
@@ -130,11 +136,11 @@ async function fetchFactoryDepositOrderBadgeCount(profile: NavBadgeProfile) {
   };
 }
 
-async function fetchOrderAlertsBadgeCount() {
+async function fetchOrderAlertsBadgeCountWithClient(client: SupabaseClient) {
   const nearDueDate = startOfToday();
   nearDueDate.setDate(nearDueDate.getDate() + 3);
 
-  const { data: depositData, error: depositError } = await supabase
+  const { data: depositData, error: depositError } = await client
     .from("factory_deposit_orders")
     .select("id,order_id,delivery_date,updated_at")
     .not("order_id", "is", null)
@@ -149,8 +155,8 @@ async function fetchOrderAlertsBadgeCount() {
   if (orderIds.length === 0) return { count: 0, signature: "" };
 
   const [{ data: orderData, error: orderError }, { data: receiptData, error: receiptError }] = await Promise.all([
-    supabase.from("orders").select("id,status,closed_at,production_completed_at,shipment_status,shipment_completed_at").in("id", orderIds),
-    supabase.from("factory_receipt_items").select("order_id").in("order_id", orderIds),
+    client.from("orders").select("id,status,closed_at,production_completed_at,shipment_status,shipment_completed_at").in("id", orderIds),
+    client.from("factory_receipt_items").select("order_id").in("order_id", orderIds),
   ]);
 
   if (orderError) throw orderError;
@@ -173,14 +179,14 @@ async function fetchOrderAlertsBadgeCount() {
   };
 }
 
-async function fetchFactoryReceiptOrdersBadgeCount() {
-  const { data: itemData, error: itemError } = await supabase.from("factory_receipt_items").select("receipt_id,order_id");
+async function fetchFactoryReceiptOrdersBadgeCountWithClient(client: SupabaseClient) {
+  const { data: itemData, error: itemError } = await client.from("factory_receipt_items").select("receipt_id,order_id");
   if (itemError) throw itemError;
 
   const orderIds = Array.from(new Set(((itemData ?? []) as ReceiptItemOrderRow[]).map((row) => row.order_id).filter((value): value is string => Boolean(value))));
   if (orderIds.length === 0) return { count: 0, signature: "" };
 
-  const { data: orderData, error: orderError } = await supabase
+  const { data: orderData, error: orderError } = await client
     .from("orders")
     .select("id,status,closed_at,shipment_status,shipment_completed_at,updated_at")
     .in("id", orderIds);
@@ -210,8 +216,8 @@ async function fetchFactoryReceiptOrdersBadgeCount() {
   };
 }
 
-async function fetchShipmentNotesBadgeCount(profile: NavBadgeProfile) {
-  const { data, error } = await supabase
+async function fetchShipmentNotesBadgeCountWithClient(client: SupabaseClient, profile: NavBadgeProfile) {
+  const { data, error } = await client
     .from("transport_notes")
     .select("id,print_count,printed_at,last_printed_at,created_by_user_id,updated_at");
   if (error) throw error;
@@ -227,8 +233,8 @@ async function fetchShipmentNotesBadgeCount(profile: NavBadgeProfile) {
   };
 }
 
-async function fetchShipmentApprovalsBadgeCount() {
-  const { data, error } = await supabase
+async function fetchShipmentApprovalsBadgeCountWithClient(client: SupabaseClient) {
+  const { data, error } = await client
     .from("shipment_delivery_requests")
     .select("id,updated_at")
     .eq("status", "submitted");
@@ -241,8 +247,8 @@ async function fetchShipmentApprovalsBadgeCount() {
   };
 }
 
-async function fetchDesignQueueBadgeCount(profile: NavBadgeProfile) {
-  let query = supabase.from("design_queue_entries").select("id,updated_at").eq("is_designed", false);
+async function fetchDesignQueueBadgeCountWithClient(client: SupabaseClient, profile: NavBadgeProfile) {
+  let query = client.from("design_queue_entries").select("id,updated_at").eq("is_designed", false);
   if (profile.role === "graphic") {
     query = query.eq("graphic_user_id", profile.id);
   }
@@ -256,11 +262,11 @@ async function fetchDesignQueueBadgeCount(profile: NavBadgeProfile) {
   };
 }
 
-async function fetchFactoryProductionQueueBadgeCount(profile: NavBadgeProfile) {
-  let query = supabase.from("factory_production_queue_entries").select("id,updated_at").neq("status", "sent_to_factory");
-  if (profile.role === "graphic") {
-    query = query.eq("planner_user_id", profile.id);
-  }
+async function fetchFactoryProductionQueueBadgeCountWithClient(client: SupabaseClient) {
+  const query = client
+    .from("factory_production_queue_entries")
+    .select("id,updated_at,status,planner_user_id,pattern_laid_by_user_id,ready_for_print_by_user_id,sent_to_factory_by_user_id")
+    .neq("status", "sent_to_factory");
 
   const { data, error } = await query;
   if (error) throw error;
@@ -272,6 +278,10 @@ async function fetchFactoryProductionQueueBadgeCount(profile: NavBadgeProfile) {
 }
 
 export async function fetchNavBadgeCounts(profile: NavBadgeProfile): Promise<NavBadgeCounts> {
+  return fetchNavBadgeCountsWithClient(supabase, profile);
+}
+
+export async function fetchNavBadgeCountsWithClient(client: SupabaseClient, profile: NavBadgeProfile): Promise<NavBadgeCounts> {
   const [
     factoryDepositOrders,
     factoryProductionQueue,
@@ -281,13 +291,13 @@ export async function fetchNavBadgeCounts(profile: NavBadgeProfile): Promise<Nav
     shipmentApprovals,
     designQueue,
   ] = await Promise.all([
-    fetchFactoryDepositOrderBadgeCount(profile),
-    fetchFactoryProductionQueueBadgeCount(profile),
-    fetchOrderAlertsBadgeCount(),
-    fetchFactoryReceiptOrdersBadgeCount(),
-    fetchShipmentNotesBadgeCount(profile),
-    fetchShipmentApprovalsBadgeCount(),
-    fetchDesignQueueBadgeCount(profile),
+    fetchFactoryDepositOrderBadgeCountWithClient(client, profile),
+    fetchFactoryProductionQueueBadgeCountWithClient(client),
+    fetchOrderAlertsBadgeCountWithClient(client),
+    fetchFactoryReceiptOrdersBadgeCountWithClient(client),
+    fetchShipmentNotesBadgeCountWithClient(client, profile),
+    fetchShipmentApprovalsBadgeCountWithClient(client),
+    fetchDesignQueueBadgeCountWithClient(client, profile),
   ]);
 
   return {
