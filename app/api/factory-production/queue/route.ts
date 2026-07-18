@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActorFromAuthHeader } from "@/lib/admin-api-auth";
-import { buildFactoryProductionQueueStatusUpdate, type FactoryProductionQueueVisibleStatus } from "@/lib/factory-production-queue";
+import {
+  buildFactoryProductionQueueStatusUpdate,
+  normalizeFactoryProductionQueueStatus,
+  type FactoryProductionQueueVisibleStatus,
+} from "@/lib/factory-production-queue";
 import { isProductionRole } from "@/lib/role-groups";
 import {
   FACTORY_PRODUCTION_QUEUE_FULL_SELECT,
@@ -30,6 +34,15 @@ function normalizeQueueRows<T extends { deposit?: { status?: string | null } | A
     const depositStatus = String(deposit?.status || "").trim().toLowerCase();
     return depositStatus !== "draft" && depositStatus !== "cancelled";
   });
+}
+
+function resolvePlannerUserIdForTargetStatus(
+  targetStatus: FactoryProductionQueueVisibleStatus,
+  effectivePlannerUserId: string | null,
+  actorProfileId: string
+) {
+  if (targetStatus === "queued") return null;
+  return effectivePlannerUserId || actorProfileId;
 }
 
 export async function GET(req: NextRequest) {
@@ -139,16 +152,18 @@ export async function PATCH(req: NextRequest) {
       const row = data as QueueUpdateRow;
       const plannerMap = await resolveEffectivePlannerMap(supabaseAdmin, [row.planner_user_id]);
       const effectivePlannerUserId = row.planner_user_id ? plannerMap.get(row.planner_user_id) ?? null : null;
-      if (effectivePlannerUserId && effectivePlannerUserId !== actor.profileId && actor.role === "production") {
+      const currentVisibleStatus = normalizeFactoryProductionQueueStatus(row.status);
+      if (currentVisibleStatus === "queued" && effectivePlannerUserId && effectivePlannerUserId !== actor.profileId && actor.role === "production") {
         return NextResponse.json({ error: "queue_already_claimed" }, { status: 409 });
       }
 
       const now = new Date().toISOString();
+      const nextPlannerUserId = resolvePlannerUserIdForTargetStatus(targetStatus, effectivePlannerUserId, actor.profileId);
       const { error: updateError } = await supabaseAdmin
         .from("factory_production_queue_entries")
         .update({
           ...buildFactoryProductionQueueStatusUpdate(targetStatus, row, actor.profileId, now),
-          planner_user_id: effectivePlannerUserId || actor.profileId,
+          planner_user_id: nextPlannerUserId,
           updated_by_user_id: actor.profileId,
         })
         .eq("id", id);
@@ -184,18 +199,20 @@ export async function PATCH(req: NextRequest) {
 
       for (const row of rows) {
         const effectivePlannerUserId = row.planner_user_id ? plannerMap.get(row.planner_user_id) ?? null : null;
-        if (effectivePlannerUserId && effectivePlannerUserId !== actor.profileId && actor.role === "production") {
+        const currentVisibleStatus = normalizeFactoryProductionQueueStatus(row.status);
+        if (currentVisibleStatus === "queued" && effectivePlannerUserId && effectivePlannerUserId !== actor.profileId && actor.role === "production") {
           return NextResponse.json({ error: "queue_already_claimed" }, { status: 409 });
         }
       }
 
       for (const row of rows) {
         const effectivePlannerUserId = row.planner_user_id ? plannerMap.get(row.planner_user_id) ?? null : null;
+        const nextPlannerUserId = resolvePlannerUserIdForTargetStatus(targetStatus, effectivePlannerUserId, actor.profileId);
         const { error: updateError } = await supabaseAdmin
           .from("factory_production_queue_entries")
           .update({
             ...buildFactoryProductionQueueStatusUpdate(targetStatus, row, actor.profileId, now),
-            planner_user_id: effectivePlannerUserId || actor.profileId,
+            planner_user_id: nextPlannerUserId,
             updated_by_user_id: actor.profileId,
           })
           .eq("id", row.id);

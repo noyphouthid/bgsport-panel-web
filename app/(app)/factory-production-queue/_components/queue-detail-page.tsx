@@ -560,7 +560,14 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
   const fallbackPreviewUrl = deposit ? buildFactoryDesignFallbackUrl(deposit.factory_bill_code) : null;
   const allPreviewUrls = previewUrls.length > 0 ? previewUrls : fallbackPreviewUrl ? [fallbackPreviewUrl] : [];
   const canEditCurrentRow = Boolean(
-    canEditQueue && !(effectivePlannerUserId && viewerUserId && effectivePlannerUserId !== viewerUserId && isProductionRole(viewerRole))
+    canEditQueue &&
+      !(
+        normalizedStatus === "queued" &&
+        effectivePlannerUserId &&
+        viewerUserId &&
+        effectivePlannerUserId !== viewerUserId &&
+        isProductionRole(viewerRole)
+      )
   );
   const uniqueHemLabels = Array.from(new Set(productionItems.map((item) => getHemLabel(item.hemType)).filter((label) => label !== "-")));
   const signatureFields = [
@@ -632,7 +639,7 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
       return;
     }
 
-    if (effectivePlannerUserId && effectivePlannerUserId !== viewerUserId) {
+    if (normalizedStatus === "queued" && effectivePlannerUserId && effectivePlannerUserId !== viewerUserId) {
       toast.error("ລາຍການນີ້ຖືກຮັບໄປແລ້ວ");
       return;
     }

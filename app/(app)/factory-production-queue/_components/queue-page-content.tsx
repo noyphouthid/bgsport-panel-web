@@ -585,6 +585,11 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
       return false;
     }
 
+    const normalizedStatus = normalizeFactoryProductionQueueStatus(row.status);
+    if (normalizedStatus !== "queued") {
+      return true;
+    }
+
     const effectivePlannerUserId = resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap);
     if (effectivePlannerUserId && effectivePlannerUserId !== viewerUserId && isProductionViewer) {
       toast.error("ລາຍການນີ້ຖືກຮັບໄປແລ້ວ");
@@ -1051,7 +1056,9 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                     const isUrgent = deposit.production_priority === "urgent";
                     const actionLabel = getPrimaryActionLabel(row, statusView, viewerUserId, userNameMap, userRoleMap);
                     const assignerName = getUserDisplayName(row.assigned_by_user_id || deposit.admin_user_id, userNameMap);
-                    const isClaimedByOther = Boolean(effectivePlannerUserId && effectivePlannerUserId !== viewerUserId);
+                    const isClaimedByOther = Boolean(
+                      normalizedStatus === "queued" && effectivePlannerUserId && effectivePlannerUserId !== viewerUserId
+                    );
                     const canUsePrimaryAction = statusView !== "sent_to_factory";
 
                     return (
