@@ -343,6 +343,7 @@ function getQueueListHref(status: FactoryProductionQueueVisibleStatus) {
 }
 
 const BULK_STATUS_ACTIONS: Array<{ status: FactoryProductionQueueVisibleStatus; label: string; className: string }> = [
+  { status: "queued", label: "ຍົກເລີກກັບໄປລໍຖ້າວາງ", className: "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100" },
   { status: "pattern_laid", label: "ວາງ Pattern ແລ້ວ", className: "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100" },
   { status: "ready_for_print", label: "ວາງພ້ອມພິມແລ້ວ", className: "border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100" },
   { status: "sent_to_factory", label: "ສົ່ງໂຮງງານແລ້ວ", className: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100" },
@@ -709,7 +710,9 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
         body: JSON.stringify({ action: "bulk_status", ids: selectedRows.map((row) => row.id), targetStatus }),
       });
 
-      toast.success(`ອັບເດດ ${selectedRows.length.toLocaleString()} ລາຍການເປັນ ${FACTORY_PRODUCTION_QUEUE_VISIBLE_STATUS_LABELS[targetStatus]} ສຳເລັດແລ້ວ`);
+      const successLabel =
+        targetStatus === "queued" ? "ລໍຖ້າວາງຜະລິດ" : FACTORY_PRODUCTION_QUEUE_VISIBLE_STATUS_LABELS[targetStatus];
+      toast.success(`ອັບເດດ ${selectedRows.length.toLocaleString()} ລາຍການເປັນ ${successLabel} ສຳເລັດແລ້ວ`);
       setSelectedRowIds([]);
       await load({ syncFirst: false });
     } catch (error) {

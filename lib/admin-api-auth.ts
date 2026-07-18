@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { normalizeRole } from "@/lib/role-groups";
 
 export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant";
 
@@ -13,6 +14,19 @@ export type AdminActor = {
 };
 
 let cachedPublicClient: SupabaseClient | null = null;
+
+function normalizeAppRole(role: string | null | undefined): AppRole | null {
+  const normalized = normalizeRole(role);
+  if (!normalized) return null;
+  if (normalized === "superadmin" || normalized === "super-admin" || normalized === "super_admin") return "superadmin";
+  if (normalized === "admin") return "admin";
+  if (normalized === "manager") return "manager";
+  if (normalized === "staff") return "staff";
+  if (normalized === "graphic" || normalized === "graphics" || normalized === "designer") return "graphic";
+  if (normalized === "production" || normalized === "factory-production" || normalized === "production-team") return "production";
+  if (normalized === "accountant") return "accountant";
+  return null;
+}
 
 function getPublicClient(): SupabaseClient | null {
   if (cachedPublicClient) return cachedPublicClient;
@@ -40,10 +54,14 @@ export async function getActorFromAuthHeader(
   const token = authHeader.slice(7).trim();
   if (!token) return null;
 
-  const { data: userData, error: userErr } = await publicClient.auth.getUser(token);
-  if (userErr || !userData.user) return null;
+  const { data: adminUserData, error: adminUserErr } = await supabaseAdmin.auth.getUser(token);
+  const { data: publicUserData, error: publicUserErr } =
+    adminUserData?.user || !publicClient ? { data: null, error: null } : await publicClient.auth.getUser(token);
 
-  const authUser = userData.user;
+  const authUser = adminUserData?.user || publicUserData?.user || null;
+  if (adminUserErr && publicUserErr) return null;
+  if (!authUser) return null;
+
   const authEmail = String(authUser.email || "").trim().toLowerCase();
 
   const { data: byAuthId, error: byAuthIdErr } = await supabaseAdmin
@@ -66,7 +84,8 @@ export async function getActorFromAuthHeader(
   }
 
   if (!profile) return null;
-  const profileRole = profile.role as AppRole;
+  const profileRole = normalizeAppRole(profile.role);
+  if (!profileRole) return null;
   if (!profile.is_active) return null;
   if (allowedRoles && !allowedRoles.includes(profileRole)) return null;
 

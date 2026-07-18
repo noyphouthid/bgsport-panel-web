@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { buildFactoryProductionQueueStatusUpdate, type FactoryProductionQueueVisibleStatus } from "@/lib/factory-production-queue";
+import { isProductionRole } from "@/lib/role-groups";
 import {
   FACTORY_PRODUCTION_QUEUE_FULL_SELECT,
   FACTORY_PRODUCTION_QUEUE_UPDATE_SELECT,
@@ -202,6 +203,49 @@ export async function PATCH(req: NextRequest) {
       }
 
       return NextResponse.json({ ok: true, updatedCount: rows.length });
+    }
+
+    if (action === "update_actor_assignments") {
+      const id = String(body.id || "").trim();
+      if (!id) return NextResponse.json({ error: "missing_queue_id" }, { status: 400 });
+
+      const plannerUserId = String(body.plannerUserId || "").trim() || null;
+      const patternLaidByUserId = String(body.patternLaidByUserId || "").trim() || null;
+      const sentToFactoryByUserId = String(body.sentToFactoryByUserId || "").trim() || null;
+
+      const chosenUserIds = [plannerUserId, patternLaidByUserId, sentToFactoryByUserId].filter(Boolean) as string[];
+      if (chosenUserIds.length > 0) {
+        const { data: chosenUsers, error: chosenUsersError } = await supabaseAdmin
+          .from("users")
+          .select("id,role,is_active")
+          .in("id", chosenUserIds);
+        if (chosenUsersError) return NextResponse.json({ error: chosenUsersError.message }, { status: 400 });
+
+        const chosenUserMap = new Map(
+          ((chosenUsers ?? []) as Array<{ id: string; role: string | null; is_active: boolean | null }>).map((user) => [user.id, user])
+        );
+
+        for (const userId of chosenUserIds) {
+          const chosenUser = chosenUserMap.get(userId);
+          if (!chosenUser || !chosenUser.is_active || !isProductionRole(chosenUser.role)) {
+            return NextResponse.json({ error: "invalid_actor_user" }, { status: 400 });
+          }
+        }
+      }
+
+      const { error: updateError } = await supabaseAdmin
+        .from("factory_production_queue_entries")
+        .update({
+          planner_user_id: plannerUserId,
+          pattern_laid_by_user_id: patternLaidByUserId,
+          sent_to_factory_by_user_id: sentToFactoryByUserId,
+          updated_by_user_id: actor.profileId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+
+      if (updateError) return NextResponse.json({ error: updateError.message }, { status: 400 });
+      return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ error: "unsupported_action" }, { status: 400 });

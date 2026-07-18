@@ -36,6 +36,7 @@ type UserRow = {
   id: string;
   full_name: string;
   role: string;
+  is_active?: boolean;
 };
 
 type QueueDepositRow = {
@@ -482,6 +483,11 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showSendPreview, setShowSendPreview] = useState(false);
+  const [actorDraft, setActorDraft] = useState({
+    plannerUserId: "",
+    patternLaidByUserId: "",
+    sentToFactoryByUserId: "",
+  });
 
   const canEditQueue = Boolean(viewerRole && (viewerRole === "superadmin" || isProductionRole(viewerRole)));
 
@@ -528,6 +534,10 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
 
   const userNameMap = useMemo(() => new Map(users.map((user) => [user.id, user.full_name])), [users]);
   const userRoleMap = useMemo(() => new Map(users.map((user) => [user.id, user.role])), [users]);
+  const productionAssignableUsers = useMemo(
+    () => users.filter((user) => isProductionRole(user.role) && (user.is_active ?? true)),
+    [users]
+  );
   const deposit = normalizeDeposit(row);
   const effectivePlannerUserId = row ? resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap) : null;
   const normalizedStatus = row ? normalizeFactoryProductionQueueStatus(row.status) : "queued";
@@ -590,6 +600,19 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
       ),
     },
   ];
+  const actorAssignmentsChanged =
+    actorDraft.plannerUserId !== (row?.planner_user_id || "") ||
+    actorDraft.patternLaidByUserId !== (row?.pattern_laid_by_user_id || "") ||
+    actorDraft.sentToFactoryByUserId !== (row?.sent_to_factory_by_user_id || "");
+
+  useEffect(() => {
+    if (!row) return;
+    setActorDraft({
+      plannerUserId: row.planner_user_id || "",
+      patternLaidByUserId: row.pattern_laid_by_user_id || "",
+      sentToFactoryByUserId: row.sent_to_factory_by_user_id || "",
+    });
+  }, [row]);
 
   useEffect(() => {
     if (!row) return;
@@ -702,6 +725,31 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
       await load();
     } catch (error) {
       toast.error(getErrorMessage(error, "ຍົກເລີກຂັ້ນຕອນບໍ່ສຳເລັດ"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveActorAssignments = async () => {
+    if (!row) return;
+
+    setSaving(true);
+    try {
+      await callQueueApi("/api/factory-production/queue", {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "update_actor_assignments",
+          id: row.id,
+          plannerUserId: actorDraft.plannerUserId || null,
+          patternLaidByUserId: actorDraft.patternLaidByUserId || null,
+          sentToFactoryByUserId: actorDraft.sentToFactoryByUserId || null,
+        }),
+      });
+
+      toast.success("ບັນທຶກຜູ້ຮັບຜິດຊອບສຳເລັດແລ້ວ");
+      await load();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "ບັນທຶກຜູ້ຮັບຜິດຊອບບໍ່ສຳເລັດ"));
     } finally {
       setSaving(false);
     }
@@ -1090,6 +1138,78 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
                     {row.notes ? <div className="mt-2">ໝາຍເຫດຄິວວາງຜະລິດ: {row.notes}</div> : null}
                   </div>
                 ) : null}
+
+                <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <div className="text-sm font-black text-slate-900">ແກ້ໄຂຊື່ຜູ້ຮັບຜິດຊອບ</div>
+                      <div className="mt-1 text-xs font-bold text-slate-500">
+                        ບັນທຶກຊື່ຜູ້ວາງຜະລິດ, ຜູ້ວາງ Pattern ແລະ ຜູ້ສົ່ງໂຮງງານ ເພື່ອໃຫ້ສະແດງໃນໃບສັ່ງຜະລິດ.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveActorAssignments()}
+                      disabled={!canEditCurrentRow || saving || !actorAssignmentsChanged}
+                      className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {saving ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກການແກ້ໄຂ"}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <label className="block">
+                      <div className="mb-2 text-sm font-black text-slate-700">ຜູ້ວາງຜະລິດ</div>
+                      <select
+                        value={actorDraft.plannerUserId}
+                        onChange={(event) => setActorDraft((current) => ({ ...current, plannerUserId: event.target.value }))}
+                        disabled={!canEditCurrentRow || saving}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:opacity-50"
+                      >
+                        <option value="">- ບໍ່ກຳນົດ -</option>
+                        {productionAssignableUsers.map((user) => (
+                          <option key={`planner-${user.id}`} value={user.id}>
+                            {user.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <div className="mb-2 text-sm font-black text-slate-700">ຜູ້ວາງ Pattern</div>
+                      <select
+                        value={actorDraft.patternLaidByUserId}
+                        onChange={(event) => setActorDraft((current) => ({ ...current, patternLaidByUserId: event.target.value }))}
+                        disabled={!canEditCurrentRow || saving}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:opacity-50"
+                      >
+                        <option value="">- ບໍ່ກຳນົດ -</option>
+                        {productionAssignableUsers.map((user) => (
+                          <option key={`pattern-${user.id}`} value={user.id}>
+                            {user.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <div className="mb-2 text-sm font-black text-slate-700">ຜູ້ສົ່ງໂຮງງານ</div>
+                      <select
+                        value={actorDraft.sentToFactoryByUserId}
+                        onChange={(event) => setActorDraft((current) => ({ ...current, sentToFactoryByUserId: event.target.value }))}
+                        disabled={!canEditCurrentRow || saving}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:opacity-50"
+                      >
+                        <option value="">- ບໍ່ກຳນົດ -</option>
+                        {productionAssignableUsers.map((user) => (
+                          <option key={`sent-${user.id}`} value={user.id}>
+                            {user.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
