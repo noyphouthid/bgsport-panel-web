@@ -138,8 +138,12 @@ export function mapOrderToPublicTracking(row: RawOrderRow): PublicTrackingResult
   const hasFactoryStatus = Boolean(factoryStatus);
   const fallback = getLocalTrackingSteps(row);
   const receivedAtShop = Boolean(row.shop_received_at);
-  const shopReceiptStepLabel = receivedAtShop ? "ນຳເຂົ້າມາໜ້າຮ້ານແລ້ວ" : "ຍັງບໍ່ທັນນຳເຂົ້າມາໜ້າຮ້ານ";
-  const steps = hasFactoryStatus && factorySteps.length > 0 ? [...factorySteps, shopReceiptStepLabel] : fallback.steps;
+  const steps =
+    hasFactoryStatus && factorySteps.length > 0
+      ? receivedAtShop
+        ? [...factorySteps, "ນຳເຂົ້າມາໜ້າຮ້ານແລ້ວ"]
+        : factorySteps
+      : fallback.steps;
   const activeStepIndex = hasFactoryStatus
     ? receivedAtShop
       ? factorySteps.length + 1

@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { Search, Phone, PackageCheck, RefreshCcw, ChevronRight, ShieldCheck } from "lucide-react";
+import { Search, Phone, PackageCheck, RefreshCcw, ChevronRight, ShieldCheck, CheckCircle2, Loader2 } from "lucide-react";
 
 type TrackingResult = {
   id: string;
@@ -34,10 +34,92 @@ type SearchResponse = {
 const pageShell =
   "min-h-screen bg-[linear-gradient(180deg,#cfd9c2_0%,#f6efe4_26%,#f8f8f5_54%,#ece3d2_100%)] text-slate-900";
 
+/* ---------- purely presentational helpers (no business logic changed) ---------- */
+
 function buildStepTone(active: boolean, passed: boolean) {
-  if (active) return "border-[#224734] bg-[#224734] text-white shadow-[0_14px_30px_rgba(34,71,52,.24)]";
-  if (passed) return "border-[#d2dbc6] bg-[#edf3e4] text-[#224734]";
-  return "border-white/70 bg-white/80 text-slate-500";
+  if (active) return "border-[#224734] bg-[#f4f8ef]";
+  if (passed) return "border-transparent bg-transparent";
+  return "border-transparent bg-transparent";
+}
+
+function SewingMachineIcon({ size = 17, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={`sewing-machine-icon ${className}`}
+    >
+      {/* body / bed */}
+      <path
+        d="M2.6 17.8h12.6a2 2 0 0 0 2-2v-.7a2.6 2.6 0 0 0-2.6-2.6H9.4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* arm / head */}
+      <path
+        d="M9.4 12.5V7.3a1.8 1.8 0 0 1 1.8-1.8h2.9a3.7 3.7 0 0 1 3.7 3.7v1.4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* spool */}
+      <circle cx="14.3" cy="7.3" r="1.15" stroke="currentColor" strokeWidth="1.4" />
+      {/* base foot */}
+      <circle cx="4.1" cy="17.8" r="1.25" fill="currentColor" />
+      {/* stitched fabric line */}
+      <path d="M2.4 19.3h6.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeDasharray="1.6 1.6" opacity="0.55" />
+      {/* animated needle */}
+      <line className="sewing-needle-group" x1="16.6" y1="8.6" x2="16.6" y2="14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function StepMarker({ active, passed, stepNo }: { active: boolean; passed: boolean; stepNo: number }) {
+  if (passed) {
+    return (
+      <span className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#224734] text-white">
+        <CheckCircle2 size={18} />
+      </span>
+    );
+  }
+
+  if (active) {
+    return (
+      <span className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center">
+        <style>{`
+          @keyframes needleStitch {
+            0% { transform: translateY(-2.6px); }
+            50% { transform: translateY(2.2px); }
+            100% { transform: translateY(-2.6px); }
+          }
+          @keyframes machineShake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-0.5px); }
+            75% { transform: translateX(0.5px); }
+          }
+          .sewing-machine-icon { animation: machineShake .18s linear infinite; }
+          .sewing-needle-group { animation: needleStitch .42s ease-in-out infinite; transform-origin: 16.6px 8.6px; }
+        `}</style>
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#224734]/35" />
+        <span className="absolute inline-flex h-full w-full rounded-full bg-[#224734]/10" />
+        <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-[#224734] text-white shadow-[0_6px_16px_rgba(34,71,52,.35)]">
+          <SewingMachineIcon size={17} />
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#e1ddd0] bg-white text-sm font-black text-slate-400">
+      {stepNo}
+    </span>
+  );
 }
 
 export default function PublicTrackingPage() {
@@ -103,13 +185,20 @@ export default function PublicTrackingPage() {
     <div className={pageShell}>
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-12 pt-5">
         <div className="rounded-[28px] border border-white/70 bg-white/72 p-4 shadow-[0_22px_55px_rgba(80,72,41,.12)] backdrop-blur">
-          <div className="rounded-[24px] bg-[linear-gradient(135deg,#204834_0%,#58744f_48%,#d6b165_100%)] px-5 py-6 text-white shadow-[inset_0_1px_0_rgba(255,255,255,.25)]">
-            <div className="text-[11px] font-black uppercase tracking-[0.35em] text-white/70">BG SPORT</div>
-            <h1 className="mt-3 text-3xl font-black leading-none">ຕິດຕາມສະຖານະ</h1>
-            <p className="mt-3 max-w-[18rem] text-sm font-medium text-white/80">
+          <div className="relative overflow-hidden rounded-[24px] bg-[linear-gradient(150deg,#1a3a29_0%,#2c5940_44%,#c99a4f_100%)] px-5 py-6 text-white shadow-[inset_0_1px_0_rgba(255,255,255,.25)]">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.08]"
+              style={{ backgroundImage: "radial-gradient(circle, #ffffff 1px, transparent 1px)", backgroundSize: "16px 16px" }}
+            />
+            <div className="relative flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.35em] text-white/70">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#d6b165]" />
+              BG SPORT
+            </div>
+            <h1 className="relative mt-3 text-3xl font-black leading-none">ຕິດຕາມສະຖານະ</h1>
+            <p className="relative mt-3 max-w-[18rem] text-sm font-medium text-white/80">
               ພຽງແຕ່ລູກຄ້າໄສ່ເລກລະຫັດອໍເດີ້ ເຊັ່ນ: PK26-5001 ໄສ່ພຽງເລກທ້າຍ 5001 ຫຼື ໄສ່ເບີໂທລູກຄ້າກໍ່ໄດ້
             </p>
-            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-2 text-[11px] font-bold text-white/90">
+            <div className="relative mt-5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-2 text-[11px] font-bold text-white/90">
               <ShieldCheck size={14} />
               ໃຊ້ຄົ້ນຫາດ້ວຍລະຫັດອໍເດີຂອງຮ້ານ ຫຼື ເບີໂທລູກຄ້າເທົ່ານັ້ນ
             </div>
@@ -117,7 +206,7 @@ export default function PublicTrackingPage() {
 
           <form onSubmit={handleSearch} className="mt-4 space-y-3">
             <label className="block text-xs font-black uppercase tracking-[0.2em] text-slate-500">ຄົ້ນຫາຂໍ້ມູນ</label>
-            <div className="rounded-[22px] border border-[#d8dfd1] bg-[#f8faf4] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,.8)]">
+            <div className="rounded-[22px] border border-[#d8dfd1] bg-[#f8faf4] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,.8)] transition focus-within:border-[#224734]/40 focus-within:ring-2 focus-within:ring-[#224734]/10">
               <div className="flex items-center gap-3 rounded-[18px] bg-white px-4 py-3">
                 <div className="rounded-2xl bg-[#edf3e4] p-2 text-[#224734]">
                   <Search size={18} />
@@ -138,7 +227,7 @@ export default function PublicTrackingPage() {
                 disabled={isPending}
                 className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-[#224734] px-4 py-3 text-sm font-black text-white shadow-[0_18px_30px_rgba(34,71,52,.2)] transition hover:bg-[#183424] disabled:opacity-55"
               >
-                <Search size={16} />
+                {isPending ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
                 {isPending ? "ກຳລັງຄົ້ນຫາ..." : "ຄົ້ນຫາ"}
               </button>
               <button
@@ -157,7 +246,7 @@ export default function PublicTrackingPage() {
             </div>
           </form>
 
-          <div className="mt-4 rounded-[22px] border border-[#e6decd] bg-[#f7f2e8] px-4 py-3 text-sm font-semibold text-[#6a5c3d]">
+          <div className={`mt-4 rounded-[22px] border px-4 py-3 text-sm font-semibold ${err ? "border-rose-200 bg-rose-50 text-rose-700" : "border-[#e6decd] bg-[#f7f2e8] text-[#6a5c3d]"}`}>
             {summaryText}
           </div>
         </div>
@@ -180,9 +269,15 @@ export default function PublicTrackingPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-[11px] font-black uppercase tracking-[0.3em] text-slate-400">ສະຖານະລ່າສຸດ</div>
-                  <div className="mt-2 text-2xl font-black leading-tight text-slate-900">{topResult.currentStatus}</div>
+                  <div className="mt-2 flex items-center gap-2 text-2xl font-black leading-tight text-slate-900">
+                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#224734]/50" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#224734]" />
+                    </span>
+                    {topResult.currentStatus}
+                  </div>
                 </div>
-                <div className="rounded-full border border-[#cfdbc6] bg-[#edf3e4] px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-[#224734]">
+                <div className="shrink-0 rounded-full border border-[#cfdbc6] bg-[#edf3e4] px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-[#224734]">
                   {topResult.currentStageSource === "factory" ? "ອັບເດດຈາກໂຮງງານ" : "ອັບເດດຈາກຮ້ານ"}
                 </div>
               </div>
@@ -190,11 +285,11 @@ export default function PublicTrackingPage() {
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <div className="rounded-[20px] bg-[#f8faf6] p-4">
                   <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">ລະຫັດອໍເດີ</div>
-                  <div className="mt-2 text-lg font-black text-slate-900">{topResult.orderCode}</div>
+                  <div className="mt-2 font-mono text-lg font-black text-slate-900">{topResult.orderCode}</div>
                 </div>
                 <div className="rounded-[20px] bg-[#fbf6ed] p-4">
                   <div className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">ເບີໂທລູກຄ້າ</div>
-                  <div className="mt-2 text-lg font-black text-slate-900">{topResult.customerPhoneMasked || "-"}</div>
+                  <div className="mt-2 font-mono text-lg font-black text-slate-900">{topResult.customerPhoneMasked || "-"}</div>
                 </div>
               </div>
 
@@ -214,34 +309,50 @@ export default function PublicTrackingPage() {
               </div>
 
               {topResult.isRush ? (
-                <div className="mt-4 rounded-[20px] border border-[#e2c78d] bg-[#fff2cb] px-4 py-3 text-sm font-black text-[#7a581f]">
+                <div className="mt-4 flex items-center gap-2 rounded-[20px] border border-[#e2c78d] bg-[#fff2cb] px-4 py-3 text-sm font-black text-[#7a581f]">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#c99a35]/60" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-[#a97a1f]" />
+                  </span>
                   ອໍເດີນີ້ຖືກຕັ້ງເປັນງານດ່ວນ
                 </div>
               ) : null}
 
-              <div className="mt-5 space-y-3">
+              <div className="mt-6 space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">ຂັ້ນຕອນການເຮັດວຽກ</div>
                   <div className="text-xs font-bold text-slate-400">
                     {topResult.activeStepIndex ? `ຂັ້ນ ${topResult.activeStepIndex}/${topResult.steps.length}` : `${topResult.steps.length} ຂັ້ນຕອນ`}
                   </div>
                 </div>
-                <div className="space-y-2">
+                <div className="mt-3">
                   {topResult.steps.map((step, index) => {
                     const stepNo = index + 1;
                     const activeIndex = topResult.activeStepIndex || 0;
                     const active = stepNo === activeIndex;
                     const passed = activeIndex > 0 && stepNo < activeIndex;
+                    const isLast = index === topResult.steps.length - 1;
+
                     return (
-                      <div key={`${topResult.id}-${stepNo}-${step}`} className={`rounded-[20px] border px-4 py-3 ${buildStepTone(active, passed)}`}>
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-black/10 text-sm font-black">
-                              {stepNo}
-                            </div>
-                            <div className="text-sm font-black">{step}</div>
+                      <div key={`${topResult.id}-${stepNo}-${step}`} className="relative flex gap-3">
+                        {!isLast ? (
+                          <span
+                            className={`absolute left-[17px] top-9 h-[calc(100%-2rem)] w-px ${
+                              passed ? "bg-[#224734]" : "bg-[#e6e2d4]"
+                            }`}
+                          />
+                        ) : null}
+                        <StepMarker active={active} passed={passed} stepNo={stepNo} />
+                        <div className={`min-w-0 flex-1 rounded-[16px] border px-3 py-2 pb-4 ${buildStepTone(active, passed)}`}>
+                          <div className={`text-sm font-black ${active ? "text-[#183424]" : passed ? "text-slate-700" : "text-slate-400"}`}>
+                            {step}
                           </div>
-                          {active ? <ChevronRight size={18} /> : null}
+                          {active ? (
+                            <div className="mt-0.5 flex items-center gap-1.5 text-xs font-bold text-[#224734]">
+                              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#224734]" />
+                              ກຳລັງດຳເນີນການ
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     );
@@ -271,12 +382,12 @@ export default function PublicTrackingPage() {
                 ) : null}
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-lg font-black text-slate-900">{item.orderCode}</div>
+                    <div className="font-mono text-lg font-black text-slate-900">{item.orderCode}</div>
                     <div className="mt-1 text-xs font-bold text-slate-400">
                       {item.orderDate} {item.customerPhoneMasked ? `• ${item.customerPhoneMasked}` : ""}
                     </div>
                   </div>
-                  <div className="rounded-full bg-[#edf3e4] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.18em] text-[#224734]">
+                  <div className="shrink-0 rounded-full bg-[#edf3e4] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.18em] text-[#224734]">
                     {item.currentStageSource === "factory" ? "ໂຮງງານ" : "ຮ້ານ"}
                   </div>
                 </div>
