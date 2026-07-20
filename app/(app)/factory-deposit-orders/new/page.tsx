@@ -1104,7 +1104,7 @@ export default function FactoryDepositOrderFormPage() {
   const quantityMatches = quantityDifference === 0;
   const signatureFields = [
     { label: "ຜູ້ອອກໃບສັ່ງຜະລິດ", name: createdByUserName },
-    { label: "ຜູ້ວາງແບບ", name: "" },
+    { label: "ຜູ້ວາງ Pattern", name: "" },
     { label: "ຜູ້ວາງພ້ອມພິມ", name: "" },
     { label: "ຜູ້ສົ່ງໂຮງງານ", name: "" },
   ];

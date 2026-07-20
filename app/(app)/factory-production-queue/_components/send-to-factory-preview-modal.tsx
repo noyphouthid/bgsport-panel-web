@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { toJpeg } from "html-to-image";
 import { Download, Printer, X } from "lucide-react";
 import toast from "react-hot-toast";
@@ -79,6 +79,7 @@ type SendToFactoryPreviewModalProps = {
   userNameMap: Map<string, string>;
   viewerUserId: string | null;
   confirming?: boolean;
+  initialAction?: "download" | "print" | null;
   onClose: () => void;
   onConfirm: () => void | Promise<void>;
 };
@@ -325,10 +326,12 @@ export function SendToFactoryPreviewModal({
   userNameMap,
   viewerUserId,
   confirming = false,
+  initialAction = null,
   onClose,
   onConfirm,
 }: SendToFactoryPreviewModalProps) {
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const lastAutoActionRef = useRef<"download" | "print" | null>(null);
   const [downloading, setDownloading] = useState(false);
   const deposit = normalizeDeposit(row);
 
@@ -351,7 +354,7 @@ export function SendToFactoryPreviewModal({
       value: getUserDisplayName(deposit?.created_by_user_id || row.assigned_by_user_id || deposit?.admin_user_id || null, userNameMap),
     },
     {
-      label: "ຜູ້ວາງແບບ",
+      label: "ຜູ້ວາງ Pattern",
       value: getUserDisplayName(row.pattern_laid_by_user_id || row.planner_user_id, userNameMap),
     },
     {
@@ -404,6 +407,22 @@ export function SendToFactoryPreviewModal({
     if (!previewRef.current) return;
     window.print();
   };
+
+  const triggerInitialAction = useEffectEvent(() => {
+    if (initialAction === "download") {
+      void handleDownload();
+      return;
+    }
+    if (initialAction === "print") {
+      handlePrint();
+    }
+  });
+
+  useEffect(() => {
+    if (!initialAction || lastAutoActionRef.current === initialAction) return;
+    lastAutoActionRef.current = initialAction;
+    triggerInitialAction();
+  }, [initialAction]);
 
   return (
     <div className="factory-production-modal-shell fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-6 backdrop-blur-sm">

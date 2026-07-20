@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { ArrowLeft, CheckCheck, RefreshCw, UserRound } from "lucide-react";
+import { ArrowLeft, CheckCheck, Download, Printer, RefreshCw, UserRound } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { isProductionRole } from "@/lib/role-groups";
 import { PatternMockupViewer } from "./pattern-mockup-viewer";
@@ -483,9 +483,10 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showSendPreview, setShowSendPreview] = useState(false);
+  const [sendPreviewInitialAction, setSendPreviewInitialAction] = useState<"download" | "print" | null>(null);
   const [actorDraft, setActorDraft] = useState({
-    plannerUserId: "",
     patternLaidByUserId: "",
+    readyForPrintByUserId: "",
     sentToFactoryByUserId: "",
   });
 
@@ -576,7 +577,7 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
       name: getUserDisplayName(deposit?.created_by_user_id || row?.assigned_by_user_id || deposit?.admin_user_id || null, userNameMap),
     },
     {
-      label: "ຜູ້ວາງແບບ",
+      label: "ຜູ້ວາງ Pattern",
       name: getUserDisplayName(
         row?.pattern_laid_by_user_id ||
           (row && normalizeFactoryProductionQueueStatus(row.status) !== "queued" ? effectivePlannerUserId : null)
@@ -608,15 +609,15 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
     },
   ];
   const actorAssignmentsChanged =
-    actorDraft.plannerUserId !== (row?.planner_user_id || "") ||
     actorDraft.patternLaidByUserId !== (row?.pattern_laid_by_user_id || "") ||
+    actorDraft.readyForPrintByUserId !== (row?.ready_for_print_by_user_id || "") ||
     actorDraft.sentToFactoryByUserId !== (row?.sent_to_factory_by_user_id || "");
 
   useEffect(() => {
     if (!row) return;
     setActorDraft({
-      plannerUserId: row.planner_user_id || "",
       patternLaidByUserId: row.pattern_laid_by_user_id || "",
+      readyForPrintByUserId: row.ready_for_print_by_user_id || "",
       sentToFactoryByUserId: row.sent_to_factory_by_user_id || "",
     });
   }, [row]);
@@ -747,8 +748,8 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
         body: JSON.stringify({
           action: "update_actor_assignments",
           id: row.id,
-          plannerUserId: actorDraft.plannerUserId || null,
           patternLaidByUserId: actorDraft.patternLaidByUserId || null,
+          readyForPrintByUserId: actorDraft.readyForPrintByUserId || null,
           sentToFactoryByUserId: actorDraft.sentToFactoryByUserId || null,
         }),
       });
@@ -785,6 +786,32 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
             ໂຫຼດຄືນ
           </button>
+          {row && normalizedStatus === "sent_to_factory" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setSendPreviewInitialAction("download");
+                  setShowSendPreview(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
+              >
+                <Download size={16} />
+                Download .jpg
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSendPreviewInitialAction("print");
+                  setShowSendPreview(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50"
+              >
+                <Printer size={16} />
+                Print
+              </button>
+            </>
+          ) : null}
           {row && !effectivePlannerUserId ? (
             <button
               type="button"
@@ -1151,7 +1178,7 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
                     <div>
                       <div className="text-sm font-black text-slate-900">ແກ້ໄຂຊື່ຜູ້ຮັບຜິດຊອບ</div>
                       <div className="mt-1 text-xs font-bold text-slate-500">
-                        ບັນທຶກຊື່ຜູ້ວາງຜະລິດ, ຜູ້ວາງ Pattern ແລະ ຜູ້ສົ່ງໂຮງງານ ເພື່ອໃຫ້ສະແດງໃນໃບສັ່ງຜະລິດ.
+                        ບັນທຶກຊື່ 3 ຂັ້ນຕອນ: ຜູ້ວາງ Pattern, ຜູ້ວາງພ້ອມພິມ ແລະ ຜູ້ສົ່ງໂຮງງານ ເພື່ອໃຫ້ສະແດງໃນໃບສັ່ງຜະລິດ.
                       </div>
                     </div>
                     <button
@@ -1166,23 +1193,6 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
 
                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                     <label className="block">
-                      <div className="mb-2 text-sm font-black text-slate-700">ຜູ້ວາງຜະລິດ</div>
-                      <select
-                        value={actorDraft.plannerUserId}
-                        onChange={(event) => setActorDraft((current) => ({ ...current, plannerUserId: event.target.value }))}
-                        disabled={!canEditCurrentRow || saving}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:opacity-50"
-                      >
-                        <option value="">- ບໍ່ກຳນົດ -</option>
-                        {productionAssignableUsers.map((user) => (
-                          <option key={`planner-${user.id}`} value={user.id}>
-                            {user.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="block">
                       <div className="mb-2 text-sm font-black text-slate-700">ຜູ້ວາງ Pattern</div>
                       <select
                         value={actorDraft.patternLaidByUserId}
@@ -1193,6 +1203,23 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
                         <option value="">- ບໍ່ກຳນົດ -</option>
                         {productionAssignableUsers.map((user) => (
                           <option key={`pattern-${user.id}`} value={user.id}>
+                            {user.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <div className="mb-2 text-sm font-black text-slate-700">ຜູ້ວາງພ້ອມພິມ</div>
+                      <select
+                        value={actorDraft.readyForPrintByUserId}
+                        onChange={(event) => setActorDraft((current) => ({ ...current, readyForPrintByUserId: event.target.value }))}
+                        disabled={!canEditCurrentRow || saving}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:opacity-50"
+                      >
+                        <option value="">- ບໍ່ກຳນົດ -</option>
+                        {productionAssignableUsers.map((user) => (
+                          <option key={`ready-${user.id}`} value={user.id}>
                             {user.full_name}
                           </option>
                         ))}
@@ -1336,8 +1363,10 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
           userNameMap={userNameMap}
           viewerUserId={viewerUserId}
           confirming={saving}
+          initialAction={sendPreviewInitialAction}
           onClose={() => {
             if (saving) return;
+            setSendPreviewInitialAction(null);
             setShowSendPreview(false);
           }}
           onConfirm={handleConfirmSendToFactory}

@@ -226,11 +226,18 @@ export async function PATCH(req: NextRequest) {
       const id = String(body.id || "").trim();
       if (!id) return NextResponse.json({ error: "missing_queue_id" }, { status: 400 });
 
-      const plannerUserId = String(body.plannerUserId || "").trim() || null;
+      const hasPlannerUserId = Object.prototype.hasOwnProperty.call(body, "plannerUserId");
+      const plannerUserId = hasPlannerUserId ? String(body.plannerUserId || "").trim() || null : null;
       const patternLaidByUserId = String(body.patternLaidByUserId || "").trim() || null;
+      const readyForPrintByUserId = String(body.readyForPrintByUserId || "").trim() || null;
       const sentToFactoryByUserId = String(body.sentToFactoryByUserId || "").trim() || null;
 
-      const chosenUserIds = [plannerUserId, patternLaidByUserId, sentToFactoryByUserId].filter(Boolean) as string[];
+      const chosenUserIds = [
+        hasPlannerUserId ? plannerUserId : null,
+        patternLaidByUserId,
+        readyForPrintByUserId,
+        sentToFactoryByUserId,
+      ].filter(Boolean) as string[];
       if (chosenUserIds.length > 0) {
         const { data: chosenUsers, error: chosenUsersError } = await supabaseAdmin
           .from("users")
@@ -250,15 +257,28 @@ export async function PATCH(req: NextRequest) {
         }
       }
 
+      const updatePayload: {
+        planner_user_id?: string | null;
+        pattern_laid_by_user_id: string | null;
+        ready_for_print_by_user_id: string | null;
+        sent_to_factory_by_user_id: string | null;
+        updated_by_user_id: string;
+        updated_at: string;
+      } = {
+        pattern_laid_by_user_id: patternLaidByUserId,
+        ready_for_print_by_user_id: readyForPrintByUserId,
+        sent_to_factory_by_user_id: sentToFactoryByUserId,
+        updated_by_user_id: actor.profileId,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (hasPlannerUserId) {
+        updatePayload.planner_user_id = plannerUserId;
+      }
+
       const { error: updateError } = await supabaseAdmin
         .from("factory_production_queue_entries")
-        .update({
-          planner_user_id: plannerUserId,
-          pattern_laid_by_user_id: patternLaidByUserId,
-          sent_to_factory_by_user_id: sentToFactoryByUserId,
-          updated_by_user_id: actor.profileId,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq("id", id);
 
       if (updateError) return NextResponse.json({ error: updateError.message }, { status: 400 });
