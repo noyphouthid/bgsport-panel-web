@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { CalendarRange, RefreshCw, Search, Trash2, Wallet } from "lucide-react";
+import { ArrowRight, CheckCheck, RefreshCw, Search, Trash2, Wallet } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type OrderRow = {
@@ -46,7 +47,13 @@ type PaymentBatchSummary = {
   amount: number;
 };
 
-const today = new Date().toISOString().slice(0, 10);
+type SearchPaidResult = {
+  order_code: string;
+  factory_bill_code: string | null;
+  factory_paid_full_at: string | null;
+};
+
+const FACTORY_PAYMENT_DRAFT_STORAGE_KEY = "bgsport.factory-payments.draft-selection";
 
 function toDateOnly(value: string | null) {
   if (!value) return "-";
@@ -59,21 +66,26 @@ function normalizeCode(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
 }
 
-function buildPeriodTitle(start: string, end: string) {
-  if (start && end) return `${start} - ${end}`;
-  if (start) return `ເລີ່ມຈາກ ${start}`;
-  if (end) return `ເຖິງ ${end}`;
-  return "ຍັງບໍ່ໄດ້ເລືອກງວດ";
-}
-
 function getOrderTotalShirts(order: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
   return (Number(order.short_qty) || 0) + (Number(order.long_qty) || 0) + (Number(order.free_qty) || 0);
 }
 
+function formatMoney(value: number) {
+  return (Number(value) || 0).toLocaleString();
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = String((error as { message?: unknown }).message || "").trim();
+    if (message) return message;
+  }
+  return fallback;
+}
+
 export default function FactoryPaymentsPage() {
-  const [periodStart, setPeriodStart] = useState(today);
-  const [periodEnd, setPeriodEnd] = useState(today);
   const [searchCode, setSearchCode] = useState("");
+  const [searchPaidResult, setSearchPaidResult] = useState<SearchPaidResult | null>(null);
   const [availableRows, setAvailableRows] = useState<CandidateRow[]>([]);
   const [selectedRows, setSelectedRows] = useState<CandidateRow[]>([]);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryRow[]>([]);
@@ -83,6 +95,8 @@ export default function FactoryPaymentsPage() {
   const [cancellingPaymentId, setCancellingPaymentId] = useState<string | null>(null);
   const [cancellingBatchId, setCancellingBatchId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const restoredSelectedIdsRef = useRef<string[] | null>(null);
+  const storageReadyRef = useRef(false);
 
   const enrichOrders = async (orders: OrderRow[]) => {
     if (orders.length === 0) return [] as CandidateRow[];
@@ -117,9 +131,8 @@ export default function FactoryPaymentsPage() {
       })
       .filter((order) => order.outstanding_amount > 0)
       .sort((a, b) => {
-        const aDate = a.production_completed_at || "";
-        const bDate = b.production_completed_at || "";
-        if (aDate !== bDate) return aDate.localeCompare(bDate);
+        const amountDiff = b.outstanding_amount - a.outstanding_amount;
+        if (amountDiff !== 0) return amountDiff;
         return a.order_code.localeCompare(b.order_code);
       });
   };
@@ -128,11 +141,10 @@ export default function FactoryPaymentsPage() {
     const uniqueIds = Array.from(new Set(orderIds.filter(Boolean)));
     if (uniqueIds.length === 0) return;
 
-    const [{ data: ordersData, error: ordersError }, { data: paymentsData, error: paymentsError }] =
-      await Promise.all([
-        supabase.from("orders").select("id,factory_cost").in("id", uniqueIds),
-        supabase.from("factory_payments").select("order_id,amount,paid_at").in("order_id", uniqueIds),
-      ]);
+    const [{ data: ordersData, error: ordersError }, { data: paymentsData, error: paymentsError }] = await Promise.all([
+      supabase.from("orders").select("id,factory_cost").in("id", uniqueIds),
+      supabase.from("factory_payments").select("order_id,amount,paid_at").in("order_id", uniqueIds),
+    ]);
 
     if (ordersError) throw ordersError;
     if (paymentsError && !paymentsError.message.includes("Could not find the table")) {
@@ -167,25 +179,19 @@ export default function FactoryPaymentsPage() {
     setErr(null);
 
     try {
-      let query = supabase
+      const { data, error } = await supabase
         .from("orders")
-        .select(
-          "id,order_code,factory_bill_code,production_completed_at,short_qty,long_qty,free_qty,factory_cost,factory_paid_full_at"
-        )
+        .select("id,order_code,factory_bill_code,production_completed_at,short_qty,long_qty,free_qty,factory_cost,factory_paid_full_at")
         .not("production_completed_at", "is", null)
-        .order("production_completed_at", { ascending: true })
-        .order("created_at", { ascending: true });
+        .is("factory_paid_full_at", null)
+        .order("created_at", { ascending: false });
 
-      if (periodStart) query = query.gte("production_completed_at", `${periodStart}T00:00:00`);
-      if (periodEnd) query = query.lte("production_completed_at", `${periodEnd}T23:59:59`);
-
-      const { data, error } = await query;
       if (error) throw error;
 
       const enriched = await enrichOrders((data ?? []) as OrderRow[]);
       setAvailableRows(enriched);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "ໂຫຼດຂໍ້ມູນບໍ່ສຳເລັດ";
+      const message = getErrorMessage(error, "ໂຫຼດຂໍ້ມູນບໍ່ສຳເລັດ");
       setErr(message);
       setAvailableRows([]);
     } finally {
@@ -240,7 +246,7 @@ export default function FactoryPaymentsPage() {
         }))
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "ໂຫຼດປະຫວັດການຈ່າຍບໍ່ສຳເລັດ";
+      const message = getErrorMessage(error, "ໂຫຼດປະຫວັດການຈ່າຍບໍ່ສຳເລັດ");
       setErr(message);
       setPaymentHistory([]);
     } finally {
@@ -253,9 +259,61 @@ export default function FactoryPaymentsPage() {
   };
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const raw = window.localStorage.getItem(FACTORY_PAYMENT_DRAFT_STORAGE_KEY);
+      if (!raw) {
+        storageReadyRef.current = true;
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as {
+        selectedOrderIds?: unknown;
+        searchCode?: unknown;
+      };
+
+      restoredSelectedIdsRef.current = Array.isArray(parsed.selectedOrderIds)
+        ? parsed.selectedOrderIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+
+      if (typeof parsed.searchCode === "string" && parsed.searchCode.trim()) {
+        setSearchCode(parsed.searchCode);
+      }
+    } catch {
+      window.localStorage.removeItem(FACTORY_PAYMENT_DRAFT_STORAGE_KEY);
+    } finally {
+      storageReadyRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
     void loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setSelectedRows((prev) => {
+      const restoredIds = restoredSelectedIdsRef.current ?? [];
+      if (prev.length === 0 && restoredIds.length === 0) return prev;
+
+      const selectedIds = new Set(prev.map((row) => row.id));
+      restoredIds.forEach((id) => selectedIds.add(id));
+      return availableRows.filter((row) => selectedIds.has(row.id));
+    });
+    restoredSelectedIdsRef.current = null;
+  }, [availableRows]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !storageReadyRef.current) return;
+
+    const payload = {
+      selectedOrderIds: selectedRows.map((row) => row.id),
+      searchCode,
+    };
+
+    window.localStorage.setItem(FACTORY_PAYMENT_DRAFT_STORAGE_KEY, JSON.stringify(payload));
+  }, [searchCode, selectedRows]);
 
   const selectedIds = useMemo(() => new Set(selectedRows.map((row) => row.id)), [selectedRows]);
 
@@ -270,7 +328,30 @@ export default function FactoryPaymentsPage() {
     });
   }, [availableRows, searchCode]);
 
-  const summary = useMemo(() => {
+  const availableSummary = useMemo(() => {
+    return availableRows.reduce(
+      (acc, row) => {
+        acc.orders += 1;
+        acc.shirts += row.total_shirts;
+        acc.outstanding += row.outstanding_amount;
+        return acc;
+      },
+      { orders: 0, shirts: 0, outstanding: 0 }
+    );
+  }, [availableRows]);
+
+  const filteredSummary = useMemo(() => {
+    return filteredAvailableRows.reduce(
+      (acc, row) => {
+        acc.orders += 1;
+        acc.outstanding += row.outstanding_amount;
+        return acc;
+      },
+      { orders: 0, outstanding: 0 }
+    );
+  }, [filteredAvailableRows]);
+
+  const selectedSummary = useMemo(() => {
     return selectedRows.reduce(
       (acc, row) => {
         acc.orders += 1;
@@ -312,12 +393,94 @@ export default function FactoryPaymentsPage() {
     }
 
     setSelectedRows((prev) => [...prev, row]);
-    toast.success(`ເພີ່ມ ${row.order_code} ແລ້ວ`);
   };
 
   const removeFromSelection = (id: string) => {
     setSelectedRows((prev) => prev.filter((row) => row.id !== id));
   };
+
+  const lookupPaidOrderByCode = async (rawCode: string) => {
+    const code = rawCode.trim();
+    if (!code) return null;
+
+    const [{ data: orderCodeMatches, error: orderCodeError }, { data: factoryCodeMatches, error: factoryCodeError }] =
+      await Promise.all([
+        supabase
+          .from("orders")
+          .select("order_code,factory_bill_code,factory_paid_full_at")
+          .ilike("order_code", code)
+          .limit(1),
+        supabase
+          .from("orders")
+          .select("order_code,factory_bill_code,factory_paid_full_at")
+          .ilike("factory_bill_code", code)
+          .limit(1),
+      ]);
+
+    if (orderCodeError) throw orderCodeError;
+    if (factoryCodeError) throw factoryCodeError;
+
+    const matches = [...((orderCodeMatches ?? []) as SearchPaidResult[]), ...((factoryCodeMatches ?? []) as SearchPaidResult[])];
+    const found = matches.find(
+      (row) =>
+        normalizeCode(row.order_code) === normalizeCode(code) || normalizeCode(row.factory_bill_code) === normalizeCode(code)
+    );
+
+    if (!found?.factory_paid_full_at) return null;
+    return found;
+  };
+
+  const handleSelectAllFiltered = () => {
+    const unselectedRows = filteredAvailableRows.filter((row) => !selectedIds.has(row.id));
+    if (unselectedRows.length === 0) {
+      toast("ລາຍການທີ່ຄົ້ນຫາຖືກເລືອກຄົບແລ້ວ");
+      return;
+    }
+
+    setSelectedRows((prev) => [...prev, ...unselectedRows]);
+    toast.success(`ເລືອກເພີ່ມ ${unselectedRows.length} ລາຍການ`);
+  };
+
+  const clearSelection = () => {
+    setSelectedRows([]);
+  };
+
+  useEffect(() => {
+    const keyword = searchCode.trim();
+    if (!keyword) {
+      setSearchPaidResult(null);
+      return;
+    }
+
+    const exactUnpaidMatch = availableRows.some((row) => {
+      const orderCode = normalizeCode(row.order_code);
+      const factoryCode = normalizeCode(row.factory_bill_code);
+      const normalizedKeyword = normalizeCode(keyword);
+      return orderCode === normalizedKeyword || factoryCode === normalizedKeyword;
+    });
+
+    if (exactUnpaidMatch) {
+      setSearchPaidResult(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const found = await lookupPaidOrderByCode(keyword);
+          if (!cancelled) setSearchPaidResult(found);
+        } catch {
+          if (!cancelled) setSearchPaidResult(null);
+        }
+      })();
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [availableRows, searchCode]);
 
   useEffect(() => {
     const keyword = normalizeCode(searchCode);
@@ -334,6 +497,7 @@ export default function FactoryPaymentsPage() {
 
     addToSelection(exactMatches[0]);
     setSearchCode("");
+    setSearchPaidResult(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableRows, searchCode, selectedIds]);
 
@@ -357,7 +521,7 @@ export default function FactoryPaymentsPage() {
         amount: row.outstanding_amount,
         paid_at: paidAt,
         batch_id: batchId,
-        note: `ຈ່າຍຄ່າໂຮງງານແບບກຸ່ມ ${buildPeriodTitle(periodStart, periodEnd)}`,
+        note: "ຈ່າຍຄ່າໂຮງງານແບບກຸ່ມ",
       }));
 
       const { error: insertError } = await supabase.from("factory_payments").insert(payload);
@@ -366,12 +530,12 @@ export default function FactoryPaymentsPage() {
       const completedIds = selectedRows.map((row) => row.id);
       await refreshFactoryPaidStatus(completedIds);
 
-      toast.success(`ບັນທຶກການຈ່າຍແບບກຸ່ມແລ້ວ ${selectedRows.length} ລາຍການ`);
+      toast.success(`ບັນທຶກການຈ່າຍແລ້ວ ${selectedRows.length} ລາຍການ`);
       setSelectedRows([]);
       setSearchCode("");
       await loadAll();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "ຈ່າຍທັງໝົດບໍ່ສຳເລັດ";
+      const message = getErrorMessage(error, "ຈ່າຍທັງໝົດບໍ່ສຳເລັດ");
       setErr(message);
       toast.error(message);
     } finally {
@@ -380,7 +544,9 @@ export default function FactoryPaymentsPage() {
   };
 
   const handleCancelPayment = async (payment: PaymentHistoryRow) => {
-    const confirmed = window.confirm(`ຢືນຢັນຍົກເລີກການຈ່າຍຂອງ ${payment.order_code} ຈຳນວນ ${Number(payment.amount).toLocaleString()} ຫຼື ບໍ່?`);
+    const confirmed = window.confirm(
+      `ຢືນຢັນຍົກເລີກການຈ່າຍຂອງ ${payment.order_code} ຈຳນວນ ${formatMoney(payment.amount)} ຫຼື ບໍ່?`
+    );
     if (!confirmed) return;
 
     setCancellingPaymentId(payment.id);
@@ -394,7 +560,7 @@ export default function FactoryPaymentsPage() {
       toast.success(`ຍົກເລີກການຈ່າຍຂອງ ${payment.order_code} ແລ້ວ`);
       await loadAll();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "ຍົກເລີກການຈ່າຍບໍ່ສຳເລັດ";
+      const message = getErrorMessage(error, "ຍົກເລີກການຈ່າຍບໍ່ສຳເລັດ");
       setErr(message);
       toast.error(message);
     } finally {
@@ -410,7 +576,7 @@ export default function FactoryPaymentsPage() {
     }
 
     const confirmed = window.confirm(
-      `ຢືນຢັນຍົກເລີກການຈ່າຍແບບກຸ່ມ ${relatedRows.length} ລາຍການ ລວມ ${batch.amount.toLocaleString()} ຫຼື ບໍ່?`
+      `ຢືນຢັນຍົກເລີກການຈ່າຍແບບກຸ່ມ ${relatedRows.length} ລາຍການ ລວມ ${formatMoney(batch.amount)} ຫຼື ບໍ່?`
     );
     if (!confirmed) return;
 
@@ -425,7 +591,7 @@ export default function FactoryPaymentsPage() {
       toast.success(`ຍົກເລີກການຈ່າຍແບບກຸ່ມແລ້ວ ${relatedRows.length} ລາຍການ`);
       await loadAll();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "ຍົກເລີກການຈ່າຍແບບກຸ່ມບໍ່ສຳເລັດ";
+      const message = getErrorMessage(error, "ຍົກເລີກການຈ່າຍແບບກຸ່ມບໍ່ສຳເລັດ");
       setErr(message);
       toast.error(message);
     } finally {
@@ -435,140 +601,273 @@ export default function FactoryPaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-black tracking-tight text-slate-900">
-            <Wallet className="text-emerald-600" size={24} />
-            ຈ່າຍຄ່າໂຮງງານແບບກຸ່ມ
-          </h1>
-          <div className="text-sm font-medium text-slate-500">
-            ຄົ້ນຫາດ້ວຍລະຫັດໂຮງງານ ຫຼື ລະຫັດອໍເດີ ເພີ່ມເຂົ້າໃບຈ່າຍອັດຕະໂນມັດ ແລະ ເບິ່ງປະຫວັດການຈ່າຍໄດ້ໃນໜ້າດຽວ
+      <section className="overflow-hidden rounded-[28px] border border-emerald-100 bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-100">
+        <div className="grid gap-6 p-6 lg:grid-cols-[1.3fr,0.7fr] lg:p-7">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-black uppercase tracking-[0.2em] text-white/90">
+              <Wallet size={14} />
+              Factory Payments
+            </div>
+            <h1 className="mt-4 text-3xl font-black tracking-tight">ອໍເດີ້ຄ້າງຈ່າຍໂຮງງານ</h1>
+            <p className="mt-2 max-w-2xl text-sm font-medium text-emerald-50/95">
+              ໜ້ານີ້ຈະສະແດງສະເພາະອໍເດີ້ທີ່ຍັງບໍ່ຈ່າຍຄ່າໂຮງງານຄົບ ເພື່ອໃຫ້ຄົ້ນຫາ, ເລືອກ ແລະ ບັນທຶກການຈ່າຍໄດ້ງ່າຍຂຶ້ນ.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div className="rounded-2xl bg-white/14 p-4 backdrop-blur">
+              <div className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-50/80">ອໍເດີ້ຄ້າງຈ່າຍ</div>
+              <div className="mt-2 text-3xl font-black">{availableSummary.orders.toLocaleString()}</div>
+              <div className="mt-1 text-sm font-medium text-emerald-50/90">ລາຍການທີ່ພ້ອມຈ່າຍ</div>
+            </div>
+            <div className="rounded-2xl bg-slate-950/18 p-4 backdrop-blur">
+              <div className="text-xs font-bold uppercase tracking-[0.18em] text-white/75">ຍອດຄ້າງທັງໝົດ</div>
+              <div className="mt-2 text-3xl font-black">{formatMoney(availableSummary.outstanding)}</div>
+              <div className="mt-1 text-sm font-medium text-white/80">ຍັງບໍ່ໄດ້ຈ່າຍຄ່າໂຮງງານ</div>
+            </div>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={loadAll}
-          disabled={loading || historyLoading}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-        >
-          <RefreshCw size={16} className={loading || historyLoading ? "animate-spin" : ""} />
-          {loading || historyLoading ? "ກຳລັງໂຫຼດ..." : "ໂຫຼດຂໍ້ມູນໃໝ່"}
-        </button>
-      </div>
+      </section>
 
       {err && <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">ຂໍ້ຜິດພາດ: {err}</div>}
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
-        <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2 text-sm font-black uppercase tracking-wider text-slate-700">
-            <CalendarRange size={18} className="text-blue-600" />
-            ງວດຈ່າຍ
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈາກວັນທີ</label>
-              <input
-                type="date"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຫາວັນທີ</label>
-              <input
-                type="date"
-                value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={loadAvailableOrders}
-                disabled={loading}
-                className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white transition hover:bg-blue-700 disabled:opacity-50"
-              >
-                {loading ? "ກຳລັງໂຫຼດ..." : "ສະແດງອໍເດີໃນງວດ"}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
-            ງວດທີ່ເລືອກ: {buildPeriodTitle(periodStart, periodEnd)}
-          </div>
-
-          <div className="mt-5">
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
-              ຄົ້ນຫາລະຫັດໂຮງງານ / ລະຫັດອໍເດີ
+      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="grid gap-4 lg:grid-cols-[1fr,auto] lg:items-end">
+          <div>
+            <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+              ຄົ້ນຫາອໍເດີ / ລະຫັດໂຮງງານ
             </label>
             <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 value={searchCode}
-                onChange={(e) => setSearchCode(e.target.value)}
+                onChange={(e) => {
+                  setSearchCode(e.target.value);
+                  if (!e.target.value.trim()) setSearchPaidResult(null);
+                }}
                 onKeyDown={(e) => {
                   if (e.key !== "Enter") return;
                   e.preventDefault();
                   const firstRow = filteredAvailableRows.find((row) => !selectedIds.has(row.id));
-                  if (firstRow) addToSelection(firstRow);
+                  if (firstRow) {
+                    addToSelection(firstRow);
+                    setSearchPaidResult(null);
+                  }
                 }}
-                placeholder="ພິມ PK26-001 / PKF26-001 ຫຼື FACTORY-001"
-                className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-3 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                placeholder="ພິມ PK26-001 / PKF26-001 / FACTORY-001"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
               />
             </div>
             <div className="mt-2 text-xs font-medium text-slate-500">
-              ຖ້າລະຫັດກົງກັບອໍເດີພຽງໃບດຽວ ລະບົບຈະເພີ່ມເຂົ້າລາຍການຈ່າຍໃຫ້ທັນທີ
+              ຖ້າພິມລະຫັດແລ້ວກົງກັບອໍເດີພຽງ 1 ລາຍການ ລະບົບຈະເລືອກໃຫ້ອັດຕະໂນມັດ
+            </div>
+            {searchPaidResult && (
+              <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">
+                ອໍເດີ້ {searchPaidResult.order_code}
+                {searchPaidResult.factory_bill_code ? ` (${searchPaidResult.factory_bill_code})` : ""} ຈ່າຍຄ່າໂຮງງານແລ້ວ
+                {searchPaidResult.factory_paid_full_at ? ` ໃນວັນທີ ${toDateOnly(searchPaidResult.factory_paid_full_at)}` : ""}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={loadAll}
+              disabled={loading || historyLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw size={16} className={loading || historyLoading ? "animate-spin" : ""} />
+              {loading || historyLoading ? "ກຳລັງໂຫຼດ..." : "ໂຫຼດໃໝ່"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSelectAllFiltered}
+              disabled={filteredAvailableRows.length === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+            >
+              <CheckCheck size={16} />
+              ເລືອກທັງໝົດ
+            </button>
+            <button
+              type="button"
+              onClick={clearSelection}
+              disabled={selectedRows.length === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
+            >
+              <Trash2 size={16} />
+              ລ້າງລາຍການ
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">ຜົນຄົ້ນຫາ</div>
+            <div className="mt-2 text-2xl font-black text-slate-900">{filteredSummary.orders.toLocaleString()}</div>
+            <div className="mt-1 text-sm font-medium text-slate-500">ຈາກ {availableSummary.orders.toLocaleString()} ອໍເດີ້ຄ້າງຈ່າຍ</div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">ຍອດຄ້າງທີ່ກຳລັງເຫັນ</div>
+            <div className="mt-2 text-2xl font-black text-slate-900">{formatMoney(filteredSummary.outstanding)}</div>
+            <div className="mt-1 text-sm font-medium text-slate-500">ຫຼັງຈາກ filter ປັດຈຸບັນ</div>
+          </div>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <div className="text-xs font-black uppercase tracking-[0.18em] text-amber-700">ເລືອກໄວ້</div>
+            <div className="mt-2 text-2xl font-black text-amber-900">{selectedSummary.orders.toLocaleString()}</div>
+            <div className="mt-1 text-sm font-medium text-amber-700">{selectedSummary.shirts.toLocaleString()} ຕົວ</div>
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <div className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">ຍອດຈ່າຍຮອບນີ້</div>
+            <div className="mt-2 text-2xl font-black text-emerald-800">{formatMoney(selectedSummary.amount)}</div>
+            <div className="mt-1 text-sm font-medium text-emerald-700">ກົດປຸ່ມດ້ານລຸ່ມເພື່ອບັນທຶກ</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">ລາຍການທີ່ເລືອກ</div>
+            <div className="mt-2 text-xl font-black text-slate-900">
+              {selectedSummary.orders.toLocaleString()} ອໍເດີ້ / {formatMoney(selectedSummary.amount)}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handlePayAll}
+            disabled={paying || selectedRows.length === 0}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-50"
+          >
+            <Wallet size={18} />
+            {paying ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກການຈ່າຍທີ່ເລືອກ"}
+          </button>
+        </div>
+
+        {selectedRows.length === 0 ? (
+          <div className="py-10 text-center text-sm font-medium text-slate-400">ຍັງບໍ່ມີອໍເດີ້ທີ່ເລືອກ</div>
+        ) : (
+          <div className="mt-4 flex flex-wrap gap-3">
+            {selectedRows.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => removeFromSelection(row.id)}
+                className="inline-flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition hover:bg-amber-100"
+              >
+                <span>
+                  <span className="block text-sm font-black text-slate-900">{row.order_code}</span>
+                  <span className="block text-xs font-medium text-slate-500">{row.factory_bill_code?.trim() || "ບໍ່ມີລະຫັດໂຮງງານ"}</span>
+                </span>
+                <span className="text-sm font-black text-amber-800">{formatMoney(row.outstanding_amount)}</span>
+                <Trash2 size={16} className="text-rose-500" />
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-6">
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div>
+              <div className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">ລາຍຊຳລະແຕ່ລະງວດ</div>
+              <div className="mt-1 text-lg font-black text-slate-900">{paymentBatches.length.toLocaleString()} ງວດ</div>
             </div>
           </div>
 
-          <div className="mt-6 overflow-hidden rounded-2xl border border-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
-              <div className="text-sm font-black text-slate-700">ອໍເດີທີ່ຍັງຄ້າງຈ່າຍ</div>
-              <div className="text-xs font-bold text-slate-500">
-                {loading ? "ກຳລັງໂຫຼດ..." : `${filteredAvailableRows.length} / ${availableRows.length} ລາຍການ`}
-              </div>
-            </div>
+          <div className="mt-5 space-y-3">
+            {historyLoading && paymentBatches.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-500">ກຳລັງໂຫຼດ...</div>
+            ) : paymentBatches.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-400">ຍັງບໍ່ມີລາຍຊຳລະແຕ່ລະງວດ</div>
+            ) : (
+              paymentBatches.slice(0, 12).map((batch) => (
+                <div key={batch.batch_id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-black text-slate-900">{toDateOnly(batch.paid_at)}</div>
+                      <div className="mt-1 text-xs font-medium text-slate-500">{batch.note || "ຈ່າຍຄ່າໂຮງງານແບບກຸ່ມ"}</div>
+                      <div className="mt-2 text-sm font-bold text-slate-700">
+                        {batch.orders.toLocaleString()} ອໍເດີ້ / {formatMoney(batch.amount)}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                        <Link
+                          href={`/factory-payments/batches/${batch.batch_id}`}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100"
+                        >
+                          ເບິ່ງລາຍການ
+                          <ArrowRight size={15} />
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleCancelBatch(batch)}
+                          disabled={cancellingBatchId === batch.batch_id}
+                          className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-white px-4 py-2 text-sm font-bold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+                        >
+                          {cancellingBatchId === batch.batch_id ? "ກຳລັງຍົກເລີກ..." : "ຍົກເລີກ"}
+                        </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
 
-            <div className="max-h-[420px] overflow-auto">
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div>
+              <div className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">ປະຫວັດການຈ່າຍລາຍອໍເດີ</div>
+              <div className="mt-1 text-lg font-black text-slate-900">{paymentHistory.length.toLocaleString()} ລາຍການຫຼ້າສຸດ</div>
+            </div>
+          </div>
+
+          <div className="mt-5 overflow-hidden rounded-3xl border border-slate-100">
+            <div className="max-h-[540px] overflow-auto">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-slate-50 text-slate-500">
                   <tr>
                     <th className="p-3 text-left text-[11px] font-black uppercase">ອໍເດີ</th>
-                    <th className="p-3 text-right text-[11px] font-black uppercase">ຈຳນວນເສື້ອ</th>
-                    <th className="p-3 text-right text-[11px] font-black uppercase">ຍອດຄ້າງ</th>
-                    <th className="p-3 text-left text-[11px] font-black uppercase">ຜະລິດສຳເລັດ</th>
-                    <th className="p-3 text-center text-[11px] font-black uppercase">ເພີ່ມ</th>
+                    <th className="p-3 text-left text-[11px] font-black uppercase">ລະຫັດໂຮງງານ</th>
+                    <th className="p-3 text-right text-[11px] font-black uppercase">ຈຳນວນເງິນ</th>
+                    <th className="p-3 text-left text-[11px] font-black uppercase">ວັນທີຈ່າຍ</th>
+                    <th className="p-3 text-left text-[11px] font-black uppercase">ປະເພດ</th>
+                    <th className="p-3 text-center text-[11px] font-black uppercase">ຍົກເລີກ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {!loading && filteredAvailableRows.length === 0 ? (
+                  {!historyLoading && paymentHistory.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-8 text-center font-medium text-slate-400">
-                        ບໍ່ພົບອໍເດີທີ່ຄ້າງຈ່າຍຕາມເງື່ອນໄຂນີ້
+                      <td colSpan={6} className="p-8 text-center font-medium text-slate-400">
+                        ຍັງບໍ່ມີປະຫວັດການຈ່າຍ
                       </td>
                     </tr>
                   ) : (
-                    filteredAvailableRows.map((row) => (
+                    paymentHistory.map((row) => (
                       <tr key={row.id} className="hover:bg-slate-50/70">
+                        <td className="p-3 font-black text-slate-900">{row.order_code}</td>
+                        <td className="p-3 font-medium text-slate-600">{row.factory_bill_code?.trim() || "-"}</td>
+                        <td className="p-3 text-right font-black text-emerald-700">{formatMoney(row.amount)}</td>
+                        <td className="p-3 font-medium text-slate-600">{toDateOnly(row.paid_at)}</td>
                         <td className="p-3">
-                          <div className="font-black text-slate-900">{row.order_code}</div>
-                          <div className="text-xs font-medium text-slate-500">{row.factory_bill_code?.trim() || "-"}</div>
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
+                              row.batch_id ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {row.batch_id ? "ກຸ່ມ" : "ດ່ຽວ"}
+                          </span>
                         </td>
-                        <td className="p-3 text-right font-black text-slate-700">{row.total_shirts.toLocaleString()}</td>
-                        <td className="p-3 text-right font-black text-rose-600">{row.outstanding_amount.toLocaleString()}</td>
-                        <td className="p-3 font-medium text-slate-600">{toDateOnly(row.production_completed_at)}</td>
                         <td className="p-3 text-center">
                           <button
                             type="button"
-                            onClick={() => addToSelection(row)}
-                            disabled={selectedIds.has(row.id)}
-                            className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => handleCancelPayment(row)}
+                            disabled={cancellingPaymentId === row.id}
+                            className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-black text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
                           >
-                            {selectedIds.has(row.id) ? "ຢູ່ໃນລາຍການ" : "ເພີ່ມ"}
+                            {cancellingPaymentId === row.id ? "ກຳລັງຍົກເລີກ..." : "ຍົກເລີກ"}
                           </button>
                         </td>
                       </tr>
@@ -577,181 +876,6 @@ export default function FactoryPaymentsPage() {
                 </tbody>
               </table>
             </div>
-          </div>
-        </section>
-
-        <section className="space-y-4">
-          <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ລາຍການທີ່ເລືອກ</div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນອໍເດີ</div>
-                <div className="mt-2 text-2xl font-black text-slate-900">{summary.orders.toLocaleString()}</div>
-              </div>
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນເສື້ອລວມ</div>
-                <div className="mt-2 text-2xl font-black text-blue-700">{summary.shirts.toLocaleString()}</div>
-              </div>
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-emerald-700">ຍອດຈ່າຍລວມ</div>
-                <div className="mt-2 text-2xl font-black text-emerald-700">{summary.amount.toLocaleString()}</div>
-              </div>
-            </div>
-
-            <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
-              <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 text-sm font-black text-slate-700">ລາຍການຈ່າຍຮອບນີ້</div>
-
-              <div className="max-h-[420px] overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="p-3 text-left text-[11px] font-black uppercase">ອໍເດີ</th>
-                      <th className="p-3 text-right text-[11px] font-black uppercase">ຈຳນວນເສື້ອ</th>
-                      <th className="p-3 text-right text-[11px] font-black uppercase">ຈຳນວນເງິນ</th>
-                      <th className="p-3 text-left text-[11px] font-black uppercase">ຜະລິດສຳເລັດ</th>
-                      <th className="p-3 text-center text-[11px] font-black uppercase">ລົບ</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {selectedRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="p-10 text-center font-medium text-slate-400">
-                          ຍັງບໍ່ມີອໍເດີໃນລາຍການຈ່າຍ
-                        </td>
-                      </tr>
-                    ) : (
-                      selectedRows.map((row) => (
-                        <tr key={row.id} className="hover:bg-slate-50/70">
-                          <td className="p-3">
-                            <div className="font-black text-slate-900">{row.order_code}</div>
-                            <div className="text-xs font-medium text-slate-500">{row.factory_bill_code?.trim() || "-"}</div>
-                          </td>
-                          <td className="p-3 text-right font-black text-slate-700">{row.total_shirts.toLocaleString()}</td>
-                          <td className="p-3 text-right font-black text-emerald-700">{row.outstanding_amount.toLocaleString()}</td>
-                          <td className="p-3 font-medium text-slate-600">{toDateOnly(row.production_completed_at)}</td>
-                          <td className="p-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => removeFromSelection(row.id)}
-                              className="inline-flex items-center justify-center rounded-lg p-2 text-rose-600 transition hover:bg-rose-50"
-                              aria-label={`remove ${row.order_code}`}
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handlePayAll}
-              disabled={paying || selectedRows.length === 0}
-              className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-4 text-base font-black text-white shadow-lg shadow-emerald-100 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Wallet size={18} />
-              {paying ? "ກຳລັງບັນທຶກການຈ່າຍ..." : "ບັນທຶກການຈ່າຍຄ່າໂຮງງານແບບກຸ່ມ"}
-            </button>
-          </div>
-
-          <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="mb-4 text-sm font-black uppercase tracking-wider text-slate-700">ປະຫວັດການຈ່າຍແບບກຸ່ມ</div>
-
-            <div className="space-y-3">
-              {historyLoading && paymentBatches.length === 0 ? (
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-medium text-slate-500">ກຳລັງໂຫຼດ...</div>
-              ) : paymentBatches.length === 0 ? (
-                <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-medium text-slate-400">ຍັງບໍ່ມີປະຫວັດການຈ່າຍແບບກຸ່ມ</div>
-              ) : (
-                paymentBatches.slice(0, 12).map((batch) => (
-                  <div key={batch.batch_id} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <div className="text-sm font-black text-slate-900">{toDateOnly(batch.paid_at)}</div>
-                        <div className="mt-1 text-xs font-medium text-slate-500">{batch.note || "ຈ່າຍຄ່າໂຮງງານແບບກຸ່ມ"}</div>
-                        <div className="mt-2 text-sm font-bold text-slate-700">
-                          {batch.orders.toLocaleString()} ອໍເດີ / {batch.amount.toLocaleString()}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCancelBatch(batch)}
-                        disabled={cancellingBatchId === batch.batch_id}
-                        className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-white px-4 py-2 text-sm font-bold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
-                      >
-                        {cancellingBatchId === batch.batch_id ? "ກຳລັງຍົກເລີກ..." : "ຍົກເລີກທັງກຸ່ມ"}
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="text-sm font-black uppercase tracking-wider text-slate-700">ປະຫວັດການຈ່າຍລາຍອໍເດີ</div>
-          <div className="text-xs font-bold text-slate-500">{paymentHistory.length.toLocaleString()} ລາຍການຫຼ້າສຸດ</div>
-        </div>
-
-        <div className="overflow-hidden rounded-2xl border border-slate-100">
-          <div className="max-h-[420px] overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="p-3 text-left text-[11px] font-black uppercase">ອໍເດີ</th>
-                  <th className="p-3 text-left text-[11px] font-black uppercase">ລະຫັດໂຮງງານ</th>
-                  <th className="p-3 text-right text-[11px] font-black uppercase">ຈຳນວນເງິນ</th>
-                  <th className="p-3 text-left text-[11px] font-black uppercase">ວັນທີຈ່າຍ</th>
-                  <th className="p-3 text-left text-[11px] font-black uppercase">ປະເພດ</th>
-                  <th className="p-3 text-center text-[11px] font-black uppercase">ຍົກເລີກ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {!historyLoading && paymentHistory.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-8 text-center font-medium text-slate-400">
-                      ຍັງບໍ່ມີປະຫວັດການຈ່າຍ
-                    </td>
-                  </tr>
-                ) : (
-                  paymentHistory.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50/70">
-                      <td className="p-3 font-black text-slate-900">{row.order_code}</td>
-                      <td className="p-3 font-medium text-slate-600">{row.factory_bill_code?.trim() || "-"}</td>
-                      <td className="p-3 text-right font-black text-emerald-700">{Number(row.amount).toLocaleString()}</td>
-                      <td className="p-3 font-medium text-slate-600">{toDateOnly(row.paid_at)}</td>
-                      <td className="p-3">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
-                            row.batch_id ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-700"
-                          }`}
-                        >
-                          {row.batch_id ? "ກຸ່ມ" : "ດ່ຽວ"}
-                        </span>
-                      </td>
-                      <td className="p-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleCancelPayment(row)}
-                          disabled={cancellingPaymentId === row.id}
-                          className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-black text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
-                        >
-                          {cancellingPaymentId === row.id ? "ກຳລັງຍົກເລີກ..." : "ຍົກເລີກ"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
           </div>
         </div>
       </section>
