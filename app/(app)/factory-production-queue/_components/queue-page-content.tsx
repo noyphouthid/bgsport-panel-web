@@ -143,6 +143,36 @@ function normalizeDeposit(row: QueueEntryRow) {
   return row.deposit ?? null;
 }
 
+function toRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function getOrderPatternSizeCount(deposit: QueueDepositRow | null) {
+  if (!deposit || !Array.isArray(deposit.production_items)) return 0;
+
+  const sizeKeys = new Set<string>();
+
+  for (const entry of deposit.production_items) {
+    const row = toRecord(entry);
+    const playerRows = Array.isArray(row.player_rows) ? row.player_rows : [];
+
+    for (const playerEntry of playerRows) {
+      const playerRow = toRecord(playerEntry);
+      const size = typeof playerRow.size === "string" ? playerRow.size.trim().toLowerCase() : "";
+      if (size) sizeKeys.add(size);
+    }
+
+    const sizes = toRecord(row.sizes);
+    for (const [sizeKey, qty] of Object.entries(sizes)) {
+      if ((Number(qty) || 0) > 0) {
+        sizeKeys.add(sizeKey.trim().toLowerCase());
+      }
+    }
+  }
+
+  return sizeKeys.size;
+}
+
 function parseDateOnly(value: string | null) {
   if (!value) return null;
   const date = new Date(`${value}T00:00:00`);
@@ -530,34 +560,46 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
   const activityRows = useMemo(() => {
     return productionUsers
       .map((user) => {
-        const acceptedCount = viewerScopedRows.filter(
-          (row) =>
-            normalizeFactoryProductionQueueStatus(row.status) === "queued" &&
-            resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap) === user.id
-        ).length;
-        const patternLaidCount = viewerScopedRows.filter(
-          (row) =>
-            normalizeFactoryProductionQueueStatus(row.status) === "pattern_laid" &&
-            getStageOwnerUserId(row, "pattern_laid", resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap)) === user.id
-        ).length;
-        const readyForPrintCount = viewerScopedRows.filter(
-          (row) =>
-            normalizeFactoryProductionQueueStatus(row.status) === "ready_for_print" &&
-            getStageOwnerUserId(row, "ready_for_print", resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap)) === user.id
-        ).length;
-        const sentToFactoryCount = viewerScopedRows.filter(
-          (row) =>
-            normalizeFactoryProductionQueueStatus(row.status) === "sent_to_factory" &&
-            getStageOwnerUserId(row, "sent_to_factory", resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap)) === user.id
-        ).length;
+        const stats = viewerScopedRows.reduce(
+          (acc, row) => {
+            const normalizedStatus = normalizeFactoryProductionQueueStatus(row.status);
+            const effectivePlannerUserId = resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap);
+            const deposit = normalizeDeposit(row);
+
+            if (normalizedStatus === "queued" && effectivePlannerUserId === user.id) {
+              acc.acceptedCount += 1;
+            }
+
+            if (normalizedStatus === "pattern_laid" && getStageOwnerUserId(row, "pattern_laid", effectivePlannerUserId) === user.id) {
+              acc.patternLaidCount += 1;
+              acc.patternSizeTotal += getOrderPatternSizeCount(deposit);
+            }
+
+            if (normalizedStatus === "ready_for_print" && getStageOwnerUserId(row, "ready_for_print", effectivePlannerUserId) === user.id) {
+              acc.readyForPrintCount += 1;
+              acc.readyForPrintShirtTotal += getShirtTotalQty(deposit);
+            }
+
+            if (normalizedStatus === "sent_to_factory" && getStageOwnerUserId(row, "sent_to_factory", effectivePlannerUserId) === user.id) {
+              acc.sentToFactoryCount += 1;
+            }
+
+            return acc;
+          },
+          {
+            acceptedCount: 0,
+            patternLaidCount: 0,
+            patternSizeTotal: 0,
+            readyForPrintCount: 0,
+            readyForPrintShirtTotal: 0,
+            sentToFactoryCount: 0,
+          }
+        );
 
         return {
           user,
-          acceptedCount,
-          patternLaidCount,
-          readyForPrintCount,
-          sentToFactoryCount,
-          totalCount: acceptedCount + patternLaidCount + readyForPrintCount + sentToFactoryCount,
+          ...stats,
+          totalCount: stats.acceptedCount + stats.patternLaidCount + stats.readyForPrintCount + stats.sentToFactoryCount,
         };
       })
       .filter((row) => row.totalCount > 0 || !isProductionViewer)
@@ -888,7 +930,9 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                   <th className="px-4 py-3 font-black">ຕຳແໜ່ງ</th>
                   <th className="px-4 py-3 font-black">ຮັບອໍເດີ້ໄວ້</th>
                   <th className="px-4 py-3 font-black">ວາງ Pattern ແລ້ວ</th>
+                  <th className="px-4 py-3 font-black">ລວມໄຊທ໌ Pattern</th>
                   <th className="px-4 py-3 font-black">ວາງພ້ອມພິມແລ້ວ</th>
+                  <th className="px-4 py-3 font-black">ລວມຈຳນວນເສື້ອພ້ອມພິມ</th>
                   <th className="px-4 py-3 font-black">ສົ່ງໂຮງງານແລ້ວ</th>
                   <th className="px-4 py-3 font-black">ລວມ</th>
                 </tr>
@@ -896,13 +940,13 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-16 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={9} className="px-4 py-16 text-center text-sm font-bold text-slate-500">
                       ກຳລັງໂຫຼດຂໍ້ມູນ...
                     </td>
                   </tr>
                 ) : activityRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-16 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={9} className="px-4 py-16 text-center text-sm font-bold text-slate-500">
                       ຍັງບໍ່ມີຂໍ້ມູນການວາງຜະລິດ
                     </td>
                   </tr>
@@ -922,8 +966,18 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                         </span>
                       </td>
                       <td className="px-4 py-4">
+                        <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
+                          {activity.patternSizeTotal.toLocaleString()} ໄຊທ໌
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">
                         <span className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-black text-cyan-700">
                           {activity.readyForPrintCount.toLocaleString()} ອໍເດີ້
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className="inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-black text-indigo-700">
+                          {activity.readyForPrintShirtTotal.toLocaleString()} ເສື້ອ
                         </span>
                       </td>
                       <td className="px-4 py-4">
