@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import Swal from "sweetalert2";
 import toast from "react-hot-toast";
-import { CheckCircle2, ClipboardCheck, XCircle } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, LoaderCircle, XCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import {
@@ -48,6 +49,18 @@ type TransportNoteApprovalRow = Pick<
   "id" | "delivery_request_id" | "transport_deposited_at" | "transport_deposited_by" | "transport_deposit_receipt_id"
 >;
 
+type ShipmentApprovalsApiPayload = {
+  ok?: boolean;
+  error?: string;
+  message?: string;
+  viewerRole?: AppRole | null;
+  viewerUserId?: string | null;
+  rows?: ShipmentDeliveryRequestRow[];
+  ordersById?: Record<string, OrderRow>;
+  usersById?: Record<string, UserRow>;
+  transportNotesByRequestId?: Record<string, TransportNoteApprovalRow>;
+};
+
 function formatDateTime(value: string | null) {
   if (!value) return "-";
   const d = new Date(value);
@@ -65,6 +78,105 @@ function formatMoney(value: number | null | undefined) {
   return (Number(value) || 0).toLocaleString();
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = String((error as { message?: unknown }).message || "").trim();
+    if (message) return message;
+  }
+  const raw = String(error ?? "").trim();
+  return raw && raw !== "[object Object]" ? raw : fallback;
+}
+
+async function fetchShipmentApprovalsViaApi() {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) {
+    throw new Error("no_session");
+  }
+
+  const response = await fetch("/api/shipments/approvals", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as ShipmentApprovalsApiPayload;
+  if (!response.ok) {
+    throw new Error(payload.message || payload.error || "load_shipment_approvals_failed");
+  }
+
+  return payload;
+}
+
+async function confirmAction({
+  title,
+  text,
+  confirmButtonText,
+  cancelToast,
+  icon = "question",
+}: {
+  title: string;
+  text: string;
+  confirmButtonText: string;
+  cancelToast: string;
+  icon?: "question" | "warning";
+}) {
+  const result = await Swal.fire({
+    icon,
+    title,
+    text,
+    showCancelButton: true,
+    confirmButtonText,
+    cancelButtonText: "ຍົກເລີກ",
+    reverseButtons: true,
+  });
+
+  if (!result.isConfirmed) {
+    toast(cancelToast);
+  }
+
+  return result.isConfirmed;
+}
+
+async function promptRejectReason({
+  title,
+  inputLabel,
+  confirmButtonText,
+}: {
+  title: string;
+  inputLabel: string;
+  confirmButtonText: string;
+}) {
+  const result = await Swal.fire({
+    icon: "warning",
+    title,
+    input: "textarea",
+    inputLabel,
+    inputPlaceholder: "ລະບຸເຫດຜົນ...",
+    inputAttributes: {
+      "aria-label": inputLabel,
+    },
+    showCancelButton: true,
+    confirmButtonText,
+    cancelButtonText: "ຍົກເລີກ",
+    reverseButtons: true,
+    inputValidator: (value) => {
+      if (!String(value || "").trim()) {
+        return "ກະລຸນາລະບຸເຫດຜົນ";
+      }
+      return null;
+    },
+  });
+
+  if (!result.isConfirmed) {
+    toast("ຍົກເລີກການປະຕິເສດແລ້ວ");
+    return null;
+  }
+
+  return String(result.value || "").trim();
+}
+
 export default function ShipmentApprovalsPage() {
   const [rows, setRows] = useState<ShipmentDeliveryRequestRow[]>([]);
   const [ordersById, setOrdersById] = useState<Record<string, OrderRow>>({});
@@ -78,72 +190,21 @@ export default function ShipmentApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState<ShipmentDeliveryStatus | "all">("submitted");
   const [query, setQuery] = useState("");
   const [err, setErr] = useState<string | null>(null);
-
-  const shouldShowApprovalRow = (
-    request: ShipmentDeliveryRequestRow,
-    transportNote: TransportNoteApprovalRow | undefined
-  ) => {
-    if (request.delivery_method !== "transport") return true;
-    return Boolean(transportNote && isTransportNoteDeposited(transportNote));
-  };
+  const isProcessing = workingId !== null || bulkAction !== null;
 
   const load = async () => {
     setLoading(true);
     setErr(null);
     try {
-      const [{ data: requestData, error: requestError }, { data: usersData, error: usersError }, { data: sessionData }] = await Promise.all([
-        supabase.from("shipment_delivery_requests").select("*").order("updated_at", { ascending: false }),
-        supabase.from("users").select("id,auth_user_id,full_name,role,is_active").eq("is_active", true),
-        supabase.auth.getSession(),
-      ]);
-
-      if (requestError) throw requestError;
-      if (usersError) throw usersError;
-
-      const userRows = (usersData ?? []) as UserRow[];
-      const authUserId = sessionData.session?.user.id ?? null;
-      const currentUser = userRows.find((item) => item.auth_user_id === authUserId) || null;
-      setViewerRole(currentUser?.role ?? null);
-      setViewerUserId(currentUser?.id ?? null);
-      setUsersById(Object.fromEntries(userRows.map((user) => [user.id, user])));
-
-      const requestRows = (requestData ?? []) as ShipmentDeliveryRequestRow[];
-
-      const requestIds = [...new Set(requestRows.map((row) => row.id).filter(Boolean))];
-      if (requestIds.length > 0) {
-        const { data: transportNoteData, error: transportNoteError } = await supabase
-          .from("transport_notes")
-          .select("id,delivery_request_id,transport_deposited_at,transport_deposited_by,transport_deposit_receipt_id")
-          .in("delivery_request_id", requestIds);
-        if (transportNoteError) throw transportNoteError;
-        const nextTransportNotesByRequestId = Object.fromEntries(
-          ((transportNoteData ?? []) as TransportNoteApprovalRow[])
-            .filter((row) => row.delivery_request_id)
-            .map((row) => [String(row.delivery_request_id), row])
-        );
-        setTransportNotesByRequestId(nextTransportNotesByRequestId);
-        setRows(requestRows.filter((row) => shouldShowApprovalRow(row, nextTransportNotesByRequestId[row.id])));
-      } else {
-        setTransportNotesByRequestId({});
-        setRows(requestRows.filter((row) => shouldShowApprovalRow(row, undefined)));
-      }
-
-      const orderIds = [...new Set(requestRows.map((row) => row.order_id))];
-      if (orderIds.length === 0) {
-        setOrdersById({});
-        setLoading(false);
-        return;
-      }
-
-      const { data: orderData, error: orderError } = await supabase
-        .from("orders")
-        .select("id,order_code,factory_bill_code,status,shipment_status,shipment_completed_at,production_completed_at,balance,customer_paid_full_at")
-        .in("id", orderIds);
-      if (orderError) throw orderError;
-
-      setOrdersById(Object.fromEntries(((orderData ?? []) as OrderRow[]).map((order) => [order.id, order])));
+      const payload = await fetchShipmentApprovalsViaApi();
+      setViewerRole((payload.viewerRole as AppRole | null) ?? null);
+      setViewerUserId(payload.viewerUserId ?? null);
+      setRows((payload.rows ?? []) as ShipmentDeliveryRequestRow[]);
+      setUsersById(payload.usersById ?? {});
+      setOrdersById(payload.ordersById ?? {});
+      setTransportNotesByRequestId(payload.transportNotesByRequestId ?? {});
     } catch (error) {
-      setErr(error instanceof Error ? error.message : "ໂຫຼດຄຳຂໍຈັດສົ່ງບໍ່ສຳເລັດ");
+      setErr(getErrorMessage(error, "ໂຫຼດຄຳຂໍຈັດສົ່ງບໍ່ສຳເລັດ"));
     } finally {
       setLoading(false);
     }
@@ -170,7 +231,6 @@ export default function ShipmentApprovalsPage() {
       { data: orderData, error: orderError },
       { data: labelData, error: labelError },
       { data: existingShipment, error: existingShipmentError },
-      { data: transportNoteData, error: transportNoteError },
     ] =
       await Promise.all([
         supabase
@@ -190,21 +250,15 @@ export default function ShipmentApprovalsPage() {
           .order("shipped_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
-        supabase
-          .from("transport_notes")
-          .select("id,delivery_request_id,transport_deposited_at,transport_deposited_by,transport_deposit_receipt_id")
-          .eq("delivery_request_id", request.id)
-          .maybeSingle(),
       ]);
 
     if (orderError) throw orderError;
     if (labelError) throw labelError;
     if (existingShipmentError) throw existingShipmentError;
-    if (transportNoteError) throw transportNoteError;
 
     const order = (orderData as OrderRow | null) ?? null;
     const label = (labelData as LabelRow | null) ?? null;
-    const transportNote = (transportNoteData as TransportNoteApprovalRow | null) ?? null;
+    const transportNote = transportNotesByRequestId[request.id] ?? null;
 
     if (!order) throw new Error("ບໍ່ພົບຂໍ້ມູນອໍເດີ");
     if (!label) throw new Error("ບໍ່ພົບຂໍ້ມູນ QR");
@@ -346,7 +400,12 @@ export default function ShipmentApprovalsPage() {
       return;
     }
 
-    const confirmed = window.confirm(`ຢືນຢັນສົ່ງມອບ ${request.request_no} ໃຫ້ລູກຄ້າແລ້ວ ຫຼື ບໍ່?`);
+    const confirmed = await confirmAction({
+      title: "ຢືນຢັນສົ່ງມອບ?",
+      text: `ຕ້ອງການຢືນຢັນ ${request.request_no} ໃຫ້ລູກຄ້າແລ້ວ ຫຼື ບໍ່?`,
+      confirmButtonText: "ຢືນຢັນ",
+      cancelToast: "ຍົກເລີກການຢືນຢັນແລ້ວ",
+    });
     if (!confirmed) return;
 
     setWorkingId(request.id);
@@ -355,7 +414,7 @@ export default function ShipmentApprovalsPage() {
       toast.success(`ຢືນຢັນສົ່ງມອບ ${order.order_code} ສຳເລັດ`);
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "ອະນຸມັດການສົ່ງມອບບໍ່ສຳເລັດ");
+      toast.error(getErrorMessage(error, "ອະນຸມັດການສົ່ງມອບບໍ່ສຳເລັດ"));
     } finally {
       setWorkingId(null);
     }
@@ -371,7 +430,11 @@ export default function ShipmentApprovalsPage() {
       return;
     }
 
-    const reason = window.prompt("ລະບຸເຫດຜົນການປະຕິເສດ", "")?.trim();
+    const reason = await promptRejectReason({
+      title: `ປະຕິເສດ ${request.request_no}`,
+      inputLabel: "ເຫດຜົນການປະຕິເສດ",
+      confirmButtonText: "ປະຕິເສດ",
+    });
     if (!reason) return;
 
     setWorkingId(request.id);
@@ -380,7 +443,7 @@ export default function ShipmentApprovalsPage() {
       toast.success("ປະຕິເສດຄຳຂໍແລ້ວ");
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "ປະຕິເສດຄຳຂໍບໍ່ສຳເລັດ");
+      toast.error(getErrorMessage(error, "ປະຕິເສດຄຳຂໍບໍ່ສຳເລັດ"));
     } finally {
       setWorkingId(null);
     }
@@ -419,7 +482,12 @@ export default function ShipmentApprovalsPage() {
       return;
     }
 
-    const confirmed = window.confirm(`ຢືນຢັນອະນຸມັດທັງໝົດ ${submittedRows.length} ລາຍການ ຫຼື ບໍ່?`);
+    const confirmed = await confirmAction({
+      title: "ຢືນຢັນທັງໝົດ?",
+      text: `ຕ້ອງການອະນຸມັດ ${submittedRows.length} ລາຍການ ຫຼື ບໍ່?`,
+      confirmButtonText: "ຢືນຢັນທັງໝົດ",
+      cancelToast: "ຍົກເລີກການຢືນຢັນທັງໝົດແລ້ວ",
+    });
     if (!confirmed) return;
 
     setBulkAction("approve");
@@ -459,7 +527,11 @@ export default function ShipmentApprovalsPage() {
       return;
     }
 
-    const reason = window.prompt("ລະບຸເຫດຜົນການປະຕິເສດທັງໝົດ", "")?.trim();
+    const reason = await promptRejectReason({
+      title: "ປະຕິເສດທັງໝົດ",
+      inputLabel: "ເຫດຜົນການປະຕິເສດທັງໝົດ",
+      confirmButtonText: "ປະຕິເສດທັງໝົດ",
+    });
     if (!reason) return;
 
     setBulkAction("reject");
@@ -489,7 +561,7 @@ export default function ShipmentApprovalsPage() {
     }
   };
 
-  if (!loading && viewerRole !== "superadmin") {
+  if (!loading && !err && viewerRole !== "superadmin") {
     return (
       <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm font-semibold text-rose-700">
         ໜ້ານີ້ສະຫງວນໃຫ້ super admin ເທົ່ານັ້ນ
@@ -499,6 +571,22 @@ export default function ShipmentApprovalsPage() {
 
   return (
     <div className="space-y-6 text-slate-900">
+      {isProcessing ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 backdrop-blur-sm">
+          <div className="rounded-3xl border border-white/40 bg-white px-8 py-6 text-center shadow-2xl">
+            <LoaderCircle className="mx-auto h-10 w-10 animate-spin text-amber-600" />
+            <div className="mt-4 text-lg font-black text-slate-900">
+              {bulkAction === "approve"
+                ? "ກຳລັງຢືນຢັນລາຍການ..."
+                : bulkAction === "reject"
+                  ? "ກຳລັງປະຕິເສດລາຍການ..."
+                  : "ກຳລັງດຳເນີນການ..."}
+            </div>
+            <div className="mt-2 text-sm font-medium text-slate-500">ກະລຸນາລໍຖ້າຈົນກວ່າລະບົບຈະດຳເນີນການສຳເລັດ</div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-3xl font-extrabold tracking-tight text-slate-900">

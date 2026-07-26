@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { Search, Phone, PackageCheck, RefreshCcw, ChevronRight, ShieldCheck, CheckCircle2, Loader2 } from "lucide-react";
+import { Search, Phone, PackageCheck, RefreshCcw, ShieldCheck, CheckCircle2, Loader2 } from "lucide-react";
 
 type TrackingResult = {
   id: string;
@@ -80,7 +80,17 @@ function SewingMachineIcon({ size = 17, className = "" }: { size?: number; class
   );
 }
 
-function StepMarker({ active, passed, stepNo }: { active: boolean; passed: boolean; stepNo: number }) {
+function StepMarker({
+  active,
+  passed,
+  stepNo,
+  completedActive,
+}: {
+  active: boolean;
+  passed: boolean;
+  stepNo: number;
+  completedActive: boolean;
+}) {
   if (passed) {
     return (
       <span className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#224734] text-white">
@@ -103,13 +113,29 @@ function StepMarker({ active, passed, stepNo }: { active: boolean; passed: boole
             25% { transform: translateX(-0.5px); }
             75% { transform: translateX(0.5px); }
           }
+          @keyframes successFloat {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-1.5px); }
+          }
+          @keyframes successBadgePop {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+          }
           .sewing-machine-icon { animation: machineShake .18s linear infinite; }
           .sewing-needle-group { animation: needleStitch .42s ease-in-out infinite; transform-origin: 16.6px 8.6px; }
+          .sewing-machine-icon--completed { animation: successFloat 1.15s ease-in-out infinite; }
+          .sewing-machine-icon--completed .sewing-needle-group { animation: none; }
+          .sewing-machine-success-badge { animation: successBadgePop .95s ease-in-out infinite; }
         `}</style>
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#224734]/35" />
         <span className="absolute inline-flex h-full w-full rounded-full bg-[#224734]/10" />
         <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-[#224734] text-white shadow-[0_6px_16px_rgba(34,71,52,.35)]">
-          <SewingMachineIcon size={17} />
+          <SewingMachineIcon size={17} className={completedActive ? "sewing-machine-icon--completed" : ""} />
+          {completedActive ? (
+            <span className="sewing-machine-success-badge absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-white bg-[#d6b165] text-[#183424] shadow-[0_4px_10px_rgba(214,177,101,.4)]">
+              <CheckCircle2 size={10} strokeWidth={3} />
+            </span>
+          ) : null}
         </span>
       </span>
     );
@@ -332,6 +358,7 @@ export default function PublicTrackingPage() {
                     const active = stepNo === activeIndex;
                     const passed = activeIndex > 0 && stepNo < activeIndex;
                     const isLast = index === topResult.steps.length - 1;
+                    const completedActive = active && isLast;
 
                     return (
                       <div key={`${topResult.id}-${stepNo}-${step}`} className="relative flex gap-3">
@@ -342,7 +369,7 @@ export default function PublicTrackingPage() {
                             }`}
                           />
                         ) : null}
-                        <StepMarker active={active} passed={passed} stepNo={stepNo} />
+                        <StepMarker active={active} passed={passed} stepNo={stepNo} completedActive={completedActive} />
                         <div className={`min-w-0 flex-1 rounded-[16px] border px-3 py-2 pb-4 ${buildStepTone(active, passed)}`}>
                           <div className={`text-sm font-black ${active ? "text-[#183424]" : passed ? "text-slate-700" : "text-slate-400"}`}>
                             {step}
@@ -350,7 +377,7 @@ export default function PublicTrackingPage() {
                           {active ? (
                             <div className="mt-0.5 flex items-center gap-1.5 text-xs font-bold text-[#224734]">
                               <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#224734]" />
-                              ກຳລັງດຳເນີນການ
+                              {completedActive ? "ສຳເລັດແລ້ວ" : "ກຳລັງດຳເນີນການ"}
                             </div>
                           ) : null}
                         </div>
