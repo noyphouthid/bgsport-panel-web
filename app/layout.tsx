@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { Noto_Sans_Lao_Looped } from "next/font/google";
+import { themeInitScript } from "@/lib/theme";
 
 
 const laoFont = Noto_Sans_Lao_Looped({
@@ -38,11 +40,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="lo">
+    <html lang="lo" suppressHydrationWarning>
       <body className={`${laoFont.className} ${geistSans.variable} ${geistMono.variable}`}>
+        <Script id="theme-init" strategy="beforeInteractive">
+          {themeInitScript}
+        </Script>
         {children}
       </body>
-
     </html>
   );
 }

@@ -35,6 +35,7 @@ import {
   PackageCheck,
   Clock3,
 } from "lucide-react";
+import ThemeToggle from "@/components/theme-toggle";
 import { supabase } from "@/lib/supabase";
 import { AppRole, canAccessPath, getDefaultPathForRole } from "@/lib/access-control";
 import { type NavBadgeCounts, type NavBadgePath } from "@/lib/nav-badge-counts";
@@ -394,13 +395,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100">
-        <div className="text-sm font-bold text-slate-600">ກຳລັງກວດສອບສິດເຂົ້າໃຊ້...</div>
+      <div className="min-h-screen flex items-center justify-center bg-[var(--theme-surface-muted)]">
+        <div className="text-sm font-bold text-[var(--theme-foreground)]">ກຳລັງກວດສອບສິດເຂົ້າໃຊ້...</div>
         <Toaster
           position="top-right"
           toastOptions={{
             duration: 2800,
-            style: { fontWeight: 700 },
+            style: { fontWeight: 700, background: "var(--theme-surface)", color: "var(--theme-foreground)", border: "1px solid var(--theme-border)" },
           }}
         />
       </div>
@@ -410,25 +411,31 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   if (!profile) return null;
 
   return (
-    <div className="app-shell min-h-screen min-h-[100dvh] md:h-screen md:flex bg-gray-100 overflow-x-hidden overscroll-none">
+    <div className="app-shell min-h-screen min-h-[100dvh] md:h-screen md:flex bg-transparent overflow-x-hidden overscroll-none text-[var(--theme-foreground)]">
       {sidebarOpen && (
         <button
           type="button"
           aria-label="Close navigation overlay"
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-30 bg-slate-900/40 md:hidden"
+          className="fixed inset-0 z-30 bg-slate-950/50 backdrop-blur-[2px] md:hidden"
         />
       )}
 
       <aside
-        className={`app-sidebar fixed inset-y-0 left-0 z-40 bg-slate-800 text-white h-[100dvh] overflow-y-auto overscroll-contain flex flex-col transition-all duration-300 md:sticky md:top-0 md:h-screen md:translate-x-0 ${
+        className={`app-sidebar fixed inset-y-0 left-0 z-40 h-[100dvh] overflow-y-auto overscroll-contain flex flex-col border-r transition-all duration-300 md:sticky md:top-0 md:h-screen md:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${sidebarCollapsed ? "md:w-20" : "md:w-64"} w-64`}
+        style={{
+          background: "var(--app-sidebar-bg)",
+          color: "var(--app-sidebar-fg)",
+          borderColor: "var(--app-sidebar-border)",
+        }}
       >
         <div
-          className={`h-16 flex items-center border-b border-slate-700 tracking-wider ${
+          className={`h-16 flex items-center border-b tracking-wider ${
             sidebarCollapsed ? "justify-center px-2" : "justify-between px-4"
           }`}
+          style={{ borderColor: "var(--app-sidebar-border)" }}
         >
           {!sidebarCollapsed && <div className="text-xl font-bold">BG SPORT</div>}
           {sidebarCollapsed && <div className="text-sm font-black">BG</div>}
@@ -437,16 +444,30 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => setSidebarCollapsed((prev) => !prev)}
-              className="hidden md:inline-flex items-center justify-center w-8 h-8 rounded-lg hover:bg-slate-700 text-slate-300"
+              className="hidden md:inline-flex items-center justify-center w-8 h-8 rounded-lg transition"
+              style={{ color: "var(--app-sidebar-muted)" }}
               aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.backgroundColor = "var(--app-sidebar-hover)";
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.backgroundColor = "transparent";
+              }}
             >
               {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             </button>
             <button
               type="button"
               onClick={() => setSidebarOpen(false)}
-              className="md:hidden inline-flex items-center justify-center w-8 h-8 rounded-lg hover:bg-slate-700 text-slate-300"
+              className="md:hidden inline-flex items-center justify-center w-8 h-8 rounded-lg transition"
+              style={{ color: "var(--app-sidebar-muted)" }}
               aria-label="Close navigation"
+              onMouseEnter={(event) => {
+                event.currentTarget.style.backgroundColor = "var(--app-sidebar-hover)";
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.backgroundColor = "transparent";
+              }}
             >
               <X size={16} />
             </button>
@@ -466,11 +487,21 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   href={item.href}
                   onClick={() => setSidebarOpen(false)}
                   className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
-                    active ? "bg-slate-700 text-white shadow-lg" : "text-slate-400 hover:bg-slate-700/50 hover:text-white"
+                    active ? "text-white shadow-lg" : "hover:text-white"
                   } ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
+                  style={{
+                    backgroundColor: active ? "var(--app-sidebar-active)" : "transparent",
+                    color: active ? "var(--app-sidebar-fg)" : "var(--app-sidebar-muted)",
+                  }}
+                  onMouseEnter={(event) => {
+                    if (!active) event.currentTarget.style.backgroundColor = "var(--app-sidebar-hover)";
+                  }}
+                  onMouseLeave={(event) => {
+                    if (!active) event.currentTarget.style.backgroundColor = "transparent";
+                  }}
                 >
                   <div className="relative flex items-center justify-center">
-                    <Icon size={18} className={active ? "text-blue-400" : "text-slate-400"} />
+                    <Icon size={18} className={active ? "text-blue-400" : ""} style={active ? undefined : { color: "var(--app-sidebar-muted)" }} />
                     {sidebarCollapsed && badgeCount > 0 ? (
                       <span className="absolute -right-2.5 -top-2.5">
                         <NavCountBadge count={badgeCount} />
@@ -500,10 +531,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     setOpenGroups((prev) => ({ ...prev, [item.label]: !prev[item.label] }));
                   }}
                   className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left transition-all duration-200 ${
-                    groupActive ? "bg-slate-700 text-white shadow-lg" : "text-slate-400 hover:bg-slate-700/50 hover:text-white"
+                    groupActive ? "text-white shadow-lg" : "hover:text-white"
                   } ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
+                  style={{
+                    backgroundColor: groupActive ? "var(--app-sidebar-active)" : "transparent",
+                    color: groupActive ? "var(--app-sidebar-fg)" : "var(--app-sidebar-muted)",
+                  }}
+                  onMouseEnter={(event) => {
+                    if (!groupActive) event.currentTarget.style.backgroundColor = "var(--app-sidebar-hover)";
+                  }}
+                  onMouseLeave={(event) => {
+                    if (!groupActive) event.currentTarget.style.backgroundColor = "transparent";
+                  }}
                 >
-                  <Icon size={18} className={groupActive ? "text-blue-400" : "text-slate-400"} />
+                  <Icon size={18} className={groupActive ? "text-blue-400" : ""} style={groupActive ? undefined : { color: "var(--app-sidebar-muted)" }} />
                   <span className={`flex-1 ${sidebarCollapsed ? "md:hidden" : ""}`}>{item.label}</span>
                   <ChevronDown
                     size={16}
@@ -525,10 +566,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                           href={subItem.href}
                           onClick={() => setSidebarOpen(false)}
                           className={`flex items-center gap-3 rounded-lg px-4 py-2.5 transition-all duration-200 ${
-                            subActive ? "bg-slate-700/80 text-white" : "text-slate-400 hover:bg-slate-700/40 hover:text-white"
+                            subActive ? "text-white" : "hover:text-white"
                           }`}
+                          style={{
+                            backgroundColor: subActive ? "var(--app-sidebar-active)" : "transparent",
+                            color: subActive ? "var(--app-sidebar-fg)" : "var(--app-sidebar-muted)",
+                          }}
+                          onMouseEnter={(event) => {
+                            if (!subActive) event.currentTarget.style.backgroundColor = "var(--app-sidebar-hover)";
+                          }}
+                          onMouseLeave={(event) => {
+                            if (!subActive) event.currentTarget.style.backgroundColor = "transparent";
+                          }}
                         >
-                          <SubIcon size={16} className={subActive ? "text-blue-400" : "text-slate-500"} />
+                          <SubIcon size={16} className={subActive ? "text-blue-400" : ""} style={subActive ? undefined : { color: "var(--app-sidebar-muted)" }} />
                           <span>{subItem.label}</span>
                         </Link>
                       );
@@ -541,21 +592,26 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </nav>
 
         <div
-          className={`p-4 border-t border-slate-700 text-[10px] text-slate-500 font-bold uppercase tracking-widest text-center ${
+          className={`p-4 border-t text-[10px] font-bold uppercase tracking-widest text-center ${
             sidebarCollapsed ? "md:hidden" : ""
           }`}
+          style={{ borderColor: "var(--app-sidebar-border)", color: "var(--app-sidebar-muted)" }}
         >
           Â© 2026 BG SPORT System
         </div>
       </aside>
 
       <div className="app-content min-h-screen min-h-[100dvh] md:flex-1 flex flex-col min-w-0">
-        <header className="app-header sticky top-0 z-20 h-16 bg-white/95 backdrop-blur border-b flex items-center justify-between px-4 md:px-6 shadow-sm">
+        <header
+          className="app-header sticky top-0 z-20 flex min-h-16 items-center justify-between border-b px-4 py-3 shadow-sm backdrop-blur md:px-6"
+          style={{ background: "var(--app-header-bg)", borderColor: "var(--theme-border)" }}
+        >
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+              className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-lg border text-[var(--theme-foreground)] transition hover:bg-[var(--theme-surface-muted)]"
+              style={{ borderColor: "var(--theme-border)" }}
               aria-label="Open navigation"
             >
               <Menu size={18} />
@@ -563,20 +619,22 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => setSidebarCollapsed((prev) => !prev)}
-              className="hidden md:inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+              className="hidden md:inline-flex items-center justify-center w-9 h-9 rounded-lg border text-[var(--theme-foreground)] transition hover:bg-[var(--theme-surface-muted)]"
+              style={{ borderColor: "var(--theme-border)" }}
               aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
             >
               {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
             </button>
-            <div className="font-bold text-slate-700 uppercase text-xs md:text-sm tracking-tight">BG Sport Management</div>
+            <div className="font-bold uppercase text-xs md:text-sm tracking-tight text-[var(--theme-foreground)]">BG Sport Management</div>
           </div>
 
-          <div className="flex items-center gap-3 md:gap-6">
+          <div className="flex items-center gap-3 md:gap-4">
+            <ThemeToggle compactLabel className="px-2.5 py-1.5 md:px-3 md:py-2" />
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs border border-blue-200">
+              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs border border-blue-200 shadow-sm">
                 {userInitials}
               </div>
-              <div className="hidden md:block text-sm font-bold text-slate-700">{profile.full_name}</div>
+              <div className="hidden md:block text-sm font-bold text-[var(--theme-foreground)]">{profile.full_name}</div>
               <button
                 type="button"
                 onClick={handleSignOut}
@@ -595,7 +653,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         position="top-right"
         toastOptions={{
           duration: 2800,
-          style: { fontWeight: 700 },
+          style: { fontWeight: 700, background: "var(--theme-surface)", color: "var(--theme-foreground)", border: "1px solid var(--theme-border)" },
         }}
       />
     </div>

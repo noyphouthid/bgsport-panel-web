@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { Toaster } from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import { AppRole, getDefaultPathForRole } from "@/lib/access-control";
+import ThemeToggle from "@/components/theme-toggle";
 
 type UserProfile = {
   id: string;
@@ -127,40 +128,43 @@ export default function LoginPage() {
 
   if (checkingSession) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
-        <div className="text-sm font-bold text-slate-600">ກຳລັງກວດສອບ session...</div>
+      <div className="min-h-screen bg-transparent flex items-center justify-center">
+        <div className="text-sm font-bold text-[var(--theme-foreground)]">ກຳລັງກວດສອບ session...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100 to-slate-200 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border border-slate-200 p-6 space-y-5">
+    <div className="relative min-h-screen flex items-center justify-center p-4">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
+      <div className="w-full max-w-md rounded-2xl border p-6 space-y-5 shadow-lg backdrop-blur-md bg-[var(--theme-surface)] border-[color:var(--theme-border)]">
         <div className="text-center space-y-1">
-          <h1 className="text-2xl font-black text-slate-900">ເຂົ້າສູ່ລະບົບ BG SPORT</h1>
-          <p className="text-sm text-slate-500 font-medium">ກະລຸນາໃຊ້ບັນຊີຂອງທ່ານເພື່ອເຂົ້າໃຊ້ງານ</p>
+          <h1 className="text-2xl font-black text-[var(--theme-foreground)]">ເຂົ້າສູ່ລະບົບ BG SPORT</h1>
+          <p className="text-sm font-medium text-slate-500">ກະລຸນາໃຊ້ບັນຊີຂອງທ່ານເພື່ອເຂົ້າໃຊ້ງານ</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="text-xs font-bold text-slate-700 block mb-1">Email</label>
+            <label className="text-xs font-bold text-[var(--theme-foreground)] block mb-1">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="name@company.com"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full rounded-lg px-3 py-2 text-sm outline-none transition bg-[var(--theme-surface-strong)] border border-[color:var(--theme-border)] text-[var(--theme-foreground)] focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-700 block mb-1">ລະຫັດຜ່ານ</label>
+            <label className="text-xs font-bold text-[var(--theme-foreground)] block mb-1">ລະຫັດຜ່ານ</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="********"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full rounded-lg px-3 py-2 text-sm outline-none transition bg-[var(--theme-surface-strong)] border border-[color:var(--theme-border)] text-[var(--theme-foreground)] focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -173,7 +177,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-center">
+        <div className="rounded-xl border border-emerald-200/50 bg-emerald-50/80 p-3 text-center">
           <div className="text-xs font-bold uppercase tracking-wider text-emerald-700">Customer Tracking</div>
           <Link href="/track" className="mt-1 inline-block text-sm font-black text-emerald-900 hover:text-emerald-700">
             ເປີດໜ້າຕິດຕາມສະຖານະສຳລັບລູກຄ້າ
@@ -184,7 +188,7 @@ export default function LoginPage() {
         position="top-right"
         toastOptions={{
           duration: 2800,
-          style: { fontWeight: 700 },
+          style: { fontWeight: 700, background: "var(--theme-surface)", color: "var(--theme-foreground)", border: "1px solid var(--theme-border)" },
         }}
       />
     </div>
