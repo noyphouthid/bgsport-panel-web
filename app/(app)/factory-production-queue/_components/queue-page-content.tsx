@@ -417,7 +417,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
     setViewerResolved(false);
 
     try {
-      const query = options?.syncFirst === false ? "" : "?sync=1";
+      const query = options?.syncFirst === true ? "?sync=1" : "";
       const payload = await callQueueApi<{
         rows: QueueEntryRow[];
         users: UserRow[];
@@ -1142,7 +1142,13 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                         <td className="px-4 py-4 align-top">
                           <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white">
                             {previewImageUrl ? (
-                              <img src={previewImageUrl} alt={deposit.order_code || deposit.deposit_no} className="h-full w-full object-contain" />
+                              <img
+                                src={previewImageUrl}
+                                alt={deposit.order_code || deposit.deposit_no}
+                                loading="lazy"
+                                decoding="async"
+                                className="h-full w-full object-contain"
+                              />
                             ) : (
                               <div className="px-2 text-center text-[11px] font-bold text-slate-400">ບໍ່ມີຮູບ</div>
                             )}
