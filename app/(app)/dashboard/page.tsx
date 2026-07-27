@@ -397,7 +397,7 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="min-h-full bg-[#FBF3EC] -m-6 p-6 space-y-6">
+    <div className="space-y-6">
       {/* Top bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -423,7 +423,7 @@ export default function DashboardPage() {
           {!isAdminLimited && !isGraphicLimited ? (
             <Link
               href="/orders/new"
-              className="flex items-center gap-2 bg-[#F2653F] px-5 py-2.5 rounded-full text-white font-semibold text-sm hover:bg-[#e2572f] transition-all active:scale-95 shadow-[0_8px_20px_rgba(242,101,63,0.35)]"
+              className="flex items-center gap-2 bg-green-600 px-5 py-2.5 rounded-full text-white font-semibold text-sm hover:bg-green-700 transition-all active:scale-95 shadow-sm"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -438,7 +438,7 @@ export default function DashboardPage() {
       {/* Date Filter Card */}
       <div className="bg-white rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50 p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex bg-[#FBF3EC] p-1 rounded-full">
+          <div className="flex bg-slate-100 p-1 rounded-full">
             {(["today", "7days", "1month", "custom"] as const).map((mode) => (
               <button
                 key={mode}
@@ -461,7 +461,7 @@ export default function DashboardPage() {
                 setStartDate(e.target.value);
                 setDateMode("custom");
               }}
-              className="border border-slate-100 bg-[#FBF3EC]/60 rounded-full px-3 py-1.5 text-sm font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-[#F2653F]/40"
+              className="border border-slate-100 bg-slate-50 rounded-full px-3 py-1.5 text-sm font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-[#2563EB]/40"
             />
             <span className="text-slate-300 font-black">→</span>
             <input
@@ -471,7 +471,7 @@ export default function DashboardPage() {
                 setEndDate(e.target.value);
                 setDateMode("custom");
               }}
-              className="border border-slate-100 bg-[#FBF3EC]/60 rounded-full px-3 py-1.5 text-sm font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-[#F2653F]/40"
+              className="border border-slate-100 bg-slate-50 rounded-full px-3 py-1.5 text-sm font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-[#2563EB]/40"
             />
           </div>
 
@@ -482,8 +482,8 @@ export default function DashboardPage() {
             ອັບເດດຂໍ້ມູນ
           </button>
 
-          <div className="ml-auto flex items-center gap-2 px-3.5 py-2 bg-[#FBF3EC] rounded-full">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F2653F" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+          <div className="ml-auto flex items-center gap-2 px-3.5 py-2 bg-slate-100 rounded-full">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
             <span className="text-xs font-bold text-slate-600">{formatDateLao(startDate)} - {formatDateLao(endDate)}</span>
           </div>
         </div>
@@ -503,7 +503,7 @@ export default function DashboardPage() {
             <h2 className="text-sm font-extrabold text-slate-800">ພາບລວມຜົນປະກອບການ</h2>
             <div className="flex items-center gap-4 text-[11px] font-bold text-slate-400">
               <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]"></span>ລາຍຮັບ</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#F2653F]"></span>ຕົ້ນທຶນໂຮງງານ</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#2563EB]"></span>ຕົ້ນທຶນໂຮງງານ</span>
             </div>
           </div>
 
@@ -514,7 +514,7 @@ export default function DashboardPage() {
             </div>
             <div>
               <div className="text-[11px] font-bold text-slate-400 uppercase">ຕົ້ນທຶນລວມ</div>
-              <div className="text-lg font-extrabold text-[#F2653F]">{loading ? "..." : formatCurrency(seriesCostTotal)}</div>
+              <div className="text-lg font-extrabold text-[#2563EB]">{loading ? "..." : formatCurrency(seriesCostTotal)}</div>
             </div>
             <div>
               <div className="text-[11px] font-bold text-slate-400 uppercase">ກຳໄລລວມ</div>
@@ -540,11 +540,11 @@ export default function DashboardPage() {
                   </linearGradient>
                 </defs>
                 {[0.25, 0.5, 0.75].map((f) => (
-                  <line key={f} x1="0" x2={chartWidth} y1={chartHeight * f} y2={chartHeight * f} stroke="#FBF3EC" strokeWidth="1" />
+                  <line key={f} x1="0" x2={chartWidth} y1={chartHeight * f} y2={chartHeight * f} stroke="#F1F5F9" strokeWidth="1" />
                 ))}
                 <path d={revenueAreaPath} fill="url(#revenueFill)" stroke="none" />
                 <path d={revenuePath} fill="none" stroke="#22C55E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                <path d={costPath} fill="none" stroke="#F2653F" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 5" />
+                <path d={costPath} fill="none" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 5" />
               </svg>
               <div className="flex justify-between mt-2 text-[11px] font-bold text-slate-400">
                 <span>{performanceSeries[0]?.label}</span>
@@ -555,7 +555,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="mt-5 pt-4 border-t border-slate-50 flex flex-wrap items-center gap-2 text-xs font-bold">
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full ${trendUp ? "bg-[#22C55E]/10 text-[#22C55E]" : "bg-[#F43F5E]/10 text-[#F43F5E]"}`}>
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full ${trendUp ? "bg-[#22C55E]/10 text-[#22C55E]" : "bg-[#DC2626]/10 text-[#DC2626]"}`}>
                   {trendUp ? "▲" : "▼"} {trendLabel}
                 </span>
                 {bestPoint && (
@@ -606,7 +606,7 @@ export default function DashboardPage() {
 
           <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
             <div className="flex items-center justify-between mb-5">
-              <div className="w-11 h-11 bg-[#F43F5E]/12 rounded-2xl flex items-center justify-center text-[#F43F5E]">
+              <div className="w-11 h-11 bg-[#DC2626]/12 rounded-2xl flex items-center justify-center text-[#DC2626]">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 20V9l4-2 4 2 4-2 4 2 4-2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" /><path d="M7 18h0" /><path d="M12 18h0" /><path d="M17 18h0" /><path d="M7 13h0" /><path d="M12 13h0" /><path d="M17 13h0" /></svg>
               </div>
               <span className="text-slate-300"><KebabIcon /></span>
@@ -615,7 +615,7 @@ export default function DashboardPage() {
             <div className="text-[26px] font-extrabold text-slate-900 leading-none mb-2">
               {loading ? "..." : formatCurrency(stats.factoryBalance)}
             </div>
-            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#F43F5E] bg-[#F43F5E]/10 px-2 py-0.5 rounded-full">
+            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#DC2626] bg-[#DC2626]/10 px-2 py-0.5 rounded-full">
               ຈາກ {stats.inProgressOrders} ອໍເດີ້ທີ່ຜະລິດ
             </div>
           </div>
@@ -710,7 +710,7 @@ export default function DashboardPage() {
           <div className="bg-white p-6 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-sm font-extrabold text-slate-800">ສະຖານະອໍເດີ້</h2>
-              <span className="text-[11px] font-bold text-slate-400 bg-[#FBF3EC] px-3 py-1 rounded-full">ອໍເດີ້ທັງໝົດ {stats.totalOrders}</span>
+              <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">ອໍເດີ້ທັງໝົດ {stats.totalOrders}</span>
             </div>
 
             <div className="flex items-center gap-6 mb-6">
@@ -724,7 +724,7 @@ export default function DashboardPage() {
               </div>
               <div className="text-center">
                 <div className="text-[11px] font-bold text-slate-400 uppercase">ຄ້າງຈ່າຍ</div>
-                <div className="text-lg font-extrabold text-[#F43F5E]">{loading ? "..." : formatCurrency(stats.factoryBalance)}</div>
+                <div className="text-lg font-extrabold text-[#DC2626]">{loading ? "..." : formatCurrency(stats.factoryBalance)}</div>
               </div>
             </div>
 
@@ -734,7 +734,7 @@ export default function DashboardPage() {
                   <span className="text-slate-400">ກຳລັງຜະລິດ</span>
                   <span className="text-[#F59E0B]">{stats.inProgressOrders} / {stats.totalOrders}</span>
                 </div>
-                <div className="w-full bg-[#FBF3EC] rounded-full h-3 overflow-hidden">
+                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                   <div
                     className="bg-[#F59E0B] h-full rounded-full transition-all duration-1000"
                     style={{ width: `${inProgressPct}%` }}
@@ -747,7 +747,7 @@ export default function DashboardPage() {
                   <span className="text-slate-400">ສຳເລັດແລ້ວ</span>
                   <span className="text-[#22C55E]">{stats.completedOrders} / {stats.totalOrders}</span>
                 </div>
-                <div className="w-full bg-[#FBF3EC] rounded-full h-3 overflow-hidden">
+                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                   <div
                     className="bg-[#22C55E] h-full rounded-full transition-all duration-1000"
                     style={{ width: `${completedPct}%` }}
@@ -768,7 +768,7 @@ export default function DashboardPage() {
               <div
                 className="relative w-40 h-40 rounded-full flex items-center justify-center shrink-0"
                 style={{
-                  background: `conic-gradient(#22C55E 0% ${completedPct}%, #ffab1b ${completedPct}% 100%)`,
+                  background: `conic-gradient(#22C55E 0% ${completedPct}%, #F59E0B ${completedPct}% 100%)`,
                 }}
               >
                 <div className="absolute w-28 h-28 bg-white rounded-full flex flex-col items-center justify-center">
@@ -794,7 +794,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="border-t border-slate-50 pt-4 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-500">Cash Flow ຄາດການ</span>
-                  <span className={`text-sm font-extrabold ${cashFlow >= 0 ? "text-[#22C55E]" : "text-[#F43F5E]"}`}>
+                  <span className={`text-sm font-extrabold ${cashFlow >= 0 ? "text-[#22C55E]" : "text-[#DC2626]"}`}>
                     {formatCurrency(cashFlow)}
                   </span>
                 </div>
@@ -809,7 +809,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50 overflow-hidden">
           <div className="p-5 flex items-center justify-between">
             <h2 className="text-sm font-extrabold text-slate-800">ລາຍການອໍເດີ້</h2>
-            <Link href="/orders" className="text-xs bg-[#F2653F] px-4 py-1.5 rounded-full text-white hover:bg-[#e2572f] font-bold transition-all">
+            <Link href="/orders" className="text-xs bg-[#2563EB] px-4 py-1.5 rounded-full text-white hover:bg-[#1D4ED8] font-bold transition-all">
               ເບິ່ງທັງໝົດ →
             </Link>
           </div>
@@ -835,11 +835,11 @@ export default function DashboardPage() {
                   <tr><td className="p-8 text-center text-slate-400 font-bold" colSpan={7}>ບໍ່ມີອໍເດີ້ໃນຊ່ວງວັນທີນີ້</td></tr>
                 ) : (
                   recentOrders.map((order) => (
-                    <tr key={order.id} className="hover:bg-[#FBF3EC]/40 transition-colors group">
+                    <tr key={order.id} className="hover:bg-slate-50 transition-colors group">
                       <td className="p-4 text-slate-500 font-semibold">{formatDateLao(order.order_date)}</td>
                       <td className="p-4">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-8 h-8 rounded-full bg-[#F2653F]/10 text-[#F2653F] flex items-center justify-center text-[11px] font-extrabold">
+                          <span className="w-8 h-8 rounded-full bg-[#2563EB]/10 text-[#2563EB] flex items-center justify-center text-[11px] font-extrabold">
                             {order.order_code?.slice(0, 2)?.toUpperCase() || "OD"}
                           </span>
                           <span className="font-extrabold text-slate-700 tracking-tight">{order.order_code}</span>
@@ -848,7 +848,7 @@ export default function DashboardPage() {
                       <td className="p-4 text-slate-500 font-medium">{order.fabric_name}</td>
                       <td className="p-4 text-right text-slate-700 font-extrabold">{order.net_total.toLocaleString()}</td>
                       <td className="p-4 text-right">
-                        <span className={order.balance > 0 ? "text-[#F43F5E] font-extrabold" : "text-[#22C55E] font-extrabold"}>
+                        <span className={order.balance > 0 ? "text-[#DC2626] font-extrabold" : "text-[#22C55E] font-extrabold"}>
                           {order.balance > 0 ? order.balance.toLocaleString() : "ຊຳລະແລ້ວ"}
                         </span>
                       </td>
@@ -861,7 +861,7 @@ export default function DashboardPage() {
                       <td className="p-4 text-center">
                         <Link
                           href={`/orders/${order.id}/edit`}
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#FBF3EC] text-slate-500 hover:bg-[#F2653F] hover:text-white transition-all"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-blue-600 hover:text-white transition-all"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
                         </Link>

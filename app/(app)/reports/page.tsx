@@ -21,6 +21,13 @@ const cards = [
     iconBg: "bg-emerald-100 text-emerald-700",
   },
   {
+    href: "/reports/order-status-payments",
+    title: "ລາຍງານຕິດຕາມອໍເດີ-ການຊຳລະ",
+    desc: "ເບິ່ງຕໍ່ 1 ອໍເດີວ່າກຳລັງຜະລິດ ຫຼື ຜະລິດສຳເລັດ ພ້ອມຍອດຈ່າຍ ແລະ ຄ້າງຈ່າຍຂອງລູກຄ້າ-ໂຮງງານ",
+    icon: Wallet,
+    iconBg: "bg-cyan-100 text-cyan-700",
+  },
+  {
     href: "/reports/orders",
     title: "ລາຍງານອໍເດີ້",
     desc: "ຕິດຕາມການຊຳລະ ແລະ ສະຖານະການຜະລິດໃນແຕ່ລະເດືອນ",
