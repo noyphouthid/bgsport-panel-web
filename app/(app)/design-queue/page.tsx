@@ -76,6 +76,27 @@ function buildMonthOptions() {
   ];
 }
 
+function toQueuePeriodValue(year: number, month: number) {
+  return year * 12 + (month - 1);
+}
+
+function matchesQueueMonthFilter(
+  row: Pick<DesignQueueRow, "queue_year" | "queue_month">,
+  monthFilter: MonthFilter,
+  yearFilter: number,
+  carryForwardPending: boolean
+) {
+  if (monthFilter === "ALL") {
+    return carryForwardPending ? row.queue_year <= yearFilter : row.queue_year === yearFilter;
+  }
+
+  if (!carryForwardPending) {
+    return row.queue_year === yearFilter && row.queue_month === monthFilter;
+  }
+
+  return toQueuePeriodValue(row.queue_year, row.queue_month) <= toQueuePeriodValue(yearFilter, monthFilter);
+}
+
 function syncTypeCodeYear(typeCode: string, dateValue: string) {
   const normalized = String(typeCode || "")
     .trim()
@@ -296,8 +317,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     const search = query.trim().toLowerCase();
 
     return rows.filter((row) => {
-      if (monthFilter !== "ALL" && row.queue_month !== monthFilter) return false;
-      if (row.queue_year !== yearFilter) return false;
+      if (!matchesQueueMonthFilter(row, monthFilter, yearFilter, !isCompletedView)) return false;
       if (activeGraphicFilterUserId !== ALL_GRAPHIC_FILTER && row.graphic_user_id !== activeGraphicFilterUserId) return false;
       if (dateFromFilter && row.queue_date < dateFromFilter) return false;
       if (dateToFilter && row.queue_date > dateToFilter) return false;
@@ -493,7 +513,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
           <p className="text-sm font-medium text-slate-500">
             {isCompletedView
               ? "ລາຍການທີ່ກົດສະຖານະອອກແບບສຳເລັດແລ້ວຈະຖືກຍ້າຍມາໜ້ານີ້"
-              : "ອໍເດີທີ່ຍັງບໍ່ທັນອອກແບບຈະຢູ່ໜ້ານີ້ ແລະ ເມື່ອກົດສຳເລັດຈະຍ້າຍໄປໜ້າລາຍການອອກແບບສຳເລັດ"}
+              : "ອໍເດີທີ່ຍັງບໍ່ທັນອອກແບບຈະຢູ່ໜ້ານີ້ ແລະ ຄິວທີ່ຄ້າງຈາກເດືອນກ່ອນຈະຍັງສະແດງຕໍ່ໃນເດືອນຖັດໄປຈົນກວ່າຈະກົດສຳເລັດ"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -781,6 +801,12 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                 />
               </div>
             </div>
+
+            {!isCompletedView && monthFilter !== "ALL" ? (
+              <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-700">
+                ຄິວທີ່ຍັງບໍ່ທັນສຳເລັດຈາກເດືອນກ່ອນ ຈະຖືກນັບຕໍ່ເຂົ້າມາໃນເດືອນທີ່ເລືອກ
+              </div>
+            ) : null}
           </div>
 
           <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
