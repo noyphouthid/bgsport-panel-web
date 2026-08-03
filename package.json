@@ -25,6 +25,7 @@
     "recharts": "^3.7.0",
     "supabase-js": "^0.0.1-security",
     "sweetalert2": "^11.26.20",
+    "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

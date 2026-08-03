@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { ArrowRight, CheckCheck, RefreshCw, Search, Trash2, Wallet } from "lucide-react";
+import { isMissingOrderItemsTableError, type OrderItemRow } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
 
 type OrderRow = {
@@ -29,7 +30,8 @@ type FactoryPaymentRow = {
 };
 
 type CandidateRow = OrderRow & {
-  total_shirts: number;
+  pants_qty: number;
+  total_qty: number;
   paid_amount: number;
   outstanding_amount: number;
 };
@@ -66,7 +68,7 @@ function normalizeCode(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
 }
 
-function getOrderTotalShirts(order: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
+function getOrderShirtQty(order: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
   return (Number(order.short_qty) || 0) + (Number(order.long_qty) || 0) + (Number(order.free_qty) || 0);
 }
 
@@ -88,6 +90,8 @@ export default function FactoryPaymentsPage() {
   const [searchPaidResult, setSearchPaidResult] = useState<SearchPaidResult | null>(null);
   const [availableRows, setAvailableRows] = useState<CandidateRow[]>([]);
   const [selectedRows, setSelectedRows] = useState<CandidateRow[]>([]);
+  const [availableLoaded, setAvailableLoaded] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -97,18 +101,22 @@ export default function FactoryPaymentsPage() {
   const [err, setErr] = useState<string | null>(null);
   const restoredSelectedIdsRef = useRef<string[] | null>(null);
   const storageReadyRef = useRef(false);
+  const restorePendingRef = useRef(false);
 
   const enrichOrders = async (orders: OrderRow[]) => {
     if (orders.length === 0) return [] as CandidateRow[];
 
     const ids = orders.map((order) => order.id);
-    const { data: paymentData, error: paymentError } = await supabase
-      .from("factory_payments")
-      .select("id,order_id,amount,paid_at,note,batch_id,created_at")
-      .in("order_id", ids);
+    const [{ data: paymentData, error: paymentError }, { data: pantsItemData, error: pantsItemError }] = await Promise.all([
+      supabase.from("factory_payments").select("id,order_id,amount,paid_at,note,batch_id,created_at").in("order_id", ids),
+      supabase.from("order_items").select("order_id,product_type,qty,free_qty").in("order_id", ids).eq("product_type", "pants_printed"),
+    ]);
 
     if (paymentError && !paymentError.message.includes("Could not find the table")) {
       throw paymentError;
+    }
+    if (pantsItemError && !isMissingOrderItemsTableError(pantsItemError)) {
+      throw pantsItemError;
     }
 
     const paidByOrder = new Map<string, number>();
@@ -116,15 +124,26 @@ export default function FactoryPaymentsPage() {
       paidByOrder.set(row.order_id, (paidByOrder.get(row.order_id) || 0) + (Number(row.amount) || 0));
     });
 
+    const pantsQtyByOrder = ((pantsItemData ?? []) as Pick<OrderItemRow, "order_id" | "qty" | "free_qty">[]).reduce<Map<string, number>>(
+      (acc, item) => {
+        const total = (Number(item.qty) || 0) + (Number(item.free_qty) || 0);
+        acc.set(item.order_id, (acc.get(item.order_id) || 0) + total);
+        return acc;
+      },
+      new Map<string, number>()
+    );
+
     return orders
       .map((order) => {
-        const totalShirts = getOrderTotalShirts(order);
+        const shirtQty = getOrderShirtQty(order);
+        const pantsQty = pantsQtyByOrder.get(order.id) || 0;
         const paidAmount = paidByOrder.get(order.id) || 0;
         const outstandingAmount = Math.max(0, (Number(order.factory_cost) || 0) - paidAmount);
 
         return {
           ...order,
-          total_shirts: totalShirts,
+          pants_qty: pantsQty,
+          total_qty: shirtQty + pantsQty,
           paid_amount: paidAmount,
           outstanding_amount: outstandingAmount,
         } satisfies CandidateRow;
@@ -190,6 +209,7 @@ export default function FactoryPaymentsPage() {
 
       const enriched = await enrichOrders((data ?? []) as OrderRow[]);
       setAvailableRows(enriched);
+      setAvailableLoaded(true);
     } catch (error) {
       const message = getErrorMessage(error, "ໂຫຼດຂໍ້ມູນບໍ່ສຳເລັດ");
       setErr(message);
@@ -264,6 +284,7 @@ export default function FactoryPaymentsPage() {
     try {
       const raw = window.localStorage.getItem(FACTORY_PAYMENT_DRAFT_STORAGE_KEY);
       if (!raw) {
+        restorePendingRef.current = false;
         storageReadyRef.current = true;
         return;
       }
@@ -271,14 +292,20 @@ export default function FactoryPaymentsPage() {
       const parsed = JSON.parse(raw) as {
         selectedOrderIds?: unknown;
         searchCode?: unknown;
+        savedAt?: unknown;
       };
 
       restoredSelectedIdsRef.current = Array.isArray(parsed.selectedOrderIds)
         ? parsed.selectedOrderIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
         : [];
+      restorePendingRef.current = restoredSelectedIdsRef.current.length > 0;
 
       if (typeof parsed.searchCode === "string" && parsed.searchCode.trim()) {
         setSearchCode(parsed.searchCode);
+      }
+
+      if (typeof parsed.savedAt === "string" && parsed.savedAt.trim()) {
+        setDraftSavedAt(parsed.savedAt);
       }
     } catch {
       window.localStorage.removeItem(FACTORY_PAYMENT_DRAFT_STORAGE_KEY);
@@ -293,26 +320,37 @@ export default function FactoryPaymentsPage() {
   }, []);
 
   useEffect(() => {
-    setSelectedRows((prev) => {
-      const restoredIds = restoredSelectedIdsRef.current ?? [];
-      if (prev.length === 0 && restoredIds.length === 0) return prev;
+    if (!availableLoaded) return;
 
-      const selectedIds = new Set(prev.map((row) => row.id));
-      restoredIds.forEach((id) => selectedIds.add(id));
-      return availableRows.filter((row) => selectedIds.has(row.id));
+    const restoredIds = restoredSelectedIdsRef.current ?? [];
+    if (restoredIds.length === 0 && selectedRows.length === 0) {
+      restorePendingRef.current = false;
+      return;
+    }
+
+    setSelectedRows((prev) => {
+      const preservedOrder = prev.length > 0 ? prev.map((row) => row.id) : restoredIds;
+      const nextIds = Array.from(new Set(preservedOrder));
+      const availableById = new Map(availableRows.map((row) => [row.id, row]));
+
+      return nextIds.map((id) => availableById.get(id)).filter((row): row is CandidateRow => Boolean(row));
     });
     restoredSelectedIdsRef.current = null;
-  }, [availableRows]);
+    restorePendingRef.current = false;
+  }, [availableLoaded, availableRows, selectedRows.length]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !storageReadyRef.current) return;
+    if (typeof window === "undefined" || !storageReadyRef.current || restorePendingRef.current) return;
 
+    const savedAt = new Date().toISOString();
     const payload = {
       selectedOrderIds: selectedRows.map((row) => row.id),
       searchCode,
+      savedAt,
     };
 
     window.localStorage.setItem(FACTORY_PAYMENT_DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    setDraftSavedAt(savedAt);
   }, [searchCode, selectedRows]);
 
   const selectedIds = useMemo(() => new Set(selectedRows.map((row) => row.id)), [selectedRows]);
@@ -332,7 +370,7 @@ export default function FactoryPaymentsPage() {
     return availableRows.reduce(
       (acc, row) => {
         acc.orders += 1;
-        acc.shirts += row.total_shirts;
+        acc.shirts += row.total_qty;
         acc.outstanding += row.outstanding_amount;
         return acc;
       },
@@ -355,7 +393,7 @@ export default function FactoryPaymentsPage() {
     return selectedRows.reduce(
       (acc, row) => {
         acc.orders += 1;
-        acc.shirts += row.total_shirts;
+        acc.shirts += row.total_qty;
         acc.amount += row.outstanding_amount;
         return acc;
       },
@@ -732,6 +770,9 @@ export default function FactoryPaymentsPage() {
             <div className="mt-2 text-xl font-black text-slate-900">
               {selectedSummary.orders.toLocaleString()} ອໍເດີ້ / {formatMoney(selectedSummary.amount)}
             </div>
+            <div className="mt-2 text-xs font-medium text-slate-500">
+              Draft ຖືກບັນທຶກອັດຕະໂນມັດ{draftSavedAt ? ` • ລ່າສຸດ ${toDateOnly(draftSavedAt)}` : ""}
+            </div>
           </div>
           <button
             type="button"
@@ -747,22 +788,48 @@ export default function FactoryPaymentsPage() {
         {selectedRows.length === 0 ? (
           <div className="py-10 text-center text-sm font-medium text-slate-400">ຍັງບໍ່ມີອໍເດີ້ທີ່ເລືອກ</div>
         ) : (
-          <div className="mt-4 flex flex-wrap gap-3">
-            {selectedRows.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => removeFromSelection(row.id)}
-                className="inline-flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition hover:bg-amber-100"
-              >
-                <span>
-                  <span className="block text-sm font-black text-slate-900">{row.order_code}</span>
-                  <span className="block text-xs font-medium text-slate-500">{row.factory_bill_code?.trim() || "ບໍ່ມີລະຫັດໂຮງງານ"}</span>
-                </span>
-                <span className="text-sm font-black text-amber-800">{formatMoney(row.outstanding_amount)}</span>
-                <Trash2 size={16} className="text-rose-500" />
-              </button>
-            ))}
+          <div className="mt-4 overflow-hidden rounded-3xl border border-slate-100">
+            <div className="overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="p-3 text-left text-[11px] font-black uppercase">ລຳດັບ</th>
+                    <th className="p-3 text-left text-[11px] font-black uppercase">ອໍເດີ</th>
+                    <th className="p-3 text-left text-[11px] font-black uppercase">ລະຫັດໂຮງງານ</th>
+                    <th className="p-3 text-left text-[11px] font-black uppercase">ຈຳນວນເສື້ອ</th>
+                    <th className="p-3 text-right text-[11px] font-black uppercase">ຈຳນວນເງິນ</th>
+                    <th className="p-3 text-left text-[11px] font-black uppercase">ວັນຜະລິດສຳເລັດ</th>
+                    <th className="p-3 text-center text-[11px] font-black uppercase">ຈັດການ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {selectedRows.map((row, index) => (
+                    <tr key={row.id} className="hover:bg-slate-50/80">
+                      <td className="p-3 font-black text-slate-900">{index + 1}</td>
+                      <td className="p-3">
+                        <div className="font-black text-slate-900">{row.order_code}</div>
+                        <div className="mt-1 text-xs font-medium text-slate-500">ຈ່າຍແລ້ວ {formatMoney(row.paid_amount)}</div>
+                      </td>
+                      <td className="p-3 font-medium text-slate-600">{row.factory_bill_code?.trim() || "-"}</td>
+                      <td className="p-3">
+                        <div className="font-black text-slate-900">{row.total_qty.toLocaleString()} ຕົວ</div>
+                      </td>
+                      <td className="p-3 text-right font-black text-emerald-700">{formatMoney(row.outstanding_amount)}</td>
+                      <td className="p-3 font-medium text-slate-600">{toDateOnly(row.production_completed_at)}</td>
+                      <td className="p-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeFromSelection(row.id)}
+                          className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-black text-rose-600 transition hover:bg-rose-50"
+                        >
+                          ຍົກເລີກ
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </section>
