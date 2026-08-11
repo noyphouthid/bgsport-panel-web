@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import toast from "react-hot-toast";
-import { ArrowRight, CheckCheck, RefreshCw, Search, Trash2, Wallet } from "lucide-react";
+import { ArrowRight, CheckCheck, FileUp, RefreshCw, Search, Trash2, Wallet } from "lucide-react";
 import { isMissingOrderItemsTableError, type OrderItemRow } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
 
@@ -55,6 +57,18 @@ type SearchPaidResult = {
   factory_paid_full_at: string | null;
 };
 
+type ImportedFactoryCodeStatus = "matched" | "already_selected" | "not_found" | "ambiguous";
+
+type ImportedFactoryCodeResult = {
+  code: string;
+  raw_value: string;
+  status: ImportedFactoryCodeStatus;
+  order_id?: string;
+  order_code?: string;
+  factory_bill_code?: string | null;
+  candidates?: number;
+};
+
 const FACTORY_PAYMENT_DRAFT_STORAGE_KEY = "bgsport.factory-payments.draft-selection";
 
 function toDateOnly(value: string | null) {
@@ -66,6 +80,16 @@ function toDateOnly(value: string | null) {
 
 function normalizeCode(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
+}
+
+function normalizeDigits(value: string | null | undefined) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function getImportCodeKey(value: string | null | undefined) {
+  const digitKey = normalizeDigits(value);
+  if (digitKey) return digitKey;
+  return normalizeCode(value);
 }
 
 function getOrderShirtQty(order: Pick<OrderRow, "short_qty" | "long_qty" | "free_qty">) {
@@ -96,6 +120,9 @@ export default function FactoryPaymentsPage() {
   const [loading, setLoading] = useState(false);
   const [paying, setPaying] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [importingCodes, setImportingCodes] = useState(false);
+  const [importedFileName, setImportedFileName] = useState("");
+  const [importResults, setImportResults] = useState<ImportedFactoryCodeResult[]>([]);
   const [cancellingPaymentId, setCancellingPaymentId] = useState<string | null>(null);
   const [cancellingBatchId, setCancellingBatchId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -355,6 +382,24 @@ export default function FactoryPaymentsPage() {
 
   const selectedIds = useMemo(() => new Set(selectedRows.map((row) => row.id)), [selectedRows]);
 
+  const availableFactoryCodeMaps = useMemo(() => {
+    const exact = new Map<string, CandidateRow>();
+    const digits = new Map<string, CandidateRow[]>();
+
+    availableRows.forEach((row) => {
+      const exactKey = normalizeCode(row.factory_bill_code);
+      if (exactKey && !exact.has(exactKey)) {
+        exact.set(exactKey, row);
+      }
+
+      const digitKey = normalizeDigits(row.factory_bill_code);
+      if (!digitKey) return;
+      digits.set(digitKey, [...(digits.get(digitKey) ?? []), row]);
+    });
+
+    return { exact, digits };
+  }, [availableRows]);
+
   const filteredAvailableRows = useMemo(() => {
     const keyword = normalizeCode(searchCode);
     if (!keyword) return availableRows;
@@ -424,6 +469,17 @@ export default function FactoryPaymentsPage() {
     return Array.from(grouped.values()).sort((a, b) => b.paid_at.localeCompare(a.paid_at));
   }, [paymentHistory]);
 
+  const importSummary = useMemo(() => {
+    return importResults.reduce(
+      (acc, row) => {
+        acc.total += 1;
+        acc[row.status] += 1;
+        return acc;
+      },
+      { total: 0, matched: 0, already_selected: 0, not_found: 0, ambiguous: 0 }
+    );
+  }, [importResults]);
+
   const addToSelection = (row: CandidateRow) => {
     if (selectedIds.has(row.id)) {
       toast("ອໍເດີນີ້ຢູ່ໃນລາຍການແລ້ວ");
@@ -481,6 +537,138 @@ export default function FactoryPaymentsPage() {
 
   const clearSelection = () => {
     setSelectedRows([]);
+  };
+
+  const handleImportFactoryCodes = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (loading) {
+      toast.error("ກຳລັງໂຫຼດລາຍການຄ້າງຈ່າຍ, ກະລຸນາລໍຖ້າກ່ອນ");
+      e.target.value = "";
+      return;
+    }
+
+    setImportingCodes(true);
+    setErr(null);
+    setImportResults([]);
+    setImportedFileName(file.name);
+
+    try {
+      const rawText = await file.text();
+      const workbook = XLSX.read(rawText, { type: "string", raw: false });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const matrix = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
+        header: 1,
+        raw: false,
+        defval: "",
+        blankrows: false,
+      });
+
+      const candidates: Array<{ rawValue: string; key: string }> = [];
+      const seen = new Set<string>();
+
+      matrix.forEach((row) => {
+        row.forEach((cell) => {
+          const rawValue = String(cell ?? "").trim();
+          if (!rawValue) return;
+
+          const key = getImportCodeKey(rawValue);
+          if (!key || seen.has(key)) return;
+
+          seen.add(key);
+          candidates.push({ rawValue, key });
+        });
+      });
+
+      if (candidates.length === 0) {
+        const message = "CSV ບໍ່ພົບລະຫັດໂຮງງານສຳລັບນຳເຂົ້າ";
+        setErr(message);
+        setImportedFileName(file.name);
+        toast.error(message);
+        return;
+      }
+
+      const matchedRows: CandidateRow[] = [];
+      const matchedIds = new Set<string>();
+      const results: ImportedFactoryCodeResult[] = candidates.map(({ rawValue }) => {
+        const exactMatch = availableFactoryCodeMaps.exact.get(normalizeCode(rawValue));
+        const digitMatches = availableFactoryCodeMaps.digits.get(normalizeDigits(rawValue)) ?? [];
+        const matchedRow = exactMatch ?? (digitMatches.length === 1 ? digitMatches[0] : null);
+        const displayCode = normalizeDigits(rawValue) || rawValue.trim();
+
+        if (matchedRow) {
+          if (selectedIds.has(matchedRow.id) || matchedIds.has(matchedRow.id)) {
+            return {
+              code: displayCode,
+              raw_value: rawValue,
+              status: "already_selected",
+              order_id: matchedRow.id,
+              order_code: matchedRow.order_code,
+              factory_bill_code: matchedRow.factory_bill_code,
+            } satisfies ImportedFactoryCodeResult;
+          }
+
+          matchedRows.push(matchedRow);
+          matchedIds.add(matchedRow.id);
+          return {
+            code: displayCode,
+            raw_value: rawValue,
+            status: "matched",
+            order_id: matchedRow.id,
+            order_code: matchedRow.order_code,
+            factory_bill_code: matchedRow.factory_bill_code,
+          } satisfies ImportedFactoryCodeResult;
+        }
+
+        if (!exactMatch && digitMatches.length > 1) {
+          return {
+            code: displayCode,
+            raw_value: rawValue,
+            status: "ambiguous",
+            candidates: digitMatches.length,
+          } satisfies ImportedFactoryCodeResult;
+        }
+
+        return {
+          code: displayCode,
+          raw_value: rawValue,
+          status: "not_found",
+        } satisfies ImportedFactoryCodeResult;
+      });
+
+      if (matchedRows.length > 0) {
+        setSelectedRows((prev) => [...prev, ...matchedRows]);
+      }
+
+      setImportResults(results);
+
+      const matchedCount = results.filter((row) => row.status === "matched").length;
+      const duplicateCount = results.filter((row) => row.status === "already_selected").length;
+      const notFoundCount = results.filter((row) => row.status === "not_found").length;
+      const ambiguousCount = results.filter((row) => row.status === "ambiguous").length;
+
+      if (matchedCount > 0) {
+        toast.success(
+          `ນຳເຂົ້າສຳເລັດ: ເພີ່ມ ${matchedCount} ລາຍການ` +
+            (duplicateCount > 0 ? `, ມີຊ້ຳ ${duplicateCount}` : "") +
+            (notFoundCount > 0 ? `, ບໍ່ພົບ ${notFoundCount}` : "") +
+            (ambiguousCount > 0 ? `, ກົງຫຼາຍລາຍການ ${ambiguousCount}` : "")
+        );
+      } else if (duplicateCount > 0 && notFoundCount === 0 && ambiguousCount === 0) {
+        toast("ລາຍການໃນ CSV ຖືກເລືອກໄວ້ແລ້ວທັງໝົດ");
+      } else {
+        toast("ອ່ານ CSV ສຳເລັດ ແຕ່ບໍ່ມີລາຍການໃໝ່ຖືກເພີ່ມ");
+      }
+    } catch (error) {
+      const message = getErrorMessage(error, "ອ່ານໄຟລ໌ CSV ບໍ່ສຳເລັດ");
+      setErr(message);
+      setImportResults([]);
+      toast.error(message);
+    } finally {
+      setImportingCodes(false);
+      e.target.value = "";
+    }
   };
 
   useEffect(() => {
@@ -706,6 +894,34 @@ export default function FactoryPaymentsPage() {
                 {searchPaidResult.factory_paid_full_at ? ` ໃນວັນທີ ${toDateOnly(searchPaidResult.factory_paid_full_at)}` : ""}
               </div>
             )}
+
+            <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Import CSV ລະຫັດໂຮງງານ</div>
+                  <div className="mt-1 text-sm font-bold text-slate-900">
+                    ອ່ານທຸກ cell ໃນ CSV ແລະດຶງສະເພາະເລກລະຫັດໄປຈັບຄູ່ກັບ `factory_bill_code`
+                  </div>
+                  <div className="mt-1 text-xs font-medium text-slate-500">
+                    ແນະນຳໃຫ້ CSV ມີສະເພາະຄໍລຳລະຫັດໂຮງງານ ເພື່ອຫຼຸດການຈັບຄູ່ຜິດ
+                  </div>
+                </div>
+
+                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-black text-emerald-700 transition hover:bg-emerald-50">
+                  <FileUp size={16} />
+                  {importingCodes ? "ກຳລັງອ່ານ CSV..." : "ເລືອກໄຟລ໌ CSV"}
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={handleImportFactoryCodes}
+                    disabled={importingCodes || loading}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-3 text-xs font-medium text-slate-500">ໄຟລ໌ລ່າສຸດ: {importedFileName || "-"}</div>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -761,6 +977,82 @@ export default function FactoryPaymentsPage() {
             <div className="mt-1 text-sm font-medium text-emerald-700">ກົດປຸ່ມດ້ານລຸ່ມເພື່ອບັນທຶກ</div>
           </div>
         </div>
+
+        {importResults.length > 0 && (
+          <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">ຜົນການ Import CSV</div>
+                <div className="mt-1 text-lg font-black text-slate-900">{importSummary.total.toLocaleString()} ລະຫັດ</div>
+              </div>
+              <div className="text-xs font-medium text-slate-500">ໄຟລ໌: {importedFileName || "-"}</div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">ເພີ່ມໄດ້</div>
+                <div className="mt-2 text-2xl font-black text-emerald-800">{importSummary.matched.toLocaleString()}</div>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="text-xs font-black uppercase tracking-[0.18em] text-amber-700">ມີຢູ່ໃນ selection</div>
+                <div className="mt-2 text-2xl font-black text-amber-800">{importSummary.already_selected.toLocaleString()}</div>
+              </div>
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                <div className="text-xs font-black uppercase tracking-[0.18em] text-rose-700">ບໍ່ພົບ</div>
+                <div className="mt-2 text-2xl font-black text-rose-800">{importSummary.not_found.toLocaleString()}</div>
+              </div>
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                <div className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">ກົງຫຼາຍລາຍການ</div>
+                <div className="mt-2 text-2xl font-black text-blue-800">{importSummary.ambiguous.toLocaleString()}</div>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-hidden rounded-3xl border border-slate-100">
+              <div className="max-h-[320px] overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-slate-500">
+                    <tr>
+                      <th className="p-3 text-left text-[11px] font-black uppercase">ລະຫັດທີ່ອ່ານໄດ້</th>
+                      <th className="p-3 text-left text-[11px] font-black uppercase">ສະຖານະ</th>
+                      <th className="p-3 text-left text-[11px] font-black uppercase">ອໍເດີທີ່ຈັບຄູ່ໄດ້</th>
+                      <th className="p-3 text-left text-[11px] font-black uppercase">ລະຫັດໂຮງງານໃນຖານຂໍ້ມູນ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {importResults.map((row) => (
+                      <tr key={`${row.code}-${row.raw_value}`} className="hover:bg-slate-50/70">
+                        <td className="p-3 font-black text-slate-900">{row.code}</td>
+                        <td className="p-3">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
+                              row.status === "matched"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : row.status === "already_selected"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : row.status === "ambiguous"
+                                    ? "bg-blue-100 text-blue-700"
+                                    : "bg-rose-100 text-rose-700"
+                            }`}
+                          >
+                            {row.status === "matched"
+                              ? "ເພີ່ມແລ້ວ"
+                              : row.status === "already_selected"
+                                ? "ເລືອກໄວ້ແລ້ວ"
+                                : row.status === "ambiguous"
+                                  ? `ກົງ ${row.candidates?.toLocaleString() || 0} ລາຍການ`
+                                  : "ບໍ່ພົບ"}
+                          </span>
+                        </td>
+                        <td className="p-3 font-medium text-slate-700">{row.order_code || "-"}</td>
+                        <td className="p-3 font-medium text-slate-600">{row.factory_bill_code?.trim() || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
