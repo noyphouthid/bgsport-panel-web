@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { CheckCheck, Factory, MessageCircleMore, PackagePlus, RotateCcw, ScanLine } from "lucide-react";
+import { CheckCheck, Factory, MessageCircleMore, PackagePlus, RotateCcw, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { getTotalShirtQty } from "@/lib/order-quantities";
 import {
+  buildOrderLookupOrFilter,
   buildOrderQrCode,
   formatDateOnly,
   formatDateTime,
@@ -18,7 +19,6 @@ import {
 } from "@/lib/inventory-qr";
 import { WhatsappMessageModal } from "../_components/whatsapp-message-modal";
 import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
-import { MobileQrScanner } from "../_components/mobile-qr-scanner";
 
 type QueueItem = QrLabelRow & {
   customer_phone: string | null;
@@ -48,8 +48,14 @@ type ReceiptDetailItem = {
   label_status: QrLabelRow["label_status"];
 };
 
+type SearchSuggestion = OrderSummary & {
+  existingLabel: QrLabelRow | null;
+};
+
 const ORDER_SELECT =
   "id,order_code,customer_phone,customer_whatsapp,factory_bill_code,production_completed_at,status,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,balance";
+let suggestionSearchTimer: ReturnType<typeof setTimeout> | null = null;
+let suggestionRequestId = 0;
 
 function toLocalDateTimeInputValue(date = new Date()) {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000;
@@ -75,6 +81,42 @@ function getImportBlockReason(
   return null;
 }
 
+function getLabelStatusBadgeStyles(status: QrLabelRow["label_status"] | null | undefined) {
+  if (status === "received") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "shipped") return "border-sky-200 bg-sky-50 text-sky-700";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
+async function searchSimilarOrders(rawValue: string) {
+  const term = rawValue.trim();
+  if (term.length < 2) return [] as SearchSuggestion[];
+
+  const { data, error } = await supabase
+    .from("orders")
+    .select(ORDER_SELECT)
+    .or(buildOrderLookupOrFilter(term))
+    .order("order_date", { ascending: false })
+    .limit(8);
+
+  if (error) throw new Error(error.message);
+
+  const orders = (data ?? []) as OrderSummary[];
+  if (orders.length === 0) return [] as SearchSuggestion[];
+
+  const { data: labelData, error: labelError } = await supabase
+    .from("order_qr_labels")
+    .select(ORDER_QR_LABEL_SELECT)
+    .in("order_id", orders.map((order) => order.id));
+
+  if (labelError) throw new Error(labelError.message);
+
+  const labelByOrderId = new Map(((labelData ?? []) as QrLabelRow[]).map((label) => [label.order_id, label]));
+  return orders.map((order) => ({
+    ...order,
+    existingLabel: labelByOrderId.get(order.id) || null,
+  }));
+}
+
 export default function FactoryReceiptsPage() {
   const [scannerInput, setScannerInput] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -88,6 +130,9 @@ export default function FactoryReceiptsPage() {
   const [activeReceiptId, setActiveReceiptId] = useState<string | null>(null);
   const [activeReceiptItems, setActiveReceiptItems] = useState<ReceiptDetailItem[]>([]);
   const [loadingReceiptItems, setLoadingReceiptItems] = useState(false);
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
 
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
   const [whatsappPhones, setWhatsappPhones] = useState<ReturnType<typeof getWhatsappContactOptions>>([]);
@@ -147,6 +192,15 @@ export default function FactoryReceiptsPage() {
       void loadRecentReceipts();
     }, 0);
     return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (suggestionSearchTimer) {
+        clearTimeout(suggestionSearchTimer);
+        suggestionSearchTimer = null;
+      }
+    };
   }, []);
 
   const loadReceiptItems = async (receiptId: string) => {
@@ -255,16 +309,29 @@ export default function FactoryReceiptsPage() {
       };
     }
 
-    let orderQuery = supabase.from("orders").select(ORDER_SELECT).limit(1);
+    let order: OrderSummary | null = null;
     if ((parsed.kind === "factory_qr" || parsed.kind === "factory_bill_code") && parsed.factoryBillCode) {
-      orderQuery = orderQuery.eq("factory_bill_code", parsed.factoryBillCode);
+      const { data: factoryMatches, error } = await supabase
+        .from("orders")
+        .select(ORDER_SELECT)
+        .eq("factory_bill_code", parsed.factoryBillCode)
+        .limit(1);
+
+      if (error) throw new Error(error.message);
+      order = ((factoryMatches ?? [])[0] as OrderSummary | undefined) || null;
     } else {
-      orderQuery = orderQuery.eq("order_code", parsed.normalized);
+      const [{ data: orderMatches, error: orderError }, { data: factoryMatches, error: factoryError }] = await Promise.all([
+        supabase.from("orders").select(ORDER_SELECT).eq("order_code", parsed.normalized).limit(1),
+        supabase.from("orders").select(ORDER_SELECT).eq("factory_bill_code", parsed.normalized).limit(1),
+      ]);
+
+      if (orderError) throw new Error(orderError.message);
+      if (factoryError) throw new Error(factoryError.message);
+
+      const matches = [...((orderMatches ?? []) as OrderSummary[]), ...((factoryMatches ?? []) as OrderSummary[])];
+      order = matches.find((item, index) => matches.findIndex((candidate) => candidate.id === item.id) === index) || null;
     }
 
-    const { data: orders, error } = await orderQuery;
-    if (error) throw new Error(error.message);
-    const order = ((orders ?? [])[0] as OrderSummary | undefined) || null;
     if (!order) return null;
 
     const { data: labelData, error: labelError } = await supabase
@@ -314,6 +381,88 @@ export default function FactoryReceiptsPage() {
     return data as QrLabelRow;
   };
 
+  const addResolvedOrderToQueue = async (resolved: { order: OrderSummary; existingLabel: QrLabelRow | null }) => {
+    const label = await ensureLabelForOrder(resolved.order, resolved.existingLabel);
+    const blockedReason = getImportBlockReason(resolved.order, label);
+    if (queue.some((item) => item.id === label.id || item.order_id === label.order_id)) {
+      toast("ອໍເດີນີ້ຢູ່ໃນລາຍການຮັບເຂົ້າແລ້ວ");
+      setScannerInput("");
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+      return false;
+    }
+    if (label.label_status === "received") {
+      toast.error("ອໍເດີນີ້ຮັບເຂົ້າຄັງແລ້ວ");
+      return false;
+    }
+    if (label.label_status === "shipped") {
+      toast.error("ອໍເດີນີ້ຖືກຈັດສົ່ງແລ້ວ");
+      return false;
+    }
+
+    if (blockedReason) {
+      toast.error(blockedReason);
+      return false;
+    }
+
+    setQueue((prev) => [
+      ...prev,
+      {
+        ...label,
+        customer_phone: resolved.order.customer_phone || null,
+        customer_whatsapp: resolved.order.customer_whatsapp || null,
+        balance: Number(resolved.order.balance) || 0,
+        total_qty: getTotalUnits(resolved.order),
+      },
+    ]);
+    setReceivedAt(toLocalDateTimeInputValue());
+    setScannerInput("");
+    setSuggestions([]);
+    setSuggestionsOpen(false);
+    toast.success(`ເພີ່ມ ${label.order_code} ເຂົ້າລາຍການແລ້ວ`);
+    return true;
+  };
+
+  const scheduleSuggestionSearch = (value: string) => {
+    setScannerInput(value);
+
+    const term = value.trim();
+    suggestionRequestId += 1;
+    const currentRequestId = suggestionRequestId;
+
+    if (suggestionSearchTimer) {
+      clearTimeout(suggestionSearchTimer);
+      suggestionSearchTimer = null;
+    }
+
+    if (term.length < 2) {
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+      setSuggestionsLoading(false);
+      return;
+    }
+
+    setSuggestionsLoading(true);
+    suggestionSearchTimer = setTimeout(() => {
+      void searchSimilarOrders(term)
+        .then((rows) => {
+          if (currentRequestId !== suggestionRequestId) return;
+          setSuggestions(rows);
+          setSuggestionsOpen(true);
+        })
+        .catch(() => {
+          if (currentRequestId !== suggestionRequestId) return;
+          setSuggestions([]);
+          setSuggestionsOpen(true);
+        })
+        .finally(() => {
+          if (currentRequestId === suggestionRequestId) {
+            setSuggestionsLoading(false);
+          }
+        });
+    }, 220);
+  };
+
   const lookupLabel = async (rawValue: string) => {
     const input = rawValue.trim();
     if (!input) return;
@@ -321,44 +470,14 @@ export default function FactoryReceiptsPage() {
     try {
       const resolved = await findOrderByInput(input);
       if (!resolved) {
-        toast.error("ບໍ່ພົບອໍເດີທີ່ກົງກັນ");
+        const nearby = await searchSimilarOrders(input);
+        setSuggestions(nearby);
+        setSuggestionsOpen(true);
+        toast.error(nearby.length > 0 ? "ບໍ່ພົບແບບກົງ, ລອງເລືອກຈາກລາຍການທີ່ໃກ້ຄຽງ" : "ບໍ່ພົບອໍເດີທີ່ກົງກັນ");
         return;
       }
 
-      const label = await ensureLabelForOrder(resolved.order, resolved.existingLabel);
-      const blockedReason = getImportBlockReason(resolved.order, label);
-      if (queue.some((item) => item.id === label.id || item.order_id === label.order_id)) {
-        toast("ອໍເດີນີ້ຢູ່ໃນລາຍການຮັບເຂົ້າແລ້ວ");
-        setScannerInput("");
-        return;
-      }
-      if (label.label_status === "received") {
-        toast.error("ອໍເດີນີ້ຮັບເຂົ້າຄັງແລ້ວ");
-        return;
-      }
-      if (label.label_status === "shipped") {
-        toast.error("ອໍເດີນີ້ຖືກຈັດສົ່ງແລ້ວ");
-        return;
-      }
-
-      if (blockedReason) {
-        toast.error(blockedReason);
-        return;
-      }
-
-      setQueue((prev) => [
-        ...prev,
-        {
-          ...label,
-          customer_phone: resolved.order.customer_phone || null,
-          customer_whatsapp: resolved.order.customer_whatsapp || null,
-          balance: Number(resolved.order.balance) || 0,
-          total_qty: getTotalUnits(resolved.order),
-        },
-      ]);
-      setReceivedAt(toLocalDateTimeInputValue());
-      setScannerInput("");
-      toast.success(`ເພີ່ມ ${label.order_code} ເຂົ້າລາຍການແລ້ວ`);
+      await addResolvedOrderToQueue(resolved);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ກວດສອບຂໍ້ມູນບໍ່ສຳເລັດ");
     }
@@ -366,7 +485,7 @@ export default function FactoryReceiptsPage() {
 
   const submitImport = async () => {
     if (queue.length === 0) {
-      toast.error("ກະລຸນາສະແກນ QR ຢ່າງໜ້ອຍ 1 ລາຍການກ່ອນ");
+      toast.error("ກະລຸນາເລືອກອໍເດີຢ່າງໜ້ອຍ 1 ລາຍການກ່ອນ");
       return;
     }
     if (!receivedBy.trim()) {
@@ -621,9 +740,9 @@ export default function FactoryReceiptsPage() {
               <Factory size={14} />
               ຮັບສິນຄ້າເຂົ້າ
             </div>
-            <h1 className="mt-4 text-3xl font-black tracking-tight">ຮັບສິນຄ້າເຂົ້າດ້ວຍ QR ໂຮງງານ ຫຼື QR ຂອງຮ້ານ</h1>
+            <h1 className="mt-4 text-3xl font-black tracking-tight">ຮັບສິນຄ້າເຂົ້າດ້ວຍການຄົ້ນຫາລະຫັດ</h1>
             <p className="mt-2 max-w-2xl text-sm font-medium text-emerald-50">
-              ໜ້ານີ້ຮອງຮັບທັງ QR ຂອງໂຮງງານ ແລະ QR ຂອງຮ້ານ. ຖ້າສະແກນ QR ໂຮງງານກ່ອນ ລະບົບຈະສ້າງ QR ຂອງຮ້ານ ແລະ ລິ້ງໃຫ້ອັດຕະໂນມັດ.
+              ພິມລະຫັດອໍເດີຂອງຮ້ານ ຫຼື ລະຫັດບິນໂຮງງານເພື່ອຄົ້ນຫາ. ລະບົບຈະສະແດງລາຍການທີ່ໃກ້ຄຽງ ແລະ ສາມາດເລືອກເພີ່ມໄດ້ທັນທີ.
             </p>
           </div>
           <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-emerald-50">ຍ້າຍຟັງຊັນພິມໄປຢູ່ໜ້າ Inventory QR ແລ້ວ</div>
@@ -632,27 +751,64 @@ export default function FactoryReceiptsPage() {
 
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
-          <MobileQrScanner onDetected={(value) => void lookupLabel(value)} />
-
           <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2 text-lg font-black text-slate-900">
-              <ScanLine size={20} />
-              ສະແກນ ຫຼື ວາງຄ່າ QR
+              <Search size={20} />
+              ຄົ້ນຫາອໍເດີດ້ວຍລະຫັດ
             </div>
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
               <input
                 value={scannerInput}
-                onChange={(e) => setScannerInput(e.target.value)}
+                onChange={(e) => scheduleSuggestionSearch(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void lookupLabel(scannerInput);
                 }}
-                placeholder="ວາງ QR ໂຮງງານ, QR ຂອງຮ້ານ, ລະຫັດບິນໂຮງງານ ຫຼື ລະຫັດອໍເດີ"
+                placeholder="ພິມລະຫັດບິນໂຮງງານ ຫຼື ລະຫັດອໍເດີຂອງຮ້ານ"
                 className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
               />
               <button type="button" onClick={() => void lookupLabel(scannerInput)} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700">
-                ເພີ່ມ
+                ຄົ້ນຫາ
               </button>
             </div>
+
+            {scannerInput.trim() ? (
+              <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">ລາຍການທີ່ໃກ້ຄຽງ</div>
+                  <div className="text-xs font-bold text-slate-400">
+                    {suggestionsLoading ? "ກຳລັງຄົ້ນຫາ..." : `${suggestions.length} ລາຍການ`}
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {suggestionsOpen && suggestions.length > 0 ? (
+                    suggestions.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => void addResolvedOrderToQueue({ order: item, existingLabel: item.existingLabel })}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-lg font-black text-slate-900">{item.order_code}</div>
+                          <div className="truncate text-sm font-medium text-slate-500">ລະຫັດບິນໂຮງງານ: {item.factory_bill_code?.trim() || "-"}</div>
+                          <div className="mt-1 text-xs font-semibold text-slate-400">ຈຳນວນ: {getTotalUnits(item)} • ຄ້າງຈ່າຍ: {(Number(item.balance) || 0).toLocaleString()} ກີບ</div>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.2em] ${getLabelStatusBadgeStyles(item.existingLabel?.label_status || "created")}`}>
+                            {item.existingLabel?.label_status || "created"}
+                          </span>
+                          <span className="text-xs font-black text-emerald-700">ເລືອກ</span>
+                        </div>
+                      </button>
+                    ))
+                  ) : !suggestionsLoading ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-5 text-center text-sm font-medium text-slate-500">
+                      ບໍ່ພົບລາຍການທີ່ໃກ້ຄຽງ
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-bold text-slate-700">
@@ -676,7 +832,7 @@ export default function FactoryReceiptsPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="text-lg font-black text-slate-900">ລາຍການຮັບເຂົ້າ</div>
-              <div className="text-sm font-medium text-slate-500">ສະແກນຫຼາຍອໍເດີ ແລ້ວ ນຳເຂົ້າໃນຄັ້ງດຽວ</div>
+              <div className="text-sm font-medium text-slate-500">ເລືອກຫຼາຍອໍເດີ ແລ້ວ ນຳເຂົ້າໃນຄັ້ງດຽວ</div>
             </div>
             <button type="button" onClick={() => void submitImport()} disabled={saving || queue.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50">
               <PackagePlus size={16} />
@@ -686,7 +842,7 @@ export default function FactoryReceiptsPage() {
 
           <div className="mt-5 space-y-3">
             {queue.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">ຍັງບໍ່ມີລາຍການທີ່ສະແກນ.</div>
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">ຍັງບໍ່ມີລາຍການທີ່ເລືອກ.</div>
             ) : (
               queue.map((item) => (
                 <div key={item.id} className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">

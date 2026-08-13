@@ -113,6 +113,15 @@ export function parseQrInput(raw: string): { kind: QrInputKind; normalized: stri
     };
   }
 
+  const factoryBillCode = extractFactoryBillCode(normalized);
+  if (factoryBillCode && factoryBillCode === normalized && !/[A-Za-z]/.test(normalized)) {
+    return {
+      kind: "factory_bill_code",
+      normalized,
+      factoryBillCode,
+    };
+  }
+
   if (ORDER_CODE_PATTERN.test(normalized)) {
     return {
       kind: "order_code",
@@ -121,7 +130,6 @@ export function parseQrInput(raw: string): { kind: QrInputKind; normalized: stri
     };
   }
 
-  const factoryBillCode = extractFactoryBillCode(normalized);
   if (factoryBillCode) {
     if (factoryBillCode === normalized) {
       return { kind: "factory_bill_code", normalized, factoryBillCode };
