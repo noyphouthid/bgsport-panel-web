@@ -87,6 +87,14 @@ function getLabelStatusBadgeStyles(status: QrLabelRow["label_status"] | null | u
   return "border-amber-200 bg-amber-50 text-amber-700";
 }
 
+function hasFactoryBillCode(order: Pick<OrderSummary, "factory_bill_code">) {
+  return Boolean(order.factory_bill_code?.trim());
+}
+
+function showMissingFactoryBillNotification(orderCode: string) {
+  toast.error(`ອໍເດີ ${orderCode} ບໍ່ມີລະຫັດບິນໂຮງງານ ແລະ ຍັງບໍ່ສາມາດນຳເຂົ້າໄດ້`);
+}
+
 async function searchSimilarOrders(rawValue: string) {
   const term = rawValue.trim();
   if (term.length < 2) return [] as SearchSuggestion[];
@@ -357,7 +365,7 @@ export default function FactoryReceiptsPage() {
     }
 
     if (!order.factory_bill_code?.trim()) {
-      throw new Error(`ອໍເດີ ${order.order_code} ຍັງບໍ່ມີລະຫັດບິນໂຮງງານ`);
+      throw new Error(`ອໍເດີ ${order.order_code} ບໍ່ມີລະຫັດບິນໂຮງງານ ແລະ ຍັງບໍ່ສາມາດນຳເຂົ້າໄດ້`);
     }
 
     const qrCode = buildOrderQrCode(order);
@@ -382,6 +390,11 @@ export default function FactoryReceiptsPage() {
   };
 
   const addResolvedOrderToQueue = async (resolved: { order: OrderSummary; existingLabel: QrLabelRow | null }) => {
+    if (!hasFactoryBillCode(resolved.order)) {
+      showMissingFactoryBillNotification(resolved.order.order_code);
+      return false;
+    }
+
     const label = await ensureLabelForOrder(resolved.order, resolved.existingLabel);
     const blockedReason = getImportBlockReason(resolved.order, label);
     if (queue.some((item) => item.id === label.id || item.order_id === label.order_id)) {
@@ -781,26 +794,46 @@ export default function FactoryReceiptsPage() {
                 </div>
                 <div className="mt-3 space-y-2">
                   {suggestionsOpen && suggestions.length > 0 ? (
-                    suggestions.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => void addResolvedOrderToQueue({ order: item, existingLabel: item.existingLabel })}
-                        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50"
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-lg font-black text-slate-900">{item.order_code}</div>
-                          <div className="truncate text-sm font-medium text-slate-500">ລະຫັດບິນໂຮງງານ: {item.factory_bill_code?.trim() || "-"}</div>
-                          <div className="mt-1 text-xs font-semibold text-slate-400">ຈຳນວນ: {getTotalUnits(item)} • ຄ້າງຈ່າຍ: {(Number(item.balance) || 0).toLocaleString()} ກີບ</div>
-                        </div>
-                        <div className="flex shrink-0 flex-col items-end gap-2">
-                          <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.2em] ${getLabelStatusBadgeStyles(item.existingLabel?.label_status || "created")}`}>
-                            {item.existingLabel?.label_status || "created"}
-                          </span>
-                          <span className="text-xs font-black text-emerald-700">ເລືອກ</span>
-                        </div>
-                      </button>
-                    ))
+                    suggestions.map((item) => {
+                      const canImport = hasFactoryBillCode(item);
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            if (!canImport) {
+                              showMissingFactoryBillNotification(item.order_code);
+                              return;
+                            }
+                            void addResolvedOrderToQueue({ order: item, existingLabel: item.existingLabel });
+                          }}
+                          className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+                            canImport
+                              ? "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50"
+                              : "border-rose-200 bg-rose-50 hover:border-rose-300 hover:bg-rose-100"
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-lg font-black text-slate-900">{item.order_code}</div>
+                            <div className="truncate text-sm font-medium text-slate-500">ລະຫັດບິນໂຮງງານ: {item.factory_bill_code?.trim() || "-"}</div>
+                            <div className="mt-1 text-xs font-semibold text-slate-400">ຈຳນວນ: {getTotalUnits(item)} • ຄ້າງຈ່າຍ: {(Number(item.balance) || 0).toLocaleString()} ກີບ</div>
+                            {!canImport ? (
+                              <div className="mt-2 rounded-2xl border border-rose-200 bg-white/80 px-3 py-2 text-xs font-bold text-rose-700">
+                                ບໍ່ສາມາດນຳເຂົ້າໄດ້: ອໍເດີນີ້ຍັງບໍ່ມີລະຫັດບິນໂຮງງານ
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 flex-col items-end gap-2">
+                            <span className={`rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.2em] ${getLabelStatusBadgeStyles(item.existingLabel?.label_status || "created")}`}>
+                              {item.existingLabel?.label_status || "created"}
+                            </span>
+                            <span className={`text-xs font-black ${canImport ? "text-emerald-700" : "text-rose-700"}`}>
+                              {canImport ? "ເລືອກ" : "ນຳເຂົ້າບໍ່ໄດ້"}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
                   ) : !suggestionsLoading ? (
                     <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-5 text-center text-sm font-medium text-slate-500">
                       ບໍ່ພົບລາຍການທີ່ໃກ້ຄຽງ
