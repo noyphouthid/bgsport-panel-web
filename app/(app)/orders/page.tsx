@@ -261,8 +261,25 @@ export default function OrdersPage() {
 
     const { error } = await supabase
       .from("orders")
-      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .update({ status: "completed", closed_at: new Date().toISOString() })
       .eq("id", id);
+
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    await load();
+  };
+
+  const cancelCompleted = async (row: Pick<OrderRow, "id" | "order_code">) => {
+    setErr(null);
+    const ok = confirm(`ຢືນຢັນຍົກເລີກການປິດງານຂອງ ${row.order_code} ?`);
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("orders")
+      .update({ status: "in_progress", closed_at: null })
+      .eq("id", row.id);
 
     if (error) {
       setErr(error.message);
@@ -280,7 +297,7 @@ export default function OrdersPage() {
     setCompleting(true);
     const { error } = await supabase
       .from("orders")
-      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .update({ status: "completed", closed_at: new Date().toISOString() })
       .in("id", selectedIds)
       .neq("status", "completed");
     setCompleting(false);
@@ -628,14 +645,22 @@ export default function OrdersPage() {
                         <Link href={`/orders/${r.id}/edit`} className="text-blue-600 font-bold hover:text-blue-800 underline-offset-4 hover:underline transition-all">
                           ແກ້ໄຂ
                         </Link>
-                        {!isAdminLimited && r.status !== "completed" && (
+                        {!isAdminLimited && (r.status === "completed" || r.closed_at) ? (
+                          <button
+                            onClick={() => cancelCompleted(r)}
+                            className="text-rose-600 font-bold hover:text-rose-800 transition-all active:scale-90"
+                          >
+                            ຍົກເລີກປິດງານ
+                          </button>
+                        ) : null}
+                        {!isAdminLimited && r.status !== "completed" && !r.closed_at ? (
                           <button
                             onClick={() => markCompleted(r.id)}
                             className="text-emerald-600 font-bold hover:text-emerald-800 transition-all active:scale-90"
                           >
                             ປິດງານ
                           </button>
-                        )}
+                        ) : null}
                       </div>
                     </td>
                   </tr>

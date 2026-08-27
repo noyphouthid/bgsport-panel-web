@@ -1449,6 +1449,29 @@ export default function EditOrderPage() {
     await reloadAll();
   };
 
+  const handleReopenOrder = async () => {
+    if (!order || isReadOnlyAdmin) return;
+    const ok = confirm(`ຕ້ອງການຍົກເລີກການປິດອໍເດີ ${order.order_code} ຫຼື ບໍ່?`);
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        status: "in_progress",
+        closed_at: null,
+      })
+      .eq("id", orderId);
+
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+
+    await safeInsertAction("reopen_order", "Reopened order");
+    await reloadAll();
+    toast.success("ຍົກເລີກການປິດອໍເດີແລ້ວ");
+  };
+
   const handleCancelImport = async () => {
     if (!order || !order.production_completed_at) {
       toast.error("ອໍເດີນີ້ຍັງບໍ່ໄດ້ນຳເຂົ້າ");
@@ -1645,13 +1668,23 @@ export default function EditOrderPage() {
             </button>
           ) : null}
           {!isReadOnlyAdmin ? (
-            <button
-              onClick={handleCloseOrder}
-              className={`${actionButtonClassName} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
-            >
-              <CheckCheck size={16} />
-              ປິດງານແລ້ວ
-            </button>
+            order.status === "completed" || order.closed_at ? (
+              <button
+                onClick={handleReopenOrder}
+                className={`${actionButtonClassName} border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100`}
+              >
+                <Undo2 size={16} />
+                ຍົກເລີກປິດງານ
+              </button>
+            ) : (
+              <button
+                onClick={handleCloseOrder}
+                className={`${actionButtonClassName} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
+              >
+                <CheckCheck size={16} />
+                ປິດງານແລ້ວ
+              </button>
+            )
           ) : null}
           {!isReadOnlyAdmin ? (
             <button

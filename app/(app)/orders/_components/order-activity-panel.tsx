@@ -33,6 +33,7 @@ const ACTION_LABELS: Record<string, string> = {
   pay_factory: "ຈ່າຍເງິນໂຮງງານ",
   production_completed: "ຜະລິດສຳເລັດ",
   close_order: "ປິດອໍເດີ",
+  reopen_order: "ຍົກເລີກປິດອໍເດີ",
   cancel_factory_receipt: "ຍົກເລີກນຳເຂົ້າ",
 };
 
@@ -76,6 +77,7 @@ function getActionTone(action: string) {
   if (action === "create_order") return "border-emerald-200 bg-emerald-50/60 text-emerald-800";
   if (action === "update_order") return "border-sky-200 bg-sky-50/70 text-sky-800";
   if (action === "close_order") return "border-violet-200 bg-violet-50/70 text-violet-800";
+  if (action === "reopen_order") return "border-rose-200 bg-rose-50/70 text-rose-800";
   if (action === "cancel_factory_receipt") return "border-rose-200 bg-rose-50/70 text-rose-800";
   return "border-slate-200 bg-slate-50/70 text-slate-700";
 }
