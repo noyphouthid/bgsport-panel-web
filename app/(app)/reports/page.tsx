@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2, Database, Wallet, Phone, HandCoins, Truck, ReceiptText } from "lucide-react";
+import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2, Database, Wallet, Phone, HandCoins, Truck, ReceiptText, History } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { canAccessPath, type AppRole } from "@/lib/access-control";
 import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
@@ -33,6 +33,13 @@ const cards = [
     desc: "ຕິດຕາມການຊຳລະ ແລະ ສະຖານະການຜະລິດໃນແຕ່ລະເດືອນ",
     icon: ClipboardList,
     iconBg: "bg-blue-100 text-blue-700",
+  },
+  {
+    href: "/reports/order-activity",
+    title: "Statement ການແກ້ໄຂອໍເດີ",
+    desc: "ຕິດຕາມ ID ຜູ້ແກ້ໄຂອໍເດີ, ເວລາ ແລະ ລາຍລະອຽດທີ່ປ່ຽນແປງ",
+    icon: History,
+    iconBg: "bg-violet-100 text-violet-700",
   },
   {
     href: "/reports/customer-delivery",

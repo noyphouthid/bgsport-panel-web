@@ -18,6 +18,7 @@ export const ACCESS_PERMISSION_ITEMS = [
   { key: "/reports", label: "ລາຍງານທົ່ວໄປ", group: "ລາຍງານ" },
   { key: "/reports/data-export", label: "ລາຍງານດຶງຂໍ້ມູນ", group: "ລາຍງານ" },
   { key: "/reports/monthly-close", label: "ປິດຍອດປະຈຳເດືອນ", group: "ລາຍງານ" },
+  { key: "/reports/order-activity", label: "Statement ການແກ້ໄຂອໍເດີ", group: "ລາຍງານ" },
   { key: "/payments", label: "ບັນຊີການຊຳລະເງິນ", group: "ການເງິນ" },
   { key: "/factory-payments", label: "ຊຳລະຄ່າໂຮງງານ", group: "ການເງິນ" },
   { key: "/payroll", label: "ເງິນເດືອນ", group: "ການເງິນ" },

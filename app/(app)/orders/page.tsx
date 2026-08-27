@@ -15,6 +15,7 @@ import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } fr
 
 type StatusFilter = "all" | "in_progress" | "completed" | "producing" | "production_completed" | "shipment_completed";
 type FactoryBillFilter = "all" | "has_code" | "no_code";
+type FactoryCostFilter = "all" | "has_cost" | "no_cost";
 
 type OrderRow = {
   id: string;
@@ -83,6 +84,7 @@ export default function OrdersPage() {
   const [toDate, setToDate] = useState<string>("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [factoryBillFilter, setFactoryBillFilter] = useState<FactoryBillFilter>("all");
+  const [factoryCostFilter, setFactoryCostFilter] = useState<FactoryCostFilter>("all");
   const [adminFilter, setAdminFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -122,8 +124,11 @@ export default function OrdersPage() {
     } else {
       const filteredRows = ((data ?? []) as OrderRow[]).filter((row) => {
         const hasFactoryBillCode = Boolean(row.factory_bill_code?.trim());
+        const hasFactoryCost = Number(row.factory_cost) > 0;
         if (factoryBillFilter === "has_code" && !hasFactoryBillCode) return false;
         if (factoryBillFilter === "no_code" && hasFactoryBillCode) return false;
+        if (factoryCostFilter === "has_cost" && !hasFactoryCost) return false;
+        if (factoryCostFilter === "no_cost" && hasFactoryCost) return false;
         if (status === "all") return true;
         const isClosed = row.status === "completed" || Boolean(row.closed_at);
         const isShipmentCompleted = !isClosed && (row.shipment_status === "shipped" || Boolean(row.shipment_completed_at));
@@ -217,6 +222,7 @@ export default function OrdersPage() {
     setToDate("");
     setStatus("all");
     setFactoryBillFilter("all");
+    setFactoryCostFilter("all");
     setAdminFilter("all");
     setQuery("");
     setPage(1);
@@ -448,7 +454,7 @@ export default function OrdersPage() {
       )}
 
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-8 gap-4 items-end">
           <div>
             <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ຈາກວັນທີ</label>
             <input
@@ -508,6 +514,18 @@ export default function OrdersPage() {
               <option value="no_code">ຍັງບໍ່ມີລະຫັດບິນໂຮງງານ</option>
             </select>
           </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ຕົ້ນທຶນໂຮງງານ</label>
+            <select
+              value={factoryCostFilter}
+              onChange={(e) => setFactoryCostFilter(e.target.value as FactoryCostFilter)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white"
+            >
+              <option value="all">ທັງໝົດ</option>
+              <option value="no_cost">ຍັງບໍ່ມີຕົ້ນທຶນໂຮງງານ</option>
+              <option value="has_cost">ມີຕົ້ນທຶນໂຮງງານແລ້ວ</option>
+            </select>
+          </div>
           <div className="md:col-span-2">
             <label className="text-xs font-bold text-slate-500 mb-1.5 block uppercase tracking-wider">ຄົ້ນຫາ</label>
             <input
@@ -517,7 +535,7 @@ export default function OrdersPage() {
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder-slate-300"
             />
           </div>
-          <div className="flex gap-2 md:col-span-7 mt-2">
+          <div className="flex gap-2 md:col-span-8 mt-2">
             <button
               onClick={runSearch}
               className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"

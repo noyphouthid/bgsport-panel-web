@@ -8,7 +8,6 @@ import { ArrowLeft, CheckCheck, RefreshCcw, Save, Trash2, Undo2 } from "lucide-r
 import { OrderActivityPanel, type OrderHistoryEntry } from "../../_components/order-activity-panel";
 import { OrderSummaryPanel } from "../../_components/order-summary-panel";
 import { supabase } from "@/lib/supabase";
-import type { AppRole } from "@/lib/access-control";
 import {
   buildEmptyPantsOrderItem,
   buildPantsOrderItemPayload,
@@ -265,7 +264,6 @@ export default function EditOrderPage() {
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadingFabrics, setLoadingFabrics] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [viewerPermissions, setViewerPermissions] = useState<UserPermissionSettings>({});
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [orderHistory, setOrderHistory] = useState<OrderHistoryEntry[]>([]);
@@ -886,8 +884,7 @@ export default function EditOrderPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const authUserId = sessionData.session?.user.id;
       if (!authUserId) return;
-      const { data } = await supabase.from("users").select("id,role,permission_settings").eq("auth_user_id", authUserId).maybeSingle();
-      if (data?.role) setViewerRole(data.role as AppRole);
+      const { data } = await supabase.from("users").select("id,permission_settings").eq("auth_user_id", authUserId).maybeSingle();
       setViewerUserId((data as { id?: string | null } | null)?.id ?? null);
       setViewerPermissions(normalizeUserPermissionSettings((data as { permission_settings?: UserPermissionSettings | null } | null)?.permission_settings));
     };
@@ -946,8 +943,9 @@ export default function EditOrderPage() {
 
   const productionStatusLabel = order?.production_completed_at ? "ຜະລິດສຳເລັດ" : "ກຳລັງຜະລິດ";
   const closeStatusLabel = order?.status === "completed" ? "ປິດງານແລ້ວ" : "ຍັງບໍ່ປິດງານ";
-  const isReadOnlyAdmin = !canEditWithPermissions(viewerPermissions, "orders", true);
-  const canViewProfitDetails = viewerRole !== "admin" && viewerRole !== "staff";
+  const canEditOrders = canEditWithPermissions(viewerPermissions, "orders", true);
+  const isReadOnlyAdmin = !canEditOrders;
+  const canViewProfitDetails = canEditOrders;
   const latestShipmentDeliveryDate = shipmentMedia?.delivery_scheduled_at ? toDateInput(shipmentMedia.delivery_scheduled_at) : "";
   const oldFactoryFallbackImageUrl = useMemo(() => {
     if (savedOrderImageUrls.length > 0 || pendingOrderImagePreviewUrls.length > 0 || (linkedDepositMedia?.mockup_urls.length || 0) > 0) return null;
