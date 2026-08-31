@@ -34,6 +34,9 @@ type GraphicSummary = {
   order_value_total: number;
 };
 
+const UNASSIGNED_GRAPHIC_ID = "__UNASSIGNED_GRAPHIC__";
+const UNASSIGNED_GRAPHIC_LABEL = "ບໍ່ໄດ້ມອບ Graphic";
+
 export default function GraphicWorkReportPage() {
   const now = new Date();
   const [month, setMonth] = useState<MonthFilter>(now.getMonth() + 1);
@@ -89,20 +92,22 @@ export default function GraphicWorkReportPage() {
 
   const summaryRows = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
+    const startDate = start.slice(0, 10);
+    const endExclusiveDate = endExclusive.slice(0, 10);
     const graphicMap = new Map(graphics.map((u) => [u.id, u.full_name]));
     const grouped = new Map<string, GraphicSummary>();
 
     for (const row of orders) {
-      const date = new Date(`${row.order_date}T00:00:00`).toISOString();
-      if (!(date >= start && date < endExclusive)) continue;
+      const orderDate = String(row.order_date || "").slice(0, 10);
+      if (!orderDate) continue;
+      if (!(orderDate >= startDate && orderDate < endExclusiveDate)) continue;
       if (!matchPrefix(row.order_code, prefix)) continue;
-      if (!row.graphic_user_id) continue;
       if (graphicFilter !== "ALL" && row.graphic_user_id !== graphicFilter) continue;
 
-      const key = row.graphic_user_id;
+      const key = row.graphic_user_id || UNASSIGNED_GRAPHIC_ID;
       const current = grouped.get(key) ?? {
         graphic_id: key,
-        graphic_name: graphicMap.get(key) || "Unassigned",
+        graphic_name: key === UNASSIGNED_GRAPHIC_ID ? UNASSIGNED_GRAPHIC_LABEL : graphicMap.get(key) || UNASSIGNED_GRAPHIC_LABEL,
         shirts_total: 0,
         orders_total: 0,
         order_value_total: 0,
