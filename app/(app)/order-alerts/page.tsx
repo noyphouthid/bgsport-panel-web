@@ -6,9 +6,7 @@ import {
   ArrowUpRight,
   BellRing,
   Building2,
-  CalendarClock,
   Clock3,
-  ExternalLink,
   FileText,
   PackageSearch,
   Phone,
@@ -18,8 +16,7 @@ import {
 import { buildFactoryDesignFallbackUrl, extractProductionMockupUrls, toDisplayMediaUrl } from "@/lib/order-media";
 import { supabase } from "@/lib/supabase";
 import { FACTORY_DEPOSIT_ORDER_STATUS_LABELS, FACTORY_DEPOSIT_ORDER_STATUS_STYLES, type FactoryDepositOrderStatus } from "@/lib/factory-deposit-orders";
-
-const NEAR_DUE_DAYS = 3;
+import { fetchOrderAlertOrdersWithClient, getOrderAlertErrorMessage, getOrderAlertToday, getOverdueOrderTiming, type OrderAlertOrderRow } from "@/lib/order-alerts";
 
 type DepositAlertRow = {
   id: string;
@@ -39,20 +36,10 @@ type DepositAlertRow = {
   created_at: string;
 };
 
-type OrderStateRow = {
-  id: string;
-  status: "in_progress" | "completed";
-  closed_at: string | null;
-  production_completed_at: string | null;
-  shipment_status: "pending" | "shipped" | null;
-  shipment_completed_at: string | null;
-  order_image_url: string | null;
-  factory_bill_code: string | null;
-};
-
 type AlertItem = DepositAlertRow & {
   dueInDays: number;
-  orderState: OrderStateRow | null;
+  productionDays: number;
+  orderState: OrderAlertOrderRow | null;
   previewImageUrl: string | null;
 };
 
@@ -62,18 +49,6 @@ function parseDateOnly(value: string | null) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function startOfToday() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-}
-
-function diffDaysFromToday(value: string | null) {
-  const target = parseDateOnly(value);
-  if (!target) return null;
-  const msPerDay = 86_400_000;
-  return Math.round((target.getTime() - startOfToday().getTime()) / msPerDay);
-}
-
 function formatDateOnly(value: string | null) {
   const date = parseDateOnly(value);
   if (!date) return "-";
@@ -81,18 +56,10 @@ function formatDateOnly(value: string | null) {
 }
 
 function dueText(days: number) {
-  if (days < 0) return `ເກີນກຳນົດ ${Math.abs(days)} ມື້`;
-  if (days === 0) return "ຄົບກຳນົດມື້ນີ້";
-  return `ອີກ ${days} ມື້`;
+  return `ເກີນກຳນົດ ${Math.abs(days)} ມື້`;
 }
 
-function buildFactoryBillLink(factoryBillCode: string | null | undefined) {
-  const normalized = String(factoryBillCode || "").trim();
-  if (!normalized) return null;
-  return `https://www.tracklifefootball.com/o/${encodeURIComponent(normalized)}`;
-}
-
-function getPreviewImageUrl(deposit: Pick<DepositAlertRow, "production_items" | "factory_bill_code">, order: Pick<OrderStateRow, "order_image_url" | "factory_bill_code"> | null) {
+function getPreviewImageUrl(deposit: Pick<DepositAlertRow, "production_items" | "factory_bill_code">, order: Pick<OrderAlertOrderRow, "order_image_url" | "factory_bill_code"> | null) {
   const orderImageUrl = toDisplayMediaUrl(order?.order_image_url) || null;
   if (orderImageUrl) return orderImageUrl;
 
@@ -102,14 +69,6 @@ function getPreviewImageUrl(deposit: Pick<DepositAlertRow, "production_items" | 
   return buildFactoryDesignFallbackUrl(deposit.factory_bill_code || order?.factory_bill_code || null);
 }
 
-function isOrderStillOpen(order: OrderStateRow | null) {
-  if (!order) return true;
-  if (order.status === "completed" || order.closed_at) return false;
-  if (order.production_completed_at) return false;
-  if (order.shipment_status === "shipped" || order.shipment_completed_at) return false;
-  return true;
-}
-
 /* ---------- purely presentational helper (no business logic) ---------- */
 /* Normalizes a due-day count into a 0–1 ring fill for the urgency badge. */
 function urgencyRingRatio(days: number) {
@@ -117,9 +76,9 @@ function urgencyRingRatio(days: number) {
   return 1 - (clamped + 7) / 14;
 }
 
-function UrgencyRing({ days, tone }: { days: number; tone: "amber" | "rose" }) {
-  const ringColor = tone === "rose" ? "#e11d48" : "#d97706";
-  const trackColor = tone === "rose" ? "#ffe4e6" : "#fef3c7";
+function UrgencyRing({ days }: { days: number }) {
+  const ringColor = "#e11d48";
+  const trackColor = "#ffe4e6";
   const radius = 26;
   const circumference = 2 * Math.PI * radius;
   const ratio = urgencyRingRatio(days);
@@ -144,7 +103,7 @@ function UrgencyRing({ days, tone }: { days: number; tone: "amber" | "rose" }) {
       <div className="absolute flex flex-col items-center leading-none">
         <span className="font-mono text-lg font-black tabular-nums text-slate-900">{Math.abs(days)}</span>
         <span className="mt-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-400">
-          {days < 0 ? "ເກີນ" : "ມື້"}
+          ເກີນ
         </span>
       </div>
     </div>
@@ -155,43 +114,25 @@ function NotificationSection({
   title,
   description,
   items,
-  tone,
 }: {
   title: string;
   description: string;
   items: AlertItem[];
-  tone: "amber" | "rose";
 }) {
-  const palette =
-    tone === "rose"
-      ? {
-          sectionBorder: "border-rose-100",
-          headerBg: "bg-rose-50/60",
-          headerRule: "bg-rose-500",
-          badge: "border-rose-200 bg-white text-rose-700",
-          card: "border-slate-200 bg-white hover:border-rose-200",
-          alert: "border-rose-200 bg-rose-50 text-rose-700",
-          metric: "border-slate-100 bg-slate-50/70",
-          accentText: "text-rose-700",
-          accentSubtle: "text-rose-600",
-          emptyIcon: "bg-rose-50 text-rose-400",
-          sectionIcon: <TriangleAlert size={16} className="text-rose-600" />,
-          sectionLabel: "Overdue",
-        }
-      : {
-          sectionBorder: "border-amber-100",
-          headerBg: "bg-amber-50/60",
-          headerRule: "bg-amber-500",
-          badge: "border-amber-200 bg-white text-amber-700",
-          card: "border-slate-200 bg-white hover:border-amber-200",
-          alert: "border-amber-200 bg-amber-50 text-amber-700",
-          metric: "border-slate-100 bg-slate-50/70",
-          accentText: "text-amber-700",
-          accentSubtle: "text-amber-600",
-          emptyIcon: "bg-amber-50 text-amber-400",
-          sectionIcon: <CalendarClock size={16} className="text-amber-600" />,
-          sectionLabel: "Near Due",
-        };
+  const palette = {
+    sectionBorder: "border-rose-100",
+    headerBg: "bg-rose-50/60",
+    headerRule: "bg-rose-500",
+    badge: "border-rose-200 bg-white text-rose-700",
+    card: "border-slate-200 bg-white hover:border-rose-200",
+    alert: "border-rose-200 bg-rose-50 text-rose-700",
+    metric: "border-slate-100 bg-slate-50/70",
+    accentText: "text-rose-700",
+    accentSubtle: "text-rose-600",
+    emptyIcon: "bg-rose-50 text-rose-400",
+    sectionIcon: <TriangleAlert size={16} className="text-rose-600" />,
+    sectionLabel: "Overdue",
+  };
 
   return (
     <section className={`overflow-hidden rounded-2xl border bg-white ${palette.sectionBorder} shadow-sm`}>
@@ -225,13 +166,12 @@ function NotificationSection({
         <div className="divide-y divide-slate-100">
           {items.map((item) => {
             const factoryCode = item.factory_bill_code?.trim() || item.orderState?.factory_bill_code?.trim() || "";
-            const factoryBillLink = buildFactoryBillLink(factoryCode);
 
             return (
               <div key={item.id} className={`group p-4 transition-colors sm:p-5 ${palette.card}`}>
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="flex min-w-0 flex-1 gap-4">
-                    <UrgencyRing days={item.dueInDays} tone={tone} />
+                    <UrgencyRing days={item.dueInDays} />
 
                     <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
                       {item.previewImageUrl ? (
@@ -268,17 +208,6 @@ function NotificationSection({
                             {factoryCode}
                           </span>
                         ) : null}
-                        {factoryBillLink ? (
-                          <a
-                            href={factoryBillLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 hover:text-sky-700 hover:underline"
-                          >
-                            ບິນໂຮງງານ
-                            <ExternalLink size={11} />
-                          </a>
-                        ) : null}
                       </div>
 
                       <div className="mt-1.5 text-sm font-semibold text-slate-700">
@@ -299,8 +228,9 @@ function NotificationSection({
 
                       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <div className={`rounded-lg border p-2.5 ${palette.metric}`}>
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">ວັນສົ່ງຜະລິດ</div>
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">ວັນທີ່ສົ່ງຜະລິດ</div>
                           <div className="mt-1 font-mono text-xs font-bold text-slate-800">{formatDateOnly(item.production_sent_date)}</div>
+                          <div className="mt-0.5 text-[10px] font-medium text-slate-500">ຜ່ານມາ {item.productionDays} ມື້</div>
                         </div>
                         <div className={`rounded-lg border p-2.5 ${palette.metric}`}>
                           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">ກຳນົດສົ່ງລູກຄ້າ</div>
@@ -361,62 +291,45 @@ export default function OrderAlertsPage() {
     setErr(null);
 
     try {
+      const today = getOrderAlertToday();
       const { data: depositData, error: depositError } = await supabase
         .from("factory_deposit_orders")
         .select(
           "id,deposit_no,order_code,order_id,factory_bill_code,customer_name,customer_phone,team_name,production_sent_date,delivery_date,production_priority,urgent_due_date,production_items,status,created_at"
         )
+        .eq("status", "converted")
         .not("order_id", "is", null)
+        .not("production_sent_date", "is", null)
         .not("delivery_date", "is", null)
+        .lte("production_sent_date", today)
+        .lt("delivery_date", today)
         .order("delivery_date", { ascending: true });
 
-      if (depositError) throw depositError;
+      if (depositError) throw new Error(`ໂຫຼດໃບມັດຈຳສັ່ງຜະລິດບໍ່ສຳເລັດ: ${depositError.message}`);
 
       const deposits = (depositData ?? []) as DepositAlertRow[];
       const orderIds = Array.from(new Set(deposits.map((row) => row.order_id).filter((value): value is string => Boolean(value))));
 
-      const ordersById = new Map<string, OrderStateRow>();
-      const receivedOrderIds = new Set<string>();
-      if (orderIds.length > 0) {
-        const [{ data: orderData, error: orderError }, { data: receiptData, error: receiptError }] = await Promise.all([
-          supabase
-            .from("orders")
-            .select("id,status,closed_at,production_completed_at,shipment_status,shipment_completed_at,order_image_url,factory_bill_code")
-            .in("id", orderIds),
-          supabase.from("factory_receipt_items").select("order_id").in("order_id", orderIds),
-        ]);
-
-        if (orderError) throw orderError;
-        if (receiptError) throw receiptError;
-
-        for (const row of (orderData ?? []) as OrderStateRow[]) {
-          ordersById.set(row.id, row);
-        }
-
-        for (const row of (receiptData ?? []) as Array<{ order_id: string }>) {
-          if (row.order_id) receivedOrderIds.add(row.order_id);
-        }
-      }
+      const orderData = await fetchOrderAlertOrdersWithClient(supabase, orderIds);
+      const ordersById = new Map(orderData.map((row) => [row.id, row]));
 
       const merged = deposits
         .map((row) => {
-          const dueInDays = diffDaysFromToday(row.delivery_date);
-          if (dueInDays === null) return null;
           const orderState = row.order_id ? ordersById.get(row.order_id) || null : null;
+          const timing = getOverdueOrderTiming(row, orderState, today);
+          if (!timing) return null;
           return {
             ...row,
-            dueInDays,
+            ...timing,
             orderState,
             previewImageUrl: getPreviewImageUrl(row, orderState),
           } satisfies AlertItem;
         })
-        .filter((row): row is AlertItem => Boolean(row))
-        .filter((row) => !row.order_id || !receivedOrderIds.has(row.order_id))
-        .filter((row) => isOrderStillOpen(row.orderState));
+        .filter((row): row is AlertItem => Boolean(row));
 
       setRows(merged);
     } catch (error) {
-      setErr(error instanceof Error ? error.message : "ໂຫຼດຂໍ້ມູນບໍ່ສຳເລັດ");
+      setErr(getOrderAlertErrorMessage(error));
       setRows([]);
     } finally {
       setLoading(false);
@@ -427,11 +340,7 @@ export default function OrderAlertsPage() {
     void loadAlerts();
   }, []);
 
-  const overdueItems = useMemo(() => rows.filter((row) => row.dueInDays < 0).sort((a, b) => a.dueInDays - b.dueInDays), [rows]);
-  const nearDueItems = useMemo(
-    () => rows.filter((row) => row.dueInDays >= 0 && row.dueInDays <= NEAR_DUE_DAYS).sort((a, b) => a.dueInDays - b.dueInDays),
-    [rows]
-  );
+  const overdueItems = useMemo(() => [...rows].sort((a, b) => a.dueInDays - b.dueInDays), [rows]);
 
   return (
     <div className="space-y-6 text-slate-900">
@@ -449,11 +358,11 @@ export default function OrderAlertsPage() {
               <BellRing size={13} />
               ແຈ້ງເຕືອນອໍເດີ
             </div>
-            <h1 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl">ອໍເດີໃກ້ກຳນົດສົ່ງ / ເກີນກຳນົດ</h1>
+            <h1 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl">ອໍເດີເກີນກຳນົດສົ່ງລູກຄ້າ</h1>
             <div className="mt-2 max-w-2xl text-sm text-slate-400">
-              ດຶງຂໍ້ມູນຈາກໃບສັ່ງຜະລິດທີ່ບັນທຶກເປັນອໍເດີແລ້ວ ໂດຍໃຊ້{" "}
-              <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-slate-300">ວັນທີ່ສົ່ງຜະລິດ</code> ແລະ{" "}
-              <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-slate-300">ກຳນົດສົ່ງລູກຄ້າ</code>
+              ສະແດງສະເພາະໃບມັດຈຳສັ່ງຜະລິດທີ່ບັນທຶກເປັນອໍເດີແລ້ວ ແລະ ເກີນກຳນົດສົ່ງລູກຄ້າ.
+              ອໍເດີທີ່ຮັບເຂົ້າຈາກໂຮງງານແລ້ວ ຫຼື ຜະລິດສຳເລັດແລ້ວ ຈະບໍ່ສະແດງໃນລາຍການນີ້.
+              ໃຊ້ວັນທີ່ສົ່ງຜະລິດເປັນວັນເລີ່ມນັບ ແລະ ກຳນົດສົ່ງລູກຄ້າເປັນວັນກຳນົດ.
             </div>
           </div>
 
@@ -464,13 +373,6 @@ export default function OrderAlertsPage() {
                 ເກີນກຳນົດ
               </div>
               <div className="mt-1.5 font-mono text-3xl font-bold tabular-nums text-white">{overdueItems.length}</div>
-            </div>
-            <div className="min-w-[130px] rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-300">
-                <CalendarClock size={13} />
-                ໃກ້ກຳນົດ {NEAR_DUE_DAYS} ມື້
-              </div>
-              <div className="mt-1.5 font-mono text-3xl font-bold tabular-nums text-white">{nearDueItems.length}</div>
             </div>
             <button
               type="button"
@@ -497,32 +399,13 @@ export default function OrderAlertsPage() {
           <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" />
           <div className="mt-4 text-sm font-semibold text-slate-400">ກຳລັງໂຫຼດຂໍ້ມູນແຈ້ງເຕືອນ...</div>
         </div>
-      ) : (
-        <>
-          <NotificationSection
-            title="ສິນຄ້າເກີນວັນກຳນົດສົ່ງລູກຄ້າ"
-            description="ລາຍການທີ່ວັນກຳນົດສົ່ງລູກຄ້າຜ່ານມາແລ້ວ ແຕ່ອໍເດີຍັງບໍ່ປິດ ແລະ ຍັງບໍ່ຈັດສົ່ງ"
-            items={overdueItems}
-            tone="rose"
-          />
-
-          <NotificationSection
-            title="ອໍເດີໃກ້ກຳນົດສົ່ງລູກຄ້າ"
-            description={`ລາຍການທີ່ຈະຄົບກຳນົດສົ່ງພາຍໃນ ${NEAR_DUE_DAYS} ມື້ ແລະ ຍັງບໍ່ຈັດສົ່ງ`}
-            items={nearDueItems}
-            tone="amber"
-          />
-
-          {overdueItems.length === 0 && nearDueItems.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-14 text-center shadow-sm">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
-                <PackageSearch size={20} />
-              </div>
-              <div className="mt-3 text-sm font-semibold text-slate-400">ບໍ່ມີອໍເດີແຈ້ງເຕືອນໃນຕອນນີ້</div>
-            </div>
-          ) : null}
-        </>
-      )}
+      ) : !err ? (
+        <NotificationSection
+          title="ສິນຄ້າເກີນວັນກຳນົດສົ່ງລູກຄ້າ"
+          description="ໃບມັດຈຳທີ່ບັນທຶກເປັນອໍເດີແລ້ວ ແລະ ເກີນວັນກຳນົດສົ່ງລູກຄ້າ ແຕ່ຍັງບໍ່ຮັບເຂົ້າຈາກໂຮງງານ ຫຼື ຜະລິດສຳເລັດ"
+          items={overdueItems}
+        />
+      ) : null}
     </div>
   );
 }

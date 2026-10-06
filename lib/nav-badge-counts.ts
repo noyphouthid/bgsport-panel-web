@@ -1,8 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppRole } from "@/lib/access-control";
-import { canManageAllFactoryDepositOrders } from "@/lib/factory-deposit-orders";
+import { canManageAllFactoryDepositOrders, type FactoryDepositOrderStatus } from "@/lib/factory-deposit-orders";
 import { supabase } from "@/lib/supabase";
 import { canManageAllTransportNotes } from "@/lib/transport-notes";
+import { fetchOrderAlertOrdersWithClient, getOrderAlertToday, getOverdueOrderTiming } from "@/lib/order-alerts";
 
 export const NAV_BADGE_PATHS = [
   "/factory-deposit-orders",
@@ -30,18 +31,11 @@ type NavBadgeProfile = {
 
 type OrderAlertDepositRow = {
   id: string;
+  status: FactoryDepositOrderStatus;
   order_id: string | null;
+  production_sent_date: string | null;
   delivery_date: string | null;
   updated_at?: string | null;
-};
-
-type OrderAlertOrderState = {
-  id: string;
-  status: "in_progress" | "completed";
-  closed_at: string | null;
-  production_completed_at: string | null;
-  shipment_status: "pending" | "shipped" | null;
-  shipment_completed_at: string | null;
 };
 
 type ReceiptItemOrderRow = {
@@ -91,36 +85,6 @@ function buildSignature(parts: Array<string | null | undefined>) {
   return parts.filter((part) => Boolean(part)).join("|");
 }
 
-function parseDateOnly(value: string | null) {
-  if (!value) return null;
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function startOfToday() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-}
-
-function toDateOnlyValue(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function diffDaysFromToday(value: string | null) {
-  const target = parseDateOnly(value);
-  if (!target) return null;
-  const msPerDay = 86_400_000;
-  return Math.round((target.getTime() - startOfToday().getTime()) / msPerDay);
-}
-
-function isOrderStillOpen(order: OrderAlertOrderState | null) {
-  if (!order) return true;
-  if (order.status === "completed" || order.closed_at) return false;
-  if (order.production_completed_at) return false;
-  if (order.shipment_status === "shipped" || order.shipment_completed_at) return false;
-  return true;
-}
-
 async function fetchFactoryDepositOrderBadgeCountWithClient(client: SupabaseClient, profile: NavBadgeProfile) {
   let query = client.from("factory_deposit_orders").select("id,updated_at").eq("status", "submitted");
   if (!canManageAllFactoryDepositOrders(profile.role)) {
@@ -137,15 +101,17 @@ async function fetchFactoryDepositOrderBadgeCountWithClient(client: SupabaseClie
 }
 
 async function fetchOrderAlertsBadgeCountWithClient(client: SupabaseClient) {
-  const nearDueDate = startOfToday();
-  nearDueDate.setDate(nearDueDate.getDate() + 3);
+  const today = getOrderAlertToday();
 
   const { data: depositData, error: depositError } = await client
     .from("factory_deposit_orders")
-    .select("id,order_id,delivery_date,updated_at")
+    .select("id,status,order_id,production_sent_date,delivery_date,updated_at")
+    .eq("status", "converted")
     .not("order_id", "is", null)
+    .not("production_sent_date", "is", null)
     .not("delivery_date", "is", null)
-    .lte("delivery_date", toDateOnlyValue(nearDueDate));
+    .lte("production_sent_date", today)
+    .lt("delivery_date", today);
 
   if (depositError) throw depositError;
 
@@ -154,28 +120,16 @@ async function fetchOrderAlertsBadgeCountWithClient(client: SupabaseClient) {
 
   if (orderIds.length === 0) return { count: 0, signature: "" };
 
-  const [{ data: orderData, error: orderError }, { data: receiptData, error: receiptError }] = await Promise.all([
-    client.from("orders").select("id,status,closed_at,production_completed_at,shipment_status,shipment_completed_at").in("id", orderIds),
-    client.from("factory_receipt_items").select("order_id").in("order_id", orderIds),
-  ]);
+  const orderData = await fetchOrderAlertOrdersWithClient(client, orderIds);
+  const ordersById = new Map(orderData.map((row) => [row.id, row]));
 
-  if (orderError) throw orderError;
-  if (receiptError) throw receiptError;
-
-  const ordersById = new Map(((orderData ?? []) as OrderAlertOrderState[]).map((row) => [row.id, row]));
-  const receivedOrderIds = new Set(((receiptData ?? []) as Array<{ order_id: string | null }>).map((row) => row.order_id).filter(Boolean));
-
-  const rows = deposits.filter((row) => {
-    const dueInDays = diffDaysFromToday(row.delivery_date);
-    if (dueInDays === null || dueInDays > 3) return false;
-    if (!row.order_id) return false;
-    if (receivedOrderIds.has(row.order_id)) return false;
-    return isOrderStillOpen(ordersById.get(row.order_id) || null);
-  });
+  const rows = deposits.filter((row) =>
+    getOverdueOrderTiming(row, row.order_id ? ordersById.get(row.order_id) || null : null, today)
+  );
 
   return {
     count: rows.length,
-    signature: buildSignature(rows.map((row) => `${row.id}:${row.delivery_date || ""}:${row.updated_at || ""}`).sort()),
+    signature: buildSignature(rows.map((row) => `${row.id}:${row.production_sent_date || ""}:${row.delivery_date || ""}:${row.updated_at || ""}`).sort()),
   };
 }
 

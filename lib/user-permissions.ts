@@ -2,14 +2,12 @@ export type PermissionMode = "inherit" | "allow" | "deny";
 
 export const ACCESS_PERMISSION_ITEMS = [
   { key: "/dashboard", label: "ໜ້າຫຼັກ", group: "ໜ້າທົ່ວໄປ" },
-  { key: "/search", label: "ຄົ້ນຫາອໍເດີ", group: "ໜ້າທົ່ວໄປ" },
   { key: "/orders", label: "ລາຍການອໍເດີ", group: "ອໍເດີ" },
   { key: "/orders/new", label: "ສ້າງອໍເດີໃໝ່", group: "ອໍເດີ" },
   { key: "/quotations", label: "ໃບປະເມີນລາຄາ", group: "ອໍເດີ" },
   { key: "/design-queue", label: "ຄິວອອກແບບ", group: "ອໍເດີ" },
   { key: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", group: "ອໍເດີ" },
   { key: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", group: "ອໍເດີ" },
-  { key: "/factory-production-status", label: "ສະຖານະໂຮງງານ", group: "ອໍເດີ" },
   { key: "/inventory-qr", label: "ສ້າງ QR", group: "ຄັງ/ຂົນສົ່ງ" },
   { key: "/factory-receipts", label: "ຮັບສິນຄ້າເຂົ້າ", group: "ຄັງ/ຂົນສົ່ງ" },
   { key: "/shipments", label: "ຈັດສົ່ງສິນຄ້າ", group: "ຄັງ/ຂົນສົ່ງ" },

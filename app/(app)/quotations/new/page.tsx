@@ -844,9 +844,9 @@ export default function NewQuotationPage() {
 	                    />
 	                    <div className="text-[18px] font-black text-slate-900">ຮ້ານ ບີຈີ ສປອຮ໌ດ</div>
 	                    <div className="mt-1 max-w-[155px] text-[10px] font-medium leading-4 text-slate-500">
-	                      ບ້ານ ສາຍນ້ຳເງິນ ເມືອງ ໄຊທານີ ນະຄອນຫຼວງວຽງຈັນ
+	                      ບ້ານ ໂພນຕ້ອງສະຫວາດ ມ. ຈັນທະບູລີ ນະຄອນຫຼວງວຽງຈັນ
                     </div>
-                    <div className="mt-1 text-[10px] font-bold text-slate-600">20 9220 1288 - 20 9258 2288</div>
+                    <div className="mt-1 text-[10px] font-bold text-slate-600">+856 20 9220 1288</div>
                   </div>
                   <div className="text-right">
                     <div className="text-[19px] font-black tracking-tight text-sky-700">ໃບປະເມີນລາຄາ</div>

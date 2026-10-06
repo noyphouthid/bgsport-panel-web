@@ -16,7 +16,6 @@ const ROLE_LOCKED_PATHS = [
   "/reports/income-expense",
 ];
 const STAFF_ALLOWED_PATHS = new Set([
-  "/search",
   "/inventory-qr",
   "/factory-receipts",
   "/factory-receipts/orders",
@@ -41,7 +40,6 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/factory-deposit-orders", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/factory-production-queue", roles: ["superadmin", "production"] },
   { prefix: "/order-alerts", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
-  { prefix: "/factory-production-status", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/inventory-qr", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/factory-receipts", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/shipments", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
@@ -63,7 +61,6 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/quotations", roles: ["superadmin", "admin", "manager", "staff"] },
   { prefix: "/orders/new", roles: ["superadmin", "admin", "manager", "staff"] },
   { prefix: "/orders", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
-  { prefix: "/search", roles: ["superadmin", "admin", "manager", "staff", "graphic", "accountant"] },
   { prefix: "/dashboard", roles: ALL_ROLES },
 ];
 
@@ -78,7 +75,7 @@ function matchesPrefix(pathname: string, prefix: string) {
 }
 
 export function getDefaultPathForRole(role: AppRole) {
-  if (role === "staff") return "/search";
+  if (role === "staff") return "/inventory-qr";
   if (role === "production") return "/factory-production-queue";
   return "/dashboard";
 }

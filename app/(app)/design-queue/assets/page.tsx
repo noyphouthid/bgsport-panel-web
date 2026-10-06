@@ -14,6 +14,7 @@ import { canEditWithPermissions, normalizeUserPermissionSettings, type UserPermi
 import {
   buildDesignQueueMockupExportName,
   buildDesignQueueOrderCode,
+  getDesignQueueDateValue,
   getDesignQueueMockupUrl,
   type DesignQueueMockupRow,
   type DesignQueueUploadTarget,
@@ -23,8 +24,6 @@ import { MockupUploadModal } from "../_components/mockup-upload-modal";
 type DesignQueueRow = {
   id: string;
   queue_date: string;
-  queue_year: number;
-  queue_month: number;
   queue_number: string;
   order_no: string;
   type_code: string;
@@ -32,6 +31,7 @@ type DesignQueueRow = {
   style_name: string;
   notes: string;
   is_designed: boolean;
+  designed_at: string | null;
   graphic_user_id: string | null;
   updated_at: string;
 };
@@ -54,6 +54,7 @@ type GalleryCardRow = {
   queue: DesignQueueRow;
   previewUrl: string | null;
   graphicName: string;
+  assetDate: string;
 };
 
 const URGENT_WORK_TYPE = "ງານດ່ວນ";
@@ -74,6 +75,7 @@ function formatDateTime(value: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("en-GB", {
+    timeZone: "Asia/Vientiane",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -172,7 +174,7 @@ export default function DesignQueueAssetsPage() {
 
     let queueQuery = supabase
       .from("design_queue_entries")
-      .select("id,queue_date,queue_year,queue_month,queue_number,order_no,type_code,customer_phone,style_name,notes,is_designed,graphic_user_id,updated_at")
+      .select("id,queue_date,queue_number,order_no,type_code,customer_phone,style_name,notes,is_designed,designed_at,graphic_user_id,updated_at")
       .eq("is_designed", true)
       .order("queue_date", { ascending: false })
       .order("updated_at", { ascending: false });
@@ -234,18 +236,21 @@ export default function DesignQueueAssetsPage() {
       .map((mockup) => {
         const queue = queueById.get(mockup.queue_entry_id);
         if (!queue) return null;
+        const assetDate = getDesignQueueDateValue(queue.designed_at) || getDesignQueueDateValue(mockup.uploaded_at);
+        if (!assetDate) return null;
 
         return {
           mockup,
           queue,
           previewUrl: getDesignQueueMockupUrl(mockup),
           graphicName: queue.graphic_user_id ? graphicNameMap.get(queue.graphic_user_id) || "-" : "-",
+          assetDate,
         } satisfies GalleryCardRow;
       })
       .filter((item): item is GalleryCardRow => Boolean(item))
       .filter((item) => {
-        if (monthFilter !== "ALL" && item.queue.queue_month !== monthFilter) return false;
-        if (item.queue.queue_year !== yearFilter) return false;
+        if (monthFilter !== "ALL" && Number(item.assetDate.slice(5, 7)) !== monthFilter) return false;
+        if (Number(item.assetDate.slice(0, 4)) !== yearFilter) return false;
         if (workTypeFilter === "URGENT" && !isUrgentWorkType(item.queue.style_name)) return false;
         if (workTypeFilter === "NORMAL" && isUrgentWorkType(item.queue.style_name)) return false;
         if (typeFilter !== "ALL" && item.queue.type_code !== typeFilter) return false;
@@ -253,7 +258,8 @@ export default function DesignQueueAssetsPage() {
         if (queueDateFrom && item.queue.queue_date < queueDateFrom) return false;
         if (queueDateTo && item.queue.queue_date > queueDateTo) return false;
 
-        const uploadedDate = item.mockup.uploaded_at.slice(0, 10);
+        const uploadedDate = getDesignQueueDateValue(item.mockup.uploaded_at);
+        if (!uploadedDate) return false;
         if (uploadedFrom && uploadedDate < uploadedFrom) return false;
         if (uploadedTo && uploadedDate > uploadedTo) return false;
 
@@ -322,6 +328,8 @@ export default function DesignQueueAssetsPage() {
         customer_phone: item.queue.customer_phone,
         work_type: item.queue.style_name,
         queue_date: item.queue.queue_date,
+        designed_at: item.queue.designed_at || "",
+        gallery_date: item.assetDate,
         uploaded_at: item.mockup.uploaded_at,
         file_name: item.mockup.file_name,
         image_url: item.previewUrl || item.mockup.file_url || "",
@@ -391,7 +399,7 @@ export default function DesignQueueAssetsPage() {
         <div>
           <div className="text-xs font-black uppercase tracking-[0.18em] text-sky-600">Design Gallery</div>
           <h1 className="mt-1 text-3xl font-black text-slate-900">ຄັງຮູບເສື້ອຈາກຄິວອອກແບບ</h1>
-          <p className="mt-2 text-sm font-medium text-slate-500">ເກັບຮູບເສື້ອທີ່ອອກແບບສຳເລັດແລ້ວ ພ້ອມຕົວກອງ ແລະ ປຸ່ມ export ຕາມຊຸດຂໍ້ມູນທີ່ເລືອກ.</p>
+          <p className="mt-2 text-sm font-medium text-slate-500">ເກັບຮູບເສື້ອຕາມເດືອນທີ່ອອກແບບສຳເລັດ ພ້ອມຕົວກອງ ແລະ ປຸ່ມ export ຕາມຊຸດຂໍ້ມູນທີ່ເລືອກ.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -472,6 +480,7 @@ export default function DesignQueueAssetsPage() {
             className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 xl:col-span-2"
           />
           <select
+            aria-label="ເດືອນທີ່ອອກແບບສຳເລັດ"
             value={monthFilter}
             onChange={(event) => setMonthFilter(event.target.value === "ALL" ? "ALL" : Number(event.target.value))}
             className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400"
@@ -483,6 +492,7 @@ export default function DesignQueueAssetsPage() {
             ))}
           </select>
           <select
+            aria-label="ປີທີ່ອອກແບບສຳເລັດ"
             value={yearFilter}
             onChange={(event) => setYearFilter(Number(event.target.value))}
             className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400"
@@ -518,6 +528,7 @@ export default function DesignQueueAssetsPage() {
             ))}
           </select>
         </div>
+        <p className="mt-3 text-xs font-medium text-slate-500">ເດືອນ ແລະ ປີ ອີງຕາມວັນທີ່ອອກແບບສຳເລັດ; ຖ້າບໍ່ມີວັນສຳເລັດ ຈະໃຊ້ວັນທີ່ອັບຮູບ.</p>
 
         <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-6">
           <select
@@ -625,6 +636,10 @@ export default function DesignQueueAssetsPage() {
                   <div className="rounded-2xl bg-slate-50 px-3 py-2">
                     <div className="text-xs font-black uppercase text-slate-500">Queue Date</div>
                     <div className="mt-1 font-black text-slate-900">{item.queue.queue_date}</div>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2">
+                    <div className="text-xs font-black uppercase text-slate-500">ອອກແບບສຳເລັດ</div>
+                    <div className="mt-1 font-black text-slate-900">{formatDateTime(item.queue.designed_at)}</div>
                   </div>
                   <div className="rounded-2xl bg-slate-50 px-3 py-2">
                     <div className="text-xs font-black uppercase text-slate-500">Uploaded</div>

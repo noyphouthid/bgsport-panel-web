@@ -1,6 +1,7 @@
 export type OrderQrLabelStatus = "created" | "received" | "shipped";
 
 import { getTotalShirtQty } from "@/lib/order-quantities";
+import { extractLifefootballOrderId, normalizeLifefootballOrderCode } from "@/lib/lifefootball-order";
 
 export type OrderSummary = {
   id: string;
@@ -50,7 +51,7 @@ export type QrLabelRow = {
   updated_at?: string;
 };
 
-export type QrInputKind = "shop_qr" | "factory_qr" | "factory_bill_code" | "order_code" | "unknown";
+export type QrInputKind = "shop_qr" | "factory_qr" | "factory_order_url" | "factory_bill_code" | "order_code" | "unknown";
 
 const QR_PREFIX = "BGSPORT-FACTORY";
 const FACTORY_URL_BILL_PATTERN = /\/orders\/(\d+)\/print(?:[/?#]|$)/i;
@@ -74,6 +75,11 @@ export function normalizeQrCode(raw: string) {
 export function extractFactoryBillCode(raw: string) {
   const value = normalizeQrCode(raw);
   if (!value) return "";
+
+  const fullCode = normalizeLifefootballOrderCode(value);
+  if (fullCode) return fullCode;
+  // An opaque URL ID is never a bill number, even if it contains digits.
+  if (/^https?:\/\//i.test(value) && value.includes("/agent/orders/")) return "";
 
   const urlMatch = value.match(FACTORY_URL_BILL_PATTERN);
   if (urlMatch?.[1]) return urlMatch[1].trim();
@@ -104,6 +110,15 @@ export function parseQrInput(raw: string): { kind: QrInputKind; normalized: stri
     };
   }
 
+  if (extractLifefootballOrderId(normalized)) {
+    return { kind: "factory_order_url", normalized, factoryBillCode: null };
+  }
+
+  const fullCode = normalizeLifefootballOrderCode(normalized);
+  if (fullCode) {
+    return { kind: "factory_bill_code", normalized: fullCode, factoryBillCode: fullCode };
+  }
+
   if (normalized.includes("/orders/") && normalized.includes("/print")) {
     const factoryBillCode = extractFactoryBillCode(normalized);
     return {
@@ -111,6 +126,10 @@ export function parseQrInput(raw: string): { kind: QrInputKind; normalized: stri
       normalized,
       factoryBillCode: factoryBillCode || null,
     };
+  }
+
+  if (/^https?:\/\//i.test(normalized)) {
+    return { kind: "unknown", normalized, factoryBillCode: null };
   }
 
   const factoryBillCode = extractFactoryBillCode(normalized);

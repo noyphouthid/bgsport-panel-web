@@ -75,7 +75,7 @@ export default function ShipmentDepositsPage() {
   const [usersById, setUsersById] = useState<Record<string, UserRow>>({});
   const [query, setQuery] = useState("");
   const [adminFilter, setAdminFilter] = useState("all");
-  const [fromDate, setFromDate] = useState("");
+  const [fromDate, setFromDate] = useState(`${today.slice(0, 7)}-01`);
   const [toDate, setToDate] = useState(today);
   const [loading, setLoading] = useState(true);
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);

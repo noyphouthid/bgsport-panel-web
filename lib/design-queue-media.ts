@@ -26,6 +26,18 @@ export type DesignQueueUploadTarget = {
   style_name: string;
 };
 
+export function getDesignQueueDateValue(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Vientiane",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 export function buildDesignQueueMockupStoragePath(queueEntryId: string, fileName: string) {
   return `${DESIGN_QUEUE_MOCKUP_FOLDER}/${queueEntryId}/${buildSafeStorageFileName(fileName, "shirt")}`;
 }

@@ -94,7 +94,7 @@ export default function ShipmentNotesPage() {
   const [printFilter, setPrintFilter] = useState<PrintFilter>("all");
   const [depositFilter, setDepositFilter] = useState<DepositFilter>("all");
   const [adminFilter, setAdminFilter] = useState("all");
-  const [fromDate, setFromDate] = useState("");
+  const [fromDate, setFromDate] = useState(`${today.slice(0, 7)}-01`);
   const [toDate, setToDate] = useState(today);
   const [loading, setLoading] = useState(true);
   const [printing, setPrinting] = useState(false);

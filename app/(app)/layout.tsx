@@ -10,7 +10,6 @@ import {
   ClipboardList,
   ClipboardCheck,
   ReceiptText,
-  Search,
   FileSpreadsheet,
   Settings2,
   Wallet,
@@ -75,8 +74,6 @@ const nav: NavItem[] = [
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
   { type: "link", href: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", icon: Factory },
-  { type: "link", href: "/factory-production-status", label: "ສະຖານະໂຮງງານ", icon: Factory },
-  { type: "link", href: "/search", label: "ຄົ້ນຫາອໍເດີທັງໝົດ", icon: Search },
   {
     type: "group",
     label: "ໜ້າລາຍງານ",
