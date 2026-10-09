@@ -140,6 +140,7 @@ export default function DesignQueueAssetsPage() {
   const [uploadedTo, setUploadedTo] = useState("");
   const [query, setQuery] = useState("");
   const [exportingImages, setExportingImages] = useState(false);
+  const [imageExportProgress, setImageExportProgress] = useState("");
   const [exportingExcel, setExportingExcel] = useState(false);
 
   const canEditQueue = canEditWithPermissions(viewerPermissions, "design_queue", true);
@@ -349,21 +350,24 @@ export default function DesignQueueAssetsPage() {
   };
 
   const exportImages = async () => {
+    if (exportingImages) return;
+
     if (galleryRows.length === 0) {
       toast.error("ບໍ່ມີຮູບສຳລັບ export");
       return;
     }
 
     setExportingImages(true);
-    let successCount = 0;
-    let failedCount = 0;
+    setImageExportProgress(`ກຳລັງກຽມຮູບ 0/${galleryRows.length}`);
 
     try {
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+
       for (const [index, item] of galleryRows.entries()) {
         const url = item.previewUrl || item.mockup.file_url;
         if (!url) {
-          failedCount += 1;
-          continue;
+          throw new Error(`ບໍ່ພົບ URL ຮູບ: ${item.mockup.file_name}`);
         }
 
         try {
@@ -371,25 +375,25 @@ export default function DesignQueueAssetsPage() {
           if (!response.ok) {
             throw new Error(`download_failed_${response.status}`);
           }
-          const blob = await response.blob();
+          const data = await response.arrayBuffer();
           const fileName = buildDesignQueueMockupExportName(item.queue, item.mockup.file_name, index);
-          downloadBlob(blob, fileName);
-          successCount += 1;
-        } catch (error) {
-          failedCount += 1;
-          const message = error instanceof Error ? error.message : `ດາວໂຫລດຮູບ ${item.mockup.file_name} ບໍ່ສຳເລັດ`;
-          toast.error(message);
+          zip.file(fileName, data);
+          setImageExportProgress(`ກຳລັງກຽມຮູບ ${index + 1}/${galleryRows.length}`);
+        } catch {
+          throw new Error(`ດາວໂຫລດຮູບ ${item.mockup.file_name} ບໍ່ສຳເລັດ. ກະລຸນາລອງໃໝ່`);
         }
       }
+
+      setImageExportProgress("ກຳລັງສ້າງ ZIP...");
+      const archive = await zip.generateAsync({ type: "blob", compression: "STORE" });
+      downloadBlob(archive, `design-queue-images-${yearFilter}-${monthFilter === "ALL" ? "all" : monthFilter}.zip`);
+      toast.success(`ດາວໂຫລດ ZIP ສຳເລັດ (${galleryRows.length} ຮູບ)`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ບໍ່ສາມາດສ້າງ ZIP ໄດ້";
+      toast.error(message);
     } finally {
       setExportingImages(false);
-    }
-
-    if (successCount > 0) {
-      toast.success(`Export ຮູບສຳເລັດ ${successCount} ໄຟລ໌`);
-    }
-    if (failedCount > 0 && successCount === 0) {
-      toast.error("ບໍ່ສາມາດ export ຮູບໄດ້");
+      setImageExportProgress("");
     }
   };
 
@@ -405,11 +409,11 @@ export default function DesignQueueAssetsPage() {
           <button
             type="button"
             onClick={() => void exportImages()}
-            disabled={exportingImages || galleryRows.length === 0}
+            disabled={loading || exportingImages || galleryRows.length === 0}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
           >
             {exportingImages ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-            {exportingImages ? "ກຳລັງ Export..." : "Export ຮູບ"}
+            {exportingImages ? imageExportProgress : "ດາວໂຫລດທັງໝົດ (.zip)"}
           </button>
           <button
             type="button"

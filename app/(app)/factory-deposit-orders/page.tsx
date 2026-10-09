@@ -13,6 +13,7 @@ import {
   parsePantsDraftItems,
 } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
+import { sortProductionPlayerRowsBySize } from "@/lib/production-player-rows";
 import type { AppRole } from "@/lib/access-control";
 import {
   canApproveFactoryDepositOrder,
@@ -313,7 +314,9 @@ function parseProductionExportItems(raw: unknown): ProductionPreviewItem[] {
 }
 
 function getFilledPlayerRows(item: ProductionPreviewItem) {
-  return item.player_rows.filter((row) => row.size || row.player_name.trim() || row.jersey_number.trim() || row.note.trim());
+  return sortProductionPlayerRowsBySize(
+    item.player_rows.filter((row) => row.size || row.player_name.trim() || row.jersey_number.trim() || row.note.trim())
+  );
 }
 
 function playerModeNeedsName(mode: ProductionPlayerMode) {

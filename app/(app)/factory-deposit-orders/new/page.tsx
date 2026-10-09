@@ -17,6 +17,7 @@ import {
   type PantsOrderItemDraft,
 } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
+import { sortProductionPlayerRowsBySize } from "@/lib/production-player-rows";
 import type { AppRole } from "@/lib/access-control";
 import { isAdminRole, isGraphicRole } from "@/lib/role-groups";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
@@ -368,7 +369,9 @@ function getProductionItemTotal(item: ProductionItem) {
 }
 
 function getFilledPlayerRows(item: { player_rows: ProductionPlayerRow[] }) {
-  return item.player_rows.filter((row) => row.size || row.player_name.trim() || row.jersey_number.trim() || row.note.trim());
+  return sortProductionPlayerRowsBySize(
+    item.player_rows.filter((row) => row.size || row.player_name.trim() || row.jersey_number.trim() || row.note.trim())
+  );
 }
 
 function getProductionItemSizeMap(item: ProductionItem) {

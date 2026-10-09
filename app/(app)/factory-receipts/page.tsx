@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { CheckCheck, Factory, MessageCircleMore, PackagePlus, RotateCcw, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -18,7 +18,6 @@ import {
   type QrLabelRow,
 } from "@/lib/inventory-qr";
 import { WhatsappMessageModal } from "../_components/whatsapp-message-modal";
-import { MobileQrScanner } from "../_components/mobile-qr-scanner";
 import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
 
 type QueueItem = QrLabelRow & {
@@ -97,9 +96,7 @@ function showMissingFactoryBillNotification(orderCode: string) {
 }
 
 async function searchSimilarOrders(rawValue: string) {
-  const parsed = parseQrInput(rawValue);
-  if (["factory_order_url", "shop_qr", "unknown"].includes(parsed.kind)) return [] as SearchSuggestion[];
-  const term = parsed.factoryBillCode || parsed.normalized;
+  const term = rawValue.trim();
   if (term.length < 2) return [] as SearchSuggestion[];
 
   const { data, error } = await supabase
@@ -144,9 +141,6 @@ export default function FactoryReceiptsPage() {
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const lookupBusyRef = useRef(false);
-  const scannerLookupRef = useRef<((value: string) => Promise<void>) | null>(null);
 
   const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
   const [whatsappPhones, setWhatsappPhones] = useState<ReturnType<typeof getWhatsappContactOptions>>([]);
@@ -302,7 +296,6 @@ export default function FactoryReceiptsPage() {
   const findOrderByInput = async (rawValue: string) => {
     const parsed = parseQrInput(rawValue);
     if (!parsed.normalized) return null;
-    if (parsed.kind === "unknown" || parsed.kind === "factory_order_url") return null;
 
     if (parsed.kind === "shop_qr") {
       const { data, error } = await supabase
@@ -329,13 +322,10 @@ export default function FactoryReceiptsPage() {
       const { data: factoryMatches, error } = await supabase
         .from("orders")
         .select(ORDER_SELECT)
-        .in("factory_bill_code", [parsed.factoryBillCode, `#${parsed.factoryBillCode}`])
-        .limit(2);
+        .eq("factory_bill_code", parsed.factoryBillCode)
+        .limit(1);
 
       if (error) throw new Error(error.message);
-      if ((factoryMatches ?? []).length > 1) {
-        throw new Error(`ມີຫຼາຍອໍເດີໃຊ້ລະຫັດໂຮງງານ ${parsed.factoryBillCode}, ກະລຸນາຄົ້ນຫາດ້ວຍລະຫັດອໍເດີຂອງຮ້ານ`);
-      }
       order = ((factoryMatches ?? [])[0] as OrderSummary | undefined) || null;
     } else {
       const [{ data: orderMatches, error: orderError }, { data: factoryMatches, error: factoryError }] = await Promise.all([
@@ -458,7 +448,7 @@ export default function FactoryReceiptsPage() {
       suggestionSearchTimer = null;
     }
 
-    if (term.length < 2 || ["factory_order_url", "shop_qr", "unknown"].includes(parseQrInput(term).kind)) {
+    if (term.length < 2) {
       setSuggestions([]);
       setSuggestionsOpen(false);
       setSuggestionsLoading(false);
@@ -487,61 +477,26 @@ export default function FactoryReceiptsPage() {
   };
 
   const lookupLabel = async (rawValue: string) => {
-    let input = rawValue.trim();
-    if (!input || lookupBusyRef.current || saving) return;
-    lookupBusyRef.current = true;
-    setLookupLoading(true);
-    suggestionRequestId += 1;
-    if (suggestionSearchTimer) {
-      clearTimeout(suggestionSearchTimer);
-      suggestionSearchTimer = null;
-    }
-    setSuggestionsLoading(false);
-    setSuggestions([]);
-    setSuggestionsOpen(false);
+    const input = rawValue.trim();
+    if (!input) return;
 
     try {
-      const parsed = parseQrInput(input);
-      if (parsed.kind === "unknown") {
-        throw new Error("ລິ້ງ QR ໂຮງງານບໍ່ຖືກຕ້ອງ ຫຼື ຍັງບໍ່ຮອງຮັບ");
-      }
-      if (parsed.kind === "factory_order_url") {
-        setScannerInput(input);
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token;
-        if (!token) throw new Error("ກະລຸນາເຂົ້າລະບົບໃໝ່");
-        const response = await fetch("/api/factory-receipts/resolve-order", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ url: input }),
-        });
-        const result = await response.json();
-        if (!response.ok || typeof result.factoryBillCode !== "string") {
-          throw new Error(result.message || (response.status === 403 ? "ທ່ານບໍ່ມີສິດຮັບສິນຄ້າເຂົ້າ" : "ອ່ານລະຫັດໂຮງງານບໍ່ສຳເລັດ"));
-        }
-        input = result.factoryBillCode;
-        setScannerInput(input);
-      }
       const resolved = await findOrderByInput(input);
       if (!resolved) {
         const nearby = await searchSimilarOrders(input);
         setSuggestions(nearby);
         setSuggestionsOpen(true);
-        toast.error(nearby.length > 0 ? "ບໍ່ພົບແບບກົງ, ລອງເລືອກຈາກລາຍການທີ່ໃກ້ຄຽງ" : `ບໍ່ພົບອໍເດີທີ່ກົງກັບ ${input}, ກະລຸນາກວດລະຫັດບິນໂຮງງານໃນອໍເດີຂອງຮ້ານ`);
+        toast.error(nearby.length > 0 ? "ບໍ່ພົບແບບກົງ, ລອງເລືອກຈາກລາຍການທີ່ໃກ້ຄຽງ" : "ບໍ່ພົບອໍເດີທີ່ກົງກັນ");
         return;
       }
 
       await addResolvedOrderToQueue(resolved);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ກວດສອບຂໍ້ມູນບໍ່ສຳເລັດ");
-    } finally {
-      lookupBusyRef.current = false;
-      setLookupLoading(false);
     }
   };
 
   const submitImport = async () => {
-    if (lookupBusyRef.current) return;
     if (queue.length === 0) {
       toast.error("ກະລຸນາເລືອກອໍເດີຢ່າງໜ້ອຍ 1 ລາຍການກ່ອນ");
       return;
@@ -789,11 +744,6 @@ export default function FactoryReceiptsPage() {
     setWhatsappModalOpen(true);
   };
 
-  // The camera loop stays open across renders; use the current queue and saving state.
-  useEffect(() => {
-    scannerLookupRef.current = lookupLabel;
-  });
-
   return (
     <div className="space-y-6 text-slate-900">
       <section className="rounded-[2rem] bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-900 p-6 text-white shadow-xl">
@@ -803,9 +753,9 @@ export default function FactoryReceiptsPage() {
               <Factory size={14} />
               ຮັບສິນຄ້າເຂົ້າ
             </div>
-            <h1 className="mt-4 text-3xl font-black tracking-tight">ຮັບສິນຄ້າເຂົ້າດ້ວຍການສະແກນ QR</h1>
+            <h1 className="mt-4 text-3xl font-black tracking-tight">ຮັບສິນຄ້າເຂົ້າດ້ວຍການຄົ້ນຫາລະຫັດ</h1>
             <p className="mt-2 max-w-2xl text-sm font-medium text-emerald-50">
-              ສະແກນ QR ຈາກບິນໂຮງງານ ຫຼື ວາງລິ້ງເພື່ອດຶງລະຫັດອໍເດີໂຮງງານເຂົ້າລາຍການ. ສາມາດພິມລະຫັດອໍເດີຂອງຮ້ານ ຫຼື ລະຫັດບິນໂຮງງານໄດ້ເຊັ່ນກັນ.
+              ພິມລະຫັດອໍເດີຂອງຮ້ານ ຫຼື ລະຫັດບິນໂຮງງານເພື່ອຄົ້ນຫາ. ລະບົບຈະສະແດງລາຍການທີ່ໃກ້ຄຽງ ແລະ ສາມາດເລືອກເພີ່ມໄດ້ທັນທີ.
             </p>
           </div>
           <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-emerald-50">ຍ້າຍຟັງຊັນພິມໄປຢູ່ໜ້າ Inventory QR ແລ້ວ</div>
@@ -814,7 +764,6 @@ export default function FactoryReceiptsPage() {
 
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
-          <MobileQrScanner onDetected={(value) => scannerLookupRef.current?.(value)} continuous collapseOnDetect={false} dedupeMs={2200} />
           <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2 text-lg font-black text-slate-900">
               <Search size={20} />
@@ -823,16 +772,15 @@ export default function FactoryReceiptsPage() {
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
               <input
                 value={scannerInput}
-                disabled={lookupLoading || saving}
                 onChange={(e) => scheduleSuggestionSearch(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void lookupLabel(scannerInput);
                 }}
-                placeholder="ສະແກນ QR, ວາງລິ້ງ ຫຼື ພິມລະຫັດອໍເດີ"
+                placeholder="ພິມລະຫັດບິນໂຮງງານ ຫຼື ລະຫັດອໍເດີຂອງຮ້ານ"
                 className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
               />
-              <button type="button" disabled={lookupLoading || saving} onClick={() => void lookupLabel(scannerInput)} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50">
-                {lookupLoading ? "ກຳລັງອ່ານລະຫັດ..." : "ຄົ້ນຫາ"}
+              <button type="button" onClick={() => void lookupLabel(scannerInput)} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700">
+                ຄົ້ນຫາ
               </button>
             </div>
 
@@ -852,7 +800,6 @@ export default function FactoryReceiptsPage() {
                         <button
                           key={item.id}
                           type="button"
-                          disabled={lookupLoading || saving}
                           onClick={() => {
                             if (!canImport) {
                               showMissingFactoryBillNotification(item.order_code);
@@ -920,7 +867,7 @@ export default function FactoryReceiptsPage() {
               <div className="text-lg font-black text-slate-900">ລາຍການຮັບເຂົ້າ</div>
               <div className="text-sm font-medium text-slate-500">ເລືອກຫຼາຍອໍເດີ ແລ້ວ ນຳເຂົ້າໃນຄັ້ງດຽວ</div>
             </div>
-            <button type="button" onClick={() => void submitImport()} disabled={saving || lookupLoading || queue.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50">
+            <button type="button" onClick={() => void submitImport()} disabled={saving || queue.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50">
               <PackagePlus size={16} />
               {saving ? "ກຳລັງບັນທຶກ..." : "ນຳເຂົ້າທັງໝົດ"}
             </button>
