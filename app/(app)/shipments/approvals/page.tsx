@@ -6,6 +6,7 @@ import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { CheckCircle2, ClipboardCheck, LoaderCircle, XCircle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 import type { AppRole } from "@/lib/access-control";
 import {
   SHIPMENT_DELIVERY_METHOD_LABELS,
@@ -89,17 +90,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 async function fetchShipmentApprovalsViaApi() {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token;
-  if (!token) {
-    throw new Error("no_session");
-  }
-
-  const response = await fetch("/api/shipments/approvals", {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  const response = await authenticatedFetch("/api/shipments/approvals");
 
   const payload = (await response.json().catch(() => ({}))) as ShipmentApprovalsApiPayload;
   if (!response.ok) {
@@ -204,6 +195,8 @@ export default function ShipmentApprovalsPage() {
       setOrdersById(payload.ordersById ?? {});
       setTransportNotesByRequestId(payload.transportNotesByRequestId ?? {});
     } catch (error) {
+      setViewerRole(null);
+      setViewerUserId(null);
       setErr(getErrorMessage(error, "ໂຫຼດຄຳຂໍຈັດສົ່ງບໍ່ສຳເລັດ"));
     } finally {
       setLoading(false);
@@ -600,7 +593,14 @@ export default function ShipmentApprovalsPage() {
         </Link>
       </div>
 
-      {err ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">ຂໍ້ຜິດພາດ: {err}</div> : null}
+      {err ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">
+          <span>ຂໍ້ຜິດພາດ: {err}</span>
+          <button type="button" onClick={() => void load()} disabled={loading} className="rounded-lg border border-rose-200 bg-white px-3 py-2 font-bold disabled:opacity-50">
+            ລອງໃໝ່
+          </button>
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px,1fr]">

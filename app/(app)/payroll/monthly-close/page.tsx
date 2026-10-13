@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { CalendarRange, Lock, Unlock } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { calculatePayroll, formatKip, payrollMonthOptions, type PayrollEmployee } from "@/lib/payroll-demo";
+import { calculatePayroll, formatKip, payrollMonthOptions } from "@/lib/payroll-demo";
+
+import { payrollHistoryError, payrollHistoryMonthOptions, payrollRunRows, payrollToday } from "@/lib/payroll-history";
+import { usePayrollHistory, usePayrollMonth } from "@/lib/use-payroll-history";
 
 const closeSteps = [
   "ກວດເວລາເຮັດວຽກ ແລະ ຂໍ້ມູນຂາດ-ລາ",
@@ -14,62 +18,52 @@ const closeSteps = [
 ];
 
 export default function PayrollMonthlyClosePage() {
-  const [selectedMonth, setSelectedMonth] = useState(payrollMonthOptions[0]?.value ?? "");
-  const [locked, setLocked] = useState(false);
-  const [employees, setEmployees] = useState<PayrollEmployee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = usePayrollMonth();
+  const history = usePayrollHistory(selectedMonth, undefined, true);
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [paymentDate, setPaymentDate] = useState(payrollToday);
+  const locked = history.data?.period?.status === "closed";
+  const loading = history.loading;
+  const errorMessage = history.error || actionError;
+  const monthOptions = payrollHistoryMonthOptions(payrollMonthOptions, history.periods, selectedMonth);
+  const selectedMonthMeta = monthOptions.find((month) => month.value === selectedMonth) ?? payrollMonthOptions[0];
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      void (async () => {
-        setLoading(true);
-        setErrorMessage(null);
-        const { data, error } = await supabase
-          .from("payroll_employees")
-          .select("*")
-          .eq("is_active", true)
-          .order("full_name", { ascending: true });
+  const draftEmployees = history.data?.period?.draft_employees ?? history.data?.templates ?? [];
+  const employeeRows = useMemo(() => !history.data ? [] : locked ? payrollRunRows(history.data.run)
+    : draftEmployees.filter((employee) => employee.is_active).map(calculatePayroll), [history.data, locked, draftEmployees]);
+  const summary = useMemo(() => employeeRows.reduce((acc, employee) => ({
+    employeeCount: acc.employeeCount + 1, netSalary: acc.netSalary + employee.netSalary,
+    totalDeduction: acc.totalDeduction + employee.totalDeduction,
+  }), { employeeCount: 0, netSalary: 0, totalDeduction: 0 }), [employeeRows]);
 
-        if (error) {
-          setEmployees([]);
-          setLoading(false);
-          setErrorMessage(error.message);
-          return;
-        }
-
-        setEmployees((data ?? []) as PayrollEmployee[]);
-        setLoading(false);
-      })();
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  const employeeRows = useMemo(() => employees.map(calculatePayroll), [employees]);
-  const selectedMonthMeta = useMemo(
-    () => payrollMonthOptions.find((item) => item.value === selectedMonth) ?? payrollMonthOptions[0],
-    [selectedMonth]
-  );
-
-  const summary = useMemo(() => {
-    const netSalary = employeeRows.reduce((sum, employee) => sum + employee.netSalary, 0);
-    const totalDeduction = employeeRows.reduce((sum, employee) => sum + employee.totalDeduction, 0);
-    return { employeeCount: employeeRows.length, netSalary, totalDeduction };
-  }, [employeeRows]);
-
-  const handleCloseMonth = () => {
-    if (employeeRows.length === 0) {
-      toast.error("ຍັງບໍ່ມີພະນັກງານໃນລະບົບ");
-      return;
-    }
-    setLocked(true);
-    toast.success(`ປິດຍອດ ${selectedMonthMeta.label} ສຳເລັດແລ້ວ`);
+  const handleCloseMonth = async () => {
+    if (loading || saving || history.error || !history.data) return;
+    if (!employeeRows.length) { toast.error("ຍັງບໍ່ມີພະນັກງານທີ່ເປີດໃຊ້"); return; }
+    if (!paymentDate) { toast.error("ກະລຸນາເລືອກວັນຈ່າຍ"); return; }
+    if (!window.confirm(`ປິດຍອດ ${selectedMonthMeta.label} ຈຳນວນ ${employeeRows.length} ຄົນ, ຮັບສຸດທິ ${formatKip(summary.netSalary)}? ລະບົບຈະເກັບສຳເນົາໄວ້ໃນລາຍງານ.`)) return;
+    setSaving(true);
+    setActionError(null);
+    try {
+      const { error } = await supabase.rpc("close_payroll_month", { p_month_key: selectedMonth, p_payment_date: paymentDate, p_expected_employees: draftEmployees });
+      if (error) throw error;
+      toast.success(`ບັນທຶກປິດຍອດ ${selectedMonthMeta.label} ແລ້ວ`);
+      history.refresh();
+    } catch (error) { setActionError(payrollHistoryError(error)); }
+    finally { setSaving(false); }
   };
-
-  const handleReopen = () => {
-    setLocked(false);
-    toast("ເປີດເດືອນນີ້ໃຫ້ແກ້ໄຂໄດ້ອີກຄັ້ງ");
+  const handleReopen = async () => {
+    if (loading || saving || !locked) return;
+    if (!window.confirm(`ເປີດ ${selectedMonthMeta.label} ເພື່ອແກ້ໄຂ? ສຳເນົາເກົ່າຈະຍັງຢູ່; ປິດຍອດຄັ້ງຕໍ່ໄປຈະສ້າງສຳເນົາໃໝ່.`)) return;
+    setSaving(true);
+    setActionError(null);
+    try {
+      const { error } = await supabase.rpc("reopen_payroll_month", { p_month_key: selectedMonth });
+      if (error) throw error;
+      toast.success("ເປີດເດືອນນີ້ອີກຄັ້ງແລ້ວ");
+      history.refresh();
+    } catch (error) { setActionError(payrollHistoryError(error)); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -78,17 +72,19 @@ export default function PayrollMonthlyClosePage() {
         <div>
           <h1 className="text-2xl font-black text-slate-900">ປິດຍອດເງິນເດືອນພະນັກງານ</h1>
           <p className="mt-1 text-sm font-medium text-slate-500">
-            ສ່ວນນີ້ແມ່ນສຳລັບ `ປິດຍອດເງິນເດືອນ` ຂອງພະນັກງານ ບໍ່ແມ່ນປິດຍອດຂາຍ-ກຳໄລ
+            ບັນທຶກວັນຈ່າຍ ແລະເກັບສຳເນົາເງິນເດືອນຂອງເດືອນນີ້ໄວ້ສຳລັບລາຍງານຍ້ອນຫຼັງ
           </p>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <select
             value={selectedMonth}
-            onChange={(event) => setSelectedMonth(event.target.value)}
+            onChange={(event) => { setSelectedMonth(event.target.value); setActionError(null); }}
+            disabled={saving}
+            aria-label="ເດືອນເງິນເດືອນ"
             className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-400"
           >
-            {payrollMonthOptions.map((month) => (
+            {monthOptions.map((month) => (
               <option key={month.value} value={month.value}>
                 {month.label}
               </option>
@@ -97,7 +93,8 @@ export default function PayrollMonthlyClosePage() {
 
           {locked ? (
             <button
-              onClick={handleReopen}
+              onClick={() => void handleReopen()}
+              disabled={loading || saving || Boolean(history.error)}
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
             >
               <Unlock size={16} />
@@ -105,15 +102,22 @@ export default function PayrollMonthlyClosePage() {
             </button>
           ) : (
             <button
-              onClick={handleCloseMonth}
+              onClick={() => void handleCloseMonth()}
+              disabled={loading || saving || Boolean(history.error) || employeeRows.length === 0}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800"
             >
               <Lock size={16} />
-              ຢືນຢັນປິດຍອດ
+              {saving ? "ກຳລັງບັນທຶກ..." : "ຢືນຢັນປິດຍອດ"}
             </button>
           )}
         </div>
       </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <label className="text-sm font-bold text-slate-700">ວັນຈ່າຍ <input type="date" value={locked ? history.data?.run?.payment_date ?? "" : paymentDate} onChange={(event) => setPaymentDate(event.target.value)} disabled={locked || saving || loading} className="ml-3 rounded-xl border border-slate-200 px-3 py-2" /></label>
+        <div className="flex gap-4 text-sm font-bold"><Link href={`/payroll?month=${selectedMonth}`} className="text-slate-700 hover:underline">ແກ້ໄຂເງິນເດືອນ</Link><Link href={`/reports/payroll?month=${selectedMonth}`} className="text-emerald-700 hover:underline">ເບິ່ງປະຫວັດລາຍເດືອນ</Link><button onClick={() => { setActionError(null); history.refresh(); }} disabled={saving} className="text-slate-600">ໂຫຼດຄືນ</button></div>
+      </div>
+      {history.data?.run && <p className="rounded-2xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">ສຳເນົາ {history.data.run.revision} · ວັນຈ່າຍ {history.data.run.payment_date} · ປິດຍອດໂດຍ {history.data.run.closed_by_name}{!locked ? " · ເປີດແກ້ໄຂຢູ່; ສຳເນົາເກົ່າຍັງຢູ່ໃນລາຍງານ" : ""}</p>}
 
       {errorMessage ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-700">
@@ -137,7 +141,7 @@ export default function PayrollMonthlyClosePage() {
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           <div className="text-sm font-bold text-slate-500">ສະຖານະເດືອນ</div>
           <div className="mt-2 text-lg font-black text-slate-900">
-            {locked || selectedMonthMeta.status === "closed" ? "ປິດຍອດແລ້ວ" : "ຍັງບໍ່ປິດຍອດ"}
+            {loading ? "ກຳລັງໂຫຼດ..." : locked ? "ປິດຍອດແລ້ວ" : "ຍັງບໍ່ປິດຍອດ"}
           </div>
         </div>
       </div>
@@ -172,7 +176,7 @@ export default function PayrollMonthlyClosePage() {
         <div className="rounded-3xl border border-slate-100 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
             <div>
-              <h2 className="text-lg font-black text-slate-900">ລາຍການກ່ອນປິດເດືອນ</h2>
+              <h2 className="text-lg font-black text-slate-900">{locked ? "ລາຍການທີ່ປິດຍອດແລ້ວ" : "ລາຍການກ່ອນປິດເດືອນ"}</h2>
               <p className="text-sm font-medium text-slate-500">ກວດຄວາມພ້ອມຂອງພະນັກງານແຕ່ລະຄົນ</p>
             </div>
             <div className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-600">

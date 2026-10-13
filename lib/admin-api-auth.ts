@@ -48,18 +48,20 @@ export async function getActorFromAuthHeader(
 ): Promise<AdminActor | null> {
   if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) return null;
   const supabaseAdmin = getSupabaseAdmin();
-  const publicClient = getPublicClient();
-  if (!supabaseAdmin || !publicClient) return null;
+  if (!supabaseAdmin) return null;
 
   const token = authHeader.slice(7).trim();
   if (!token) return null;
 
   const { data: adminUserData, error: adminUserErr } = await supabaseAdmin.auth.getUser(token);
-  const { data: publicUserData, error: publicUserErr } =
-    adminUserData?.user || !publicClient ? { data: null, error: null } : await publicClient.auth.getUser(token);
-
-  const authUser = adminUserData?.user || publicUserData?.user || null;
-  if (adminUserErr && publicUserErr) return null;
+  let authUser = adminUserErr ? null : adminUserData?.user || null;
+  if (!authUser) {
+    const publicClient = getPublicClient();
+    if (publicClient) {
+      const { data, error } = await publicClient.auth.getUser(token);
+      if (!error) authUser = data?.user || null;
+    }
+  }
   if (!authUser) return null;
 
   const authEmail = String(authUser.email || "").trim().toLowerCase();

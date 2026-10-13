@@ -37,6 +37,7 @@ const ROUTE_RULES: RouteRule[] = [
   { prefix: "/payments", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/factory-payments", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/design-queue", roles: ["superadmin", "admin", "manager", "staff", "graphic"] },
+  { prefix: "/shirt-catalog", roles: ["superadmin", "admin", "manager"] },
   { prefix: "/factory-deposit-orders", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
   { prefix: "/factory-production-queue", roles: ["superadmin", "production"] },
   { prefix: "/order-alerts", roles: ["superadmin", "admin", "manager", "staff", "accountant"] },
@@ -83,6 +84,7 @@ export function getDefaultPathForRole(role: AppRole) {
 export function canAccessPath(pathname: string, role: AppRole, permissionSettings?: UserPermissionSettings | null) {
   const normalizedPath = normalizePathname(pathname);
   if (role === "superadmin") return true;
+  if (matchesPrefix(normalizedPath, "/shirt-catalog") && !["admin", "manager", "staff", "graphic"].includes(role)) return false;
   const accessKey = findAccessPermissionKey(normalizedPath);
 
   let baseAllowed = false;

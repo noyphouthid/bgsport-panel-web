@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AppRole } from "@/lib/access-control";
-import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
+import { getActorFromAuthHeader } from "@/lib/admin-api-auth";
 import type { ShipmentDeliveryRequestRow } from "@/lib/shipment-delivery-requests";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { isTransportNoteDeposited } from "@/lib/transport-notes";
@@ -74,9 +74,18 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const actor = await getAdminActorFromAuthHeader(req.headers.get("authorization"));
+  const actor = await getActorFromAuthHeader(req.headers.get("authorization"));
   if (!actor) {
-    return NextResponse.json({ error: "forbidden", message: "forbidden" }, { status: 403 });
+    return NextResponse.json(
+      { error: "no_session", message: "ກະລຸນາເຂົ້າລະບົບໃໝ່ ເພື່ອໂຫຼດຄຳຂໍຈັດສົ່ງ" },
+      { status: 401 }
+    );
+  }
+  if (actor.role !== "superadmin") {
+    return NextResponse.json(
+      { error: "forbidden", message: "ໜ້ານີ້ສະຫງວນໃຫ້ super admin ເທົ່ານັ້ນ" },
+      { status: 403 }
+    );
   }
 
   try {

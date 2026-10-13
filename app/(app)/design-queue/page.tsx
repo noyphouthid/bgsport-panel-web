@@ -190,12 +190,13 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const selectedTypeTemplate = typeTemplate || availableTypeOptions[0] || "";
   const canEditQueue = canEditWithPermissions(viewerPermissions, "design_queue", true);
   const isGraphicViewer = viewerRole === "graphic";
-  const canDeleteRows = canEditQueue && viewerRole !== "graphic";
-  const canAssignGraphic = canEditQueue && viewerRole !== "graphic";
+  const canManageQueue = viewerRole !== null && canEditQueue && !isGraphicViewer;
+  const canDeleteRows = canManageQueue;
+  const canAssignGraphic = canManageQueue;
   const isEditing = editingRowId !== null;
   const selectedGraphicUserId = canAssignGraphic ? graphicUserId : creatorUserId || "";
   const isCompletedView = statusView === "completed";
-  const showFormPanel = canEditQueue && (!isCompletedView || isEditing);
+  const showFormPanel = canManageQueue && (!isCompletedView || isEditing);
 
   const load = async () => {
     setLoading(true);
@@ -376,7 +377,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   };
 
   const startEdit = (row: DesignQueueRow) => {
-    if (!canEditQueue) return;
+    if (!canManageQueue) return;
     setEditingRowId(row.id);
     setQueueDate(row.queue_date);
     setTypeTemplate(row.type_code);
@@ -387,7 +388,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   };
 
   const handleSubmit = async () => {
-    if (!canEditQueue) {
+    if (!canManageQueue) {
       toast.error("ທ່ານບໍ່ມີສິດແກ້ໄຂຄິວອອກແບບ");
       return;
     }
@@ -901,15 +902,16 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex flex-wrap justify-end gap-2">
+                            {canManageQueue ? (
                               <button
                                 type="button"
                                 onClick={() => startEdit(row)}
-                                disabled={!canEditQueue}
                                 className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-700 transition hover:bg-sky-100"
                               >
-                              <Pencil size={14} />
-                              ແກ້ໄຂ
-                            </button>
+                                <Pencil size={14} />
+                                ແກ້ໄຂ
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => void toggleDesigned(row)}

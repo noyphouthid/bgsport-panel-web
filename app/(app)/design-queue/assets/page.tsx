@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import { Download, FileSpreadsheet, Images, Loader2, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
+import { canAccessPath } from "@/lib/access-control";
 import { GRAPHIC_ASSIGNABLE_ROLES } from "@/lib/role-groups";
 import { buildYearOptions, type MonthFilter } from "../../reports/_lib";
 import { canEditWithPermissions, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
@@ -654,6 +655,11 @@ export default function DesignQueueAssetsPage() {
                 {item.queue.notes ? <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">{item.queue.notes}</div> : null}
 
                 <div className="flex flex-wrap gap-2">
+                  {viewerRole && canAccessPath("/shirt-catalog", viewerRole, viewerPermissions) ? (
+                    <Link href={`/shirt-catalog?mockup=${item.mockup.id}`} className="inline-flex items-center gap-2 rounded-xl bg-amber-300 px-4 py-2.5 text-sm font-black text-black transition hover:bg-amber-200">
+                      ເພີ່ມໃສ່ໜ້າຮ້ານ
+                    </Link>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => setActiveQueue(toUploadTarget(item.queue))}

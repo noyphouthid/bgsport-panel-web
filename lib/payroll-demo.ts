@@ -44,7 +44,7 @@ function buildPayrollMonthOptions(referenceDate = new Date(), count = 12): Payro
     return {
       value: `${year}-${String(month).padStart(2, "0")}`,
       label: `ເດືອນ ${month} / ${year}`,
-      status: index === 0 ? "reviewing" : "closed",
+      status: "draft",
     };
   });
 }
@@ -56,20 +56,21 @@ export function createEmployeeCode(index: number) {
 }
 
 export function calculatePayroll(employee: PayrollEmployee): PayrollBreakdown {
-  const overtimePay = Number(employee.overtime_hours || 0) * Number(employee.overtime_rate || 0);
-  const grossIncome =
+  const roundMoney = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
+  const overtimePay = roundMoney(Number(employee.overtime_hours || 0) * Number(employee.overtime_rate || 0));
+  const grossIncome = roundMoney(
     Number(employee.base_salary || 0) +
     overtimePay +
     Number(employee.attendance_bonus || 0) +
     Number(employee.commission || 0) +
-    Number(employee.allowance || 0);
-  const totalDeduction =
+    Number(employee.allowance || 0));
+  const totalDeduction = roundMoney(
     Number(employee.late_penalty || 0) +
     Number(employee.leave_penalty || 0) +
     Number(employee.social_security || 0) +
     Number(employee.tax || 0) +
-    Number(employee.other_deduction || 0);
-  const netSalary = grossIncome - totalDeduction;
+    Number(employee.other_deduction || 0));
+  const netSalary = roundMoney(grossIncome - totalDeduction);
 
   let paymentStatus: PayrollBreakdown["paymentStatus"] = "ready";
   if (Number(employee.leave_penalty || 0) > 0 || Number(employee.late_penalty || 0) > 50000) {

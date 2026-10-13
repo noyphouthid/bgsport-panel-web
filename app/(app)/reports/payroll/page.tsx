@@ -1,18 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import * as XLSX from "xlsx";
 import { Download, FileDown, HandCoins, Printer, RefreshCw, Wallet } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import {
-  calculatePayroll,
   formatKip,
   payrollMonthOptions,
   type PayrollBreakdown,
-  type PayrollEmployee,
 } from "@/lib/payroll-demo";
 import { exportReportDocumentAsPdf, openReportPrintWindow } from "../_lib";
+
+import { payrollHistoryMonthOptions, payrollRunRows } from "@/lib/payroll-history";
+import { usePayrollHistory, usePayrollMonth } from "@/lib/use-payroll-history";
 
 type PayrollStatusFilter = "all" | PayrollBreakdown["paymentStatus"];
 
@@ -43,21 +43,23 @@ function paymentStatusClassName(status: PayrollBreakdown["paymentStatus"]) {
 }
 
 export default function PayrollReportPage() {
-  const [selectedMonth, setSelectedMonth] = useState(payrollMonthOptions[0]?.value ?? "");
+  const [selectedMonth, setSelectedMonth] = usePayrollMonth();
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const history = usePayrollHistory(selectedMonth, selectedRunId || undefined);
+  const monthOptions = payrollHistoryMonthOptions(payrollMonthOptions, history.periods, selectedMonth);
+  const loading = history.loading;
+  const err = history.error;
   const [statusFilter, setStatusFilter] = useState<PayrollStatusFilter>("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [rows, setRows] = useState<PayrollEmployee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
 
   const selectedMonthMeta = useMemo(
-    () => payrollMonthOptions.find((item) => item.value === selectedMonth) ?? payrollMonthOptions[0],
-    [selectedMonth]
+    () => payrollHistoryMonthOptions(payrollMonthOptions, history.periods, selectedMonth).find((item) => item.value === selectedMonth) ?? payrollMonthOptions[0],
+    [selectedMonth, history.periods]
   );
 
-  const employeeRows = useMemo(() => rows.map(calculatePayroll), [rows]);
+  const employeeRows = useMemo(() => payrollRunRows(history.data?.run ?? null), [history.data]);
   const departmentOptions = useMemo(
     () =>
       Array.from(
@@ -69,38 +71,6 @@ export default function PayrollReportPage() {
       ).sort((a, b) => a.localeCompare(b)),
     [employeeRows]
   );
-
-  const load = async () => {
-    setLoading(true);
-    setErr(null);
-
-    const { data, error } = await supabase
-      .from("payroll_employees")
-      .select("*")
-      .order("full_name", { ascending: true });
-
-    if (error) {
-      const tableMissing = error.message.includes("Could not find the table");
-      setRows([]);
-      setErr(
-        tableMissing
-          ? "ຍັງບໍ່ພົບຕາຕະລາງ payroll_employees ກະລຸນາລັນ migration 20260331_create_payroll_employees.sql ກ່ອນ"
-          : error.message
-      );
-      setLoading(false);
-      return;
-    }
-
-    setRows((data ?? []) as PayrollEmployee[]);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      void load();
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
 
   const filteredRows = useMemo(() => {
     return employeeRows.filter((employee) => {
@@ -141,13 +111,17 @@ export default function PayrollReportPage() {
     departmentFilter === "all" ? "ທັງໝົດ" : departmentFilter
   } | ສະຖານະ: ${
     statusFilter === "all" ? "ທັງໝົດ" : paymentStatusLabel(statusFilter)
-  } | ຄົ້ນຫາ: ${searchTerm || "-"}`;
+  } | ຄົ້ນຫາ: ${searchTerm || "-"} | ສຳເນົາ: ${history.data?.run?.revision ?? "-"} | ວັນຈ່າຍ: ${history.data?.run?.payment_date ?? "-"}`;
 
   const reportHeaders = [
     "ລະຫັດ",
     "ພະນັກງານ",
     "ພະແນກ",
     "ຕຳແໜ່ງ",
+    "ເງິນເດືອນ",
+    "ຊົ່ວໂມງ OT",
+    "OT / ຊົ່ວໂມງ",
+    "ເງິນ OT",
     "ລາຍຮັບລວມ",
     "ລາຍການຫັກ",
     "ເງິນສຸດທິ",
@@ -159,6 +133,10 @@ export default function PayrollReportPage() {
     employee.full_name,
     employee.department || "-",
     employee.position || "-",
+    Number(employee.base_salary).toLocaleString(),
+    String(employee.overtime_hours),
+    Number(employee.overtime_rate).toLocaleString(),
+    employee.overtimePay.toLocaleString(),
     String(employee.grossIncome.toLocaleString()),
     String(employee.totalDeduction.toLocaleString()),
     String(employee.netSalary.toLocaleString()),
@@ -167,13 +145,18 @@ export default function PayrollReportPage() {
 
   const exportExcel = () => {
     const output = filteredRows.map((employee) => ({
-      month: periodLabel,
+      month: selectedMonth,
+      revision: history.data?.run?.revision,
+      payment_date: history.data?.run?.payment_date,
+      closed_at: history.data?.run?.closed_at,
+      closed_by: history.data?.run?.closed_by_name,
       employee_code: employee.employee_code,
       full_name: employee.full_name,
       department: employee.department,
       position: employee.position,
       working_days: employee.working_days,
       overtime_hours: employee.overtime_hours,
+      overtime_rate: employee.overtime_rate,
       base_salary: employee.base_salary,
       overtime_pay: employee.overtimePay,
       attendance_bonus: employee.attendance_bonus,
@@ -194,7 +177,7 @@ export default function PayrollReportPage() {
     const ws = XLSX.utils.json_to_sheet(output);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "payroll_report");
-    XLSX.writeFile(wb, `payroll-report-${selectedMonth}.xlsx`);
+    XLSX.writeFile(wb, `payroll-report-${selectedMonth}-r${history.data?.run?.revision}.xlsx`);
   };
 
   const handlePrint = () => {
@@ -228,7 +211,7 @@ export default function PayrollReportPage() {
           headers: reportHeaders,
           rows: reportRows,
         },
-        `payroll-report-${selectedMonth}.pdf`
+        `payroll-report-${selectedMonth}-r${history.data?.run?.revision}.pdf`
       );
     } finally {
       setExportingPdf(false);
@@ -241,20 +224,20 @@ export default function PayrollReportPage() {
         <div>
           <h1 className="text-2xl font-black text-slate-900">ລາຍງານເງິນເດືອນພະນັກງານ</h1>
           <p className="mt-1 text-sm font-medium text-slate-500">
-            ສະຫຼຸບ payroll ລາຍເດືອນ, ພິມລາຍງານ, export Excel ແລະ PDF ໄດ້
+            ປະຫວັດເງິນເດືອນທີ່ປິດຍອດແລ້ວ ແຍກຕາມເດືອນ ແລະສຳເນົາ
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <Link
-            href="/payroll"
+            href={`/payroll?month=${selectedMonth}`}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
             <Wallet size={16} />
             ໄປໜ້າ payroll
           </Link>
           <button
-            onClick={() => void load()}
+            onClick={history.refresh}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
             <RefreshCw size={16} />
@@ -262,6 +245,7 @@ export default function PayrollReportPage() {
           </button>
           <button
             onClick={handlePrint}
+            disabled={loading || Boolean(err) || !filteredRows.length}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 transition hover:bg-slate-50"
           >
             <Printer size={16} />
@@ -269,7 +253,7 @@ export default function PayrollReportPage() {
           </button>
           <button
             onClick={() => void handleExportPdf()}
-            disabled={exportingPdf}
+            disabled={exportingPdf || loading || Boolean(err) || !filteredRows.length}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800 disabled:opacity-60"
           >
             <FileDown size={16} />
@@ -277,6 +261,7 @@ export default function PayrollReportPage() {
           </button>
           <button
             onClick={exportExcel}
+            disabled={loading || Boolean(err) || !filteredRows.length}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white transition hover:bg-emerald-700"
           >
             <Download size={16} />
@@ -289,14 +274,26 @@ export default function PayrollReportPage() {
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-700">{err}</div>
       ) : null}
 
+      {!loading && !err && <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
+        {history.data?.run ? <div><p className="font-black">{periodLabel} · ວັນຈ່າຍ {history.data.run.payment_date} · ປິດຍອດໂດຍ {history.data.run.closed_by_name}</p><p className="mt-1">{history.data.period?.status === "draft" ? "ເດືອນນີ້ເປີດແກ້ໄຂຢູ່; ລາຍງານນີ້ແມ່ນສຳເນົາທີ່ປິດຍອດກ່ອນໜ້າ." : "ຂໍ້ມູນຈາກສຳເນົາທີ່ບັນທຶກເມື່ອປິດຍອດ."}</p></div>
+        : <p className="font-bold">ເດືອນນີ້ຍັງບໍ່ມີປະຫວັດປິດຍອດເງິນເດືອນ.</p>}
+        <Link href={`/payroll/monthly-close?month=${selectedMonth}`} className="font-black underline">ໄປໜ້າປິດຍອດ</Link>
+      </div>}
+      {history.data?.runs.length ? <label className="flex flex-wrap items-center gap-3 text-sm font-bold text-slate-700">ສຳເນົາທີ່ປິດຍອດ
+        <select aria-label="ສຳເນົາເງິນເດືອນ" value={history.data.run?.id ?? ""} onChange={(event) => setSelectedRunId(event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+          {history.data.runs.map((run) => <option key={run.id} value={run.id}>ສຳເນົາ {run.revision} · ວັນຈ່າຍ {run.payment_date} · {run.closed_by_name}</option>)}
+        </select>
+      </label> : null}
+
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <select
             value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
+            onChange={(e) => { setSelectedRunId(""); setSelectedMonth(e.target.value); }}
+            aria-label="ເດືອນລາຍງານເງິນເດືອນ"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
           >
-            {payrollMonthOptions.map((month) => (
+            {monthOptions.map((month) => (
               <option key={month.value} value={month.value}>
                 {month.label}
               </option>
@@ -377,7 +374,7 @@ export default function PayrollReportPage() {
               {!loading && filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12 text-center text-sm font-bold text-slate-400">
-                    ບໍ່ພົບຂໍ້ມູນ payroll ຕາມເງື່ອນໄຂທີ່ເລືອກ
+                    {history.data?.run ? "ບໍ່ພົບຂໍ້ມູນຕາມເງື່ອນໄຂທີ່ເລືອກ" : "ຍັງບໍ່ມີລາຍການປິດຍອດສຳລັບເດືອນນີ້"}
                   </td>
                 </tr>
               ) : null}
@@ -395,6 +392,7 @@ export default function PayrollReportPage() {
                   <td className="px-5 py-4 font-semibold text-slate-700">
                     <div>{employee.working_days} ມື້</div>
                     <div className="text-xs text-slate-500">{employee.overtime_hours} ຊົ່ວໂມງ</div>
+                    <div className="mt-1 text-xs font-bold text-violet-700">{formatKip(employee.overtime_rate)} / ຊມ. = {formatKip(employee.overtimePay)}</div>
                   </td>
                   <td className="px-5 py-4 font-bold text-slate-700">{formatKip(employee.grossIncome)}</td>
                   <td className="px-5 py-4 font-bold text-rose-600">{formatKip(employee.totalDeduction)}</td>

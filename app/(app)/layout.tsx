@@ -71,6 +71,7 @@ const nav: NavItem[] = [
   { type: "link", href: "/order-alerts", label: "ແຈ້ງເຕືອນອໍເດີ", icon: BellRing },
   { type: "link", href: "/design-queue", label: "ຄິວອອກແບບ", icon: Palette },
   { type: "link", href: "/design-queue/assets", label: "ຄັງຮູບເສື້ອ", icon: Images },
+  { type: "link", href: "/shirt-catalog", label: "ເຜີຍແຜ່ແບບເສື້ອ", icon: Images },
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
   { type: "link", href: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", icon: Factory },

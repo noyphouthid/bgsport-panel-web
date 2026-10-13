@@ -176,6 +176,13 @@ export function MockupUploadModal({ canEdit, queue, viewerUserId, onClose, onUpd
     setDeletingId(item.id);
     try {
       if (item.file_path) {
+        const { data: inUse, error: usageError } = await supabase.rpc("shirt_catalog_media_in_use", {
+          p_bucket: ORDER_MEDIA_BUCKET,
+          p_path: item.file_path,
+        });
+        // Keep the existing library usable until the catalog migration is installed.
+        if (usageError && usageError.code !== "PGRST202") throw usageError;
+        if (inUse) throw new Error("ຮູບນີ້ຖືກໃຊ້ໃນໜ້າຮ້ານ. ເອົາຮູບອອກຈາກແບບໃນໜ້າເຜີຍແຜ່ກ່ອນລົບ.");
         const { error: storageError } = await supabase.storage.from(ORDER_MEDIA_BUCKET).remove([item.file_path]);
         if (storageError) throw storageError;
       }

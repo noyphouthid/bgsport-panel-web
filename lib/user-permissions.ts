@@ -6,6 +6,7 @@ export const ACCESS_PERMISSION_ITEMS = [
   { key: "/orders/new", label: "ສ້າງອໍເດີໃໝ່", group: "ອໍເດີ" },
   { key: "/quotations", label: "ໃບປະເມີນລາຄາ", group: "ອໍເດີ" },
   { key: "/design-queue", label: "ຄິວອອກແບບ", group: "ອໍເດີ" },
+  { key: "/shirt-catalog", label: "ເຜີຍແຜ່ແບບເສື້ອ", group: "ໜ້າຮ້ານ" },
   { key: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", group: "ອໍເດີ" },
   { key: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", group: "ອໍເດີ" },
   { key: "/inventory-qr", label: "ສ້າງ QR", group: "ຄັງ/ຂົນສົ່ງ" },
@@ -29,6 +30,7 @@ export const ACCESS_PERMISSION_ITEMS = [
 export const EDIT_PERMISSION_ITEMS = [
   { key: "orders", label: "ແກ້ໄຂອໍເດີ", description: "ບັນທຶກ, ປິດງານ, ລົບ, ແກ້ໄຂລາຍລະອຽດອໍເດີ" },
   { key: "design_queue", label: "ແກ້ໄຂຄິວອອກແບບ", description: "ເພີ່ມ, ແກ້ໄຂ, ລຶບ, ແລະ ຕິກສະຖານະຄິວ" },
+  { key: "shirt_catalog", label: "ເຜີຍແຜ່ແບບເສື້ອ", description: "ຈັດການແບບ, ລາຄາ Store ແລະ ການເຜີຍແຜ່ໜ້າຮ້ານ" },
   { key: "factory_deposit_orders", label: "ແກ້ໄຂການມັດຈຳສັ່ງຜະລິດ", description: "ບັນທຶກ ແລະ ແກ້ໄຂຂໍ້ມູນໃບມັດຈຳ" },
   { key: "factory_production_queue", label: "ແກ້ໄຂຄິວວາງຜະລິດ", description: "ມອບໝາຍຄິວ, ປ່ຽນສະຖານະວາງ Pattern, ແລະ ສົ່ງໂຮງງານ" },
 ] as const;
