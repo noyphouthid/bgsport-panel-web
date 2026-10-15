@@ -23,6 +23,7 @@ const STAFF_ALLOWED_PATHS = new Set([
   "/shipments/deposits",
   "/shipments/deposits/scan",
   "/shipments/notes",
+  "/shipments/transport-note",
   "/shipments/orders",
 ]);
 
