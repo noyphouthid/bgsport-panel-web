@@ -46,7 +46,7 @@ export default function QuotationsPage() {
       if (fromDate && row.quoteDate < fromDate) return false;
       if (toDate && row.quoteDate > toDate) return false;
       if (!keyword) return true;
-      return [row.quoteNo, row.customerName, row.customerPhone, row.customerWhatsapp, row.fabricName]
+      return [row.quoteNo, row.orderCode || "", row.customerName, row.customerPhone, row.customerWhatsapp, row.fabricName]
         .join(" ")
         .toLowerCase()
         .includes(keyword);
@@ -147,7 +147,7 @@ export default function QuotationsPage() {
                 filteredRows.map((row) => (
                   <tr key={row.id} className="transition-colors hover:bg-slate-50/60">
                     <td className="p-4 font-medium text-slate-700">{row.quoteDate}</td>
-                    <td className="p-4 font-black text-slate-900">{row.quoteNo}</td>
+                    <td className="p-4 font-black text-slate-900">{row.quoteNo}<div className="mt-1 text-xs text-slate-500">{row.orderCode}</div></td>
                     <td className="p-4">
                       <div className="font-bold text-slate-900">{row.customerName || "-"}</div>
                       <div className="mt-1 text-xs text-slate-500">{row.customerPhone || "-"}</div>

@@ -1,3 +1,4 @@
+import { getOrderWorkCategoryLabel } from "@/lib/order-work-category";
 import Image from "next/image";
 import bgSportLogo from "@/app/BGSPORTLOGO.png";
 import { getPantsItemsSummary, getPantsLineGross } from "@/lib/order-items";
@@ -88,6 +89,8 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
             <div className="mt-1 space-y-1 text-[12px]">
               <div>ວັນທີ: <span className="font-bold text-slate-900">{formatDate(draft.quoteDate)}</span></div>
               <div>ເລກທີ່: <span className="font-bold text-slate-900">{draft.quoteNo || "-"}</span></div>
+              <div>ອໍເດີ: <span className="font-bold text-slate-900">{draft.orderCode || "-"}</span></div>
+              <div>ປະເພດງານ: <span className="font-bold text-slate-900">{getOrderWorkCategoryLabel(draft.workCategory)}</span></div>
             </div>
           </div>
         </div>
@@ -95,7 +98,6 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
         <div className="grid grid-cols-2 gap-4 py-2 text-[11px]">
           <div className="space-y-1 leading-5">
             <div className="font-black text-sky-700">ຊ່ອງທາງຕິດຕໍ່</div>
-            <div className="text-slate-600">ລູກຄ້າ: {draft.customerName || "-"}</div>
             <div className="text-slate-600">ເບີໂທ: {draft.customerPhone || "-"}</div>
             <div className="text-slate-600">WhatsApp: {draft.customerWhatsapp || "-"}</div>
             <div className="text-slate-600">Facebook: {draft.customerFacebook || "-"}</div>

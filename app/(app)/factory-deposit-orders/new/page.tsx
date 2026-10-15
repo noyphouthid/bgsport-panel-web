@@ -1,5 +1,8 @@
 "use client";
 
+import { WorkCategoryField } from "../../orders/_components/work-category-field";
+import { getOrderWorkCategoryLabel, normalizeOrderWorkCategory, type OrderWorkCategory } from "@/lib/order-work-category";
+import { documentNumberHint, workflowErrorMessage } from "@/lib/queue-customers";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -68,6 +71,8 @@ type UserOption = {
 
 type DepositOrderRow = {
   id: string;
+  design_queue_entry_id?: string | null;
+  work_category?: OrderWorkCategory | null;
   quotation_draft_id: string | null;
   quotation_quote_no: string | null;
   quotation_snapshot?: unknown;
@@ -258,15 +263,6 @@ function getLocalDateInputValue() {
   return new Date(now.getTime() - timezoneOffset).toISOString().slice(0, 10);
 }
 
-function buildDepositNo() {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const min = String(now.getMinutes()).padStart(2, "0");
-  return `DPF${yy}-${mm}${dd}${hh}${min}`;
-}
 
 function formatMoney(value: number) {
   return `${Math.max(0, Number(value) || 0).toLocaleString()} ກີບ`;
@@ -780,11 +776,13 @@ export default function FactoryDepositOrderFormPage() {
 
   const [recordId, setRecordId] = useState<string | null>(null);
   const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
+  const [designQueueEntryId, setDesignQueueEntryId] = useState<string | null>(null);
+  const [workCategory, setWorkCategory] = useState<OrderWorkCategory | "">("");
   const [quotationDraftId, setQuotationDraftId] = useState<string | null>(draftId);
   const [quotationStatus, setQuotationStatus] = useState<QuotationDraftStatus>("draft");
   const [createdByUserId, setCreatedByUserId] = useState<string | null>(null);
   const [status, setStatus] = useState<FactoryDepositOrderStatus>("draft");
-  const [depositNo, setDepositNo] = useState(buildDepositNo());
+  const [depositNo, setDepositNo] = useState("");
   const [depositDate, setDepositDate] = useState(getLocalDateInputValue);
   const [orderCode, setOrderCode] = useState("");
   const [orderDate, setOrderDate] = useState(getLocalDateInputValue);
@@ -896,6 +894,8 @@ export default function FactoryDepositOrderFormPage() {
             typeof row.quotation_snapshot === "object" && row.quotation_snapshot
               ? (row.quotation_snapshot as Partial<QuotationDraft>)
               : null;
+          setDesignQueueEntryId(row.design_queue_entry_id || quotationSnapshot?.designQueueEntryId || null);
+          setWorkCategory(row.work_category || quotationSnapshot?.workCategory || "");
           setQuotationStatus(quotationSnapshot?.status || "draft");
           setCustomerName(row.customer_name || "");
           setCustomerPhone(row.customer_phone || "");
@@ -961,9 +961,11 @@ export default function FactoryDepositOrderFormPage() {
           if (draft) {
             setQuotationDraftId(draft.id || draftId);
             setQuotationStatus(draft.status);
+            setDesignQueueEntryId(draft.designQueueEntryId || null);
+            setWorkCategory(draft.workCategory || "");
             setQuotationQuoteNo(draft.quoteNo);
             setOrderDate(draft.quoteDate || getLocalDateInputValue());
-            setOrderCode((prev) => prev || draft.quoteNo || "");
+            setOrderCode(draft.orderCode || "");
             setCustomerName(draft.customerName);
             setCustomerPhone(draft.customerPhone);
             setCustomerWhatsapp(draft.customerWhatsapp);
@@ -1153,7 +1155,10 @@ export default function FactoryDepositOrderFormPage() {
 
   const buildQuotationDraft = (): QuotationDraft => ({
     id: quotationDraftId || draftId || undefined,
-    quoteNo: quotationQuoteNo || orderCode || depositNo,
+    designQueueEntryId,
+    orderCode,
+    workCategory: workCategory || null,
+    quoteNo: quotationQuoteNo,
     quoteDate: orderDate || depositDate,
     status: quotationStatus,
     createdByName: "",
@@ -1668,10 +1673,6 @@ export default function FactoryDepositOrderFormPage() {
       toast.error("ທ່ານບໍ່ມີສິດແກ້ໄຂໃບນີ້");
       return null;
     }
-    if (!depositNo.trim()) {
-      toast.error("ກະລຸນາປ້ອນເລກທີ່ໃບມັດຈຳ");
-      return null;
-    }
     if (!orderCode.trim()) {
       toast.error("ກະລຸນາປ້ອນລະຫັດອໍເດີ");
       return null;
@@ -1803,10 +1804,12 @@ export default function FactoryDepositOrderFormPage() {
         quotation_draft_id: quotationDraft.id || null,
         quotation_quote_no: (quotationDraft.quoteNo || quotationQuoteNo).trim() || null,
         quotation_snapshot: quotationDraft,
-        deposit_no: depositNo.trim(),
+        design_queue_entry_id: designQueueEntryId,
+        work_category: workCategory || null,
+        deposit_no: recordId ? depositNo.trim() : "",
         deposit_date: depositDate,
         order_code: orderCode.trim(),
-        order_date: depositDate,
+        order_date: orderDate || depositDate,
         status: nextStatus,
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
@@ -1870,16 +1873,18 @@ export default function FactoryDepositOrderFormPage() {
           if (legacyUpdateResult.error) throw legacyUpdateResult.error;
         }
       } else {
-        const insertResult = await supabase.from("factory_deposit_orders").insert(payload).select("id").single();
+        const insertResult = await supabase.from("factory_deposit_orders").insert(payload).select("id,deposit_no").single();
         if (insertResult.error) {
           if (!isMissingPantsItemsColumnError(insertResult.error)) throw insertResult.error;
           const legacyPayload: Record<string, unknown> = { ...payload };
           delete legacyPayload.pants_items;
-          const legacyInsertResult = await supabase.from("factory_deposit_orders").insert(legacyPayload).select("id").single();
+          const legacyInsertResult = await supabase.from("factory_deposit_orders").insert(legacyPayload).select("id,deposit_no").single();
           if (legacyInsertResult.error) throw legacyInsertResult.error;
           depositOrderId = legacyInsertResult.data.id as string;
+          setDepositNo(legacyInsertResult.data.deposit_no);
         } else {
           depositOrderId = insertResult.data.id as string;
+          setDepositNo(insertResult.data.deposit_no);
         }
         setRecordId(depositOrderId);
         setCreatedByUserId(createdByUserId || viewerUserId || null);
@@ -1939,7 +1944,7 @@ export default function FactoryDepositOrderFormPage() {
         uploadedPantsItems,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "ບັນທຶກບໍ່ສຳເລັດ";
+      const message = workflowErrorMessage(error);
       setErr(message);
       toast.error(message);
       return null;
@@ -1999,8 +2004,8 @@ export default function FactoryDepositOrderFormPage() {
     if (status !== "approved") return toast.error("ກະລຸນາອະນຸມັດກ່ອນ");
     if (!orderCode.trim()) return toast.error("ບໍ່ພົບລະຫັດອໍເດີ");
     if (!selectedFabric) return toast.error("ກະລຸນາເລືອກຜ້າ");
-    const workCategory = await confirmOrderWorkCategory(`${depositNo} -> ${orderCode}`);
-    if (!workCategory) return;
+    const selectedWorkCategory = normalizeOrderWorkCategory(workCategory) || await confirmOrderWorkCategory(`${depositNo} -> ${orderCode}`);
+    if (!selectedWorkCategory) return;
 
     setWorkingAction("convert");
     setErr(null);
@@ -2016,7 +2021,7 @@ export default function FactoryDepositOrderFormPage() {
       const orderPayload = {
         order_code: orderCode.trim(),
         order_date: depositDate,
-        work_category: workCategory,
+        work_category: selectedWorkCategory,
         customer_phone: customerPhone.trim() || null,
         customer_whatsapp: customerWhatsapp.trim() || null,
         factory_bill_code: factoryBillCode.trim() || null,
@@ -2308,6 +2313,7 @@ export default function FactoryDepositOrderFormPage() {
                 <input
                   value={quotationQuoteNo}
                   onChange={(e) => setQuotationQuoteNo(e.target.value)}
+                  readOnly={Boolean(quotationDraftId)}
                   disabled={!canEdit}
                   placeholder="ເລກທີ່ໃບປະເມີນລາຄາ"
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
@@ -2315,8 +2321,9 @@ export default function FactoryDepositOrderFormPage() {
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ລະຫັດໃບມັດຈຳ</label>
-                <input value={depositNo} onChange={(e) => setDepositNo(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+                <input value={depositNo} readOnly placeholder={documentNumberHint("DPF", depositDate)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
+              <WorkCategoryField value={workCategory} onChange={setWorkCategory} disabled={!canEdit} />
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຊື່ທີມ</label>
                 <input
@@ -2332,6 +2339,7 @@ export default function FactoryDepositOrderFormPage() {
                 <input
                   value={orderCode}
                   onChange={(e) => setOrderCode(e.target.value)}
+                  readOnly={Boolean(designQueueEntryId)}
                   disabled={!canEdit}
                   placeholder="ລະຫັດອໍເດີ"
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
@@ -2410,11 +2418,11 @@ export default function FactoryDepositOrderFormPage() {
               <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} disabled={!canEdit} placeholder="ເບີໂທ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               <input value={customerWhatsapp} onChange={(e) => setCustomerWhatsapp(e.target.value)} disabled={!canEdit} placeholder="WhatsApp" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               <input value={customerFacebook} onChange={(e) => setCustomerFacebook(e.target.value)} disabled={!canEdit} placeholder="Facebook" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
-              <select value={adminUserId} onChange={(e) => setAdminUserId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
+              <select aria-label="ແອັດມິນ" value={adminUserId} onChange={(e) => setAdminUserId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
                 <option value="">ເລືອກແອັດມິນ</option>
                 {adminOptions.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}
               </select>
-              <select value={graphicUserId} onChange={(e) => setGraphicUserId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
+              <select aria-label="ຜູ້ອອກແບບ" value={graphicUserId} onChange={(e) => setGraphicUserId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
                 <option value="">ເລືອກຜູ້ອອກແບບ</option>
                 {plannerOptions.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}
               </select>
@@ -3362,6 +3370,7 @@ export default function FactoryDepositOrderFormPage() {
                     <div className="text-[12px] font-black text-slate-700">ຊື່ທີມ:</div>
                     <div className="mt-1 text-[18px] font-black leading-tight text-slate-900">{teamName || "-"}</div>
                     <div className="mt-3 text-[15px] font-black text-slate-700">ລະຫັດອໍເດີ້: <span className="font-black text-sky-700">{orderCode || "-"}</span></div>
+                    <div className="mt-1 text-[12px] font-bold text-slate-700">ປະເພດງານ: {getOrderWorkCategoryLabel(workCategory)}</div>
                     <div className="mt-1 text-[15px] font-black text-slate-700">ຜ້າ: <span className="font-bold text-slate-900">{selectedFabric?.name || "-"}</span></div>
                     <div className="mt-1 text-[15px] font-black text-slate-700">
                       ຕີນເສື້ອ:{" "}
@@ -3393,7 +3402,7 @@ export default function FactoryDepositOrderFormPage() {
                       : "border-sky-200 bg-sky-50 text-slate-700"
                   }`}
                 >
-                  <span className="opacity-80">ປະເພດງານ:</span>{" "}
+                  <span className="opacity-80">ຄວາມຮີບດ່ວນ:</span>{" "}
                   <span className={productionPriority === "urgent" ? "text-red-600" : "text-sky-700"}>{priorityBannerText}</span>
                 </div>
 

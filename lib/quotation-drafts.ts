@@ -1,10 +1,15 @@
+import { workflowErrorMessage } from "@/lib/queue-customers";
 import { buildEmptyPantsOrderItem, parsePantsDraftItems, type PantsOrderItemDraft } from "@/lib/order-items";
+import type { OrderWorkCategory } from "@/lib/order-work-category";
 import { supabase } from "@/lib/supabase";
 
 export type QuotationDraftStatus = "draft" | "confirmed" | "cancelled";
 
 export type QuotationDraft = {
   id?: string;
+  designQueueEntryId?: string | null;
+  orderCode?: string;
+  workCategory?: OrderWorkCategory | null;
   quoteNo: string;
   quoteDate: string;
   status: QuotationDraftStatus;
@@ -49,6 +54,9 @@ type QuotationDraftDbRow = {
   id: string;
   created_by_user_id: string | null;
   created_by_name: string;
+  design_queue_entry_id: string | null;
+  order_code: string;
+  work_category: OrderWorkCategory | null;
   quote_no: string;
   quote_date: string;
   status: QuotationDraftStatus;
@@ -91,6 +99,9 @@ const QUOTATION_DRAFT_BASE_FIELDS = [
   "id",
   "created_by_user_id",
   "created_by_name",
+  "design_queue_entry_id",
+  "order_code",
+  "work_category",
   "quote_no",
   "quote_date",
   "status",
@@ -136,6 +147,9 @@ function mapRowToDraft(row: QuotationDraftDbRow): QuotationDraft {
     id: row.id,
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name || "",
+    designQueueEntryId: row.design_queue_entry_id || null,
+    orderCode: row.order_code || "",
+    workCategory: row.work_category || null,
     quoteNo: row.quote_no || "",
     quoteDate: row.quote_date || "",
     status: row.status || "draft",
@@ -201,13 +215,13 @@ async function getCurrentUserProfile() {
       .select("id,full_name,role")
       .eq("auth_user_id", authUserId)
       .maybeSingle();
-    if (error) throw error;
+    if (error) throw new Error(workflowErrorMessage(error));
     if (data) return data as { id: string; full_name: string; role: string };
   }
 
   if (email) {
     const { data, error } = await supabase.from("users").select("id,full_name,role").eq("email", email).maybeSingle();
-    if (error) throw error;
+    if (error) throw new Error(workflowErrorMessage(error));
     if (data) return data as { id: string; full_name: string; role: string };
   }
 
@@ -224,14 +238,14 @@ export async function getQuotationDrafts(): Promise<QuotationDraft[]> {
     return ((data ?? []) as unknown as QuotationDraftDbRow[]).map(mapRowToDraft);
   }
 
-  if (!isMissingPantsItemsColumnError(error)) throw error;
+  if (!isMissingPantsItemsColumnError(error)) throw new Error(workflowErrorMessage(error));
 
   const legacyResult = await supabase
     .from("quotation_drafts")
     .select(QUOTATION_DRAFT_BASE_SELECT)
     .order("updated_at", { ascending: false });
 
-  if (legacyResult.error) throw legacyResult.error;
+  if (legacyResult.error) throw new Error(workflowErrorMessage(legacyResult.error));
   return ((legacyResult.data ?? []) as unknown as Array<Omit<QuotationDraftDbRow, "pants_items">>).map(mapLegacyRowToDraft);
 }
 
@@ -247,7 +261,7 @@ export async function getQuotationDraftById(id: string) {
     return mapRowToDraft(data as unknown as QuotationDraftDbRow);
   }
 
-  if (!isMissingPantsItemsColumnError(error)) throw error;
+  if (!isMissingPantsItemsColumnError(error)) throw new Error(workflowErrorMessage(error));
 
   const legacyResult = await supabase
     .from("quotation_drafts")
@@ -255,7 +269,7 @@ export async function getQuotationDraftById(id: string) {
     .eq("id", id)
     .maybeSingle();
 
-  if (legacyResult.error) throw legacyResult.error;
+  if (legacyResult.error) throw new Error(workflowErrorMessage(legacyResult.error));
   if (!legacyResult.data) return null;
   return mapLegacyRowToDraft(legacyResult.data as unknown as Omit<QuotationDraftDbRow, "pants_items">);
 }
@@ -274,7 +288,7 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
       .eq("id", draft.id)
       .maybeSingle();
 
-    if (error) throw error;
+    if (error) throw new Error(workflowErrorMessage(error));
     existingMeta = (data as { created_by_user_id: string | null; created_by_name: string; created_at: string } | null) ?? null;
   }
 
@@ -282,7 +296,10 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     ...(draft.id ? { id: draft.id } : {}),
     created_by_user_id: existingMeta?.created_by_user_id || draft.createdByUserId || currentUser.id,
     created_by_name: existingMeta?.created_by_name || draft.createdByName || currentUser.full_name || "",
-    quote_no: draft.quoteNo,
+    design_queue_entry_id: draft.designQueueEntryId || null,
+    order_code: draft.orderCode || "",
+    work_category: draft.workCategory || null,
+    quote_no: draft.id ? draft.quoteNo : "",
     quote_date: draft.quoteDate,
     status: draft.status,
     customer_name: draft.customerName,
@@ -322,9 +339,10 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     updated_at: now,
   };
 
-  const { data, error } = await supabase
-    .from("quotation_drafts")
-    .upsert(payload, { onConflict: "id" })
+  const write = draft.id
+    ? supabase.from("quotation_drafts").update(payload).eq("id", draft.id)
+    : supabase.from("quotation_drafts").insert(payload);
+  const { data, error } = await write
     .select(QUOTATION_DRAFT_SELECT)
     .single();
 
@@ -332,21 +350,22 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     return mapRowToDraft(data as unknown as QuotationDraftDbRow);
   }
 
-  if (!isMissingPantsItemsColumnError(error)) throw error;
+  if (!isMissingPantsItemsColumnError(error)) throw new Error(workflowErrorMessage(error));
 
   const legacyPayload: Record<string, unknown> = { ...payload };
   delete legacyPayload.pants_items;
-  const legacyResult = await supabase
-    .from("quotation_drafts")
-    .upsert(legacyPayload, { onConflict: "id" })
+  const legacyWrite = draft.id
+    ? supabase.from("quotation_drafts").update(legacyPayload).eq("id", draft.id)
+    : supabase.from("quotation_drafts").insert(legacyPayload);
+  const legacyResult = await legacyWrite
     .select(QUOTATION_DRAFT_BASE_SELECT)
     .single();
 
-  if (legacyResult.error) throw legacyResult.error;
+  if (legacyResult.error) throw new Error(workflowErrorMessage(legacyResult.error));
   return mapLegacyRowToDraft(legacyResult.data as unknown as Omit<QuotationDraftDbRow, "pants_items">);
 }
 
 export async function deleteQuotationDraft(id: string) {
   const { error } = await supabase.from("quotation_drafts").delete().eq("id", id);
-  if (error) throw error;
+  if (error) throw new Error(workflowErrorMessage(error));
 }

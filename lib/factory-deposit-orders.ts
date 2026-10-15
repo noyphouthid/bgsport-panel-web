@@ -34,6 +34,8 @@ export type FactoryDepositOrderAction =
 
 export type FactoryDepositOrder = {
   id: string;
+  design_queue_entry_id?: string | null;
+  work_category?: import("@/lib/order-work-category").OrderWorkCategory | null;
   quotation_draft_id: string | null;
   quotation_quote_no: string | null;
   deposit_no: string;

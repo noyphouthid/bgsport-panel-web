@@ -1,5 +1,10 @@
-﻿"use client";
+"use client";
 
+import { flushSync } from "react-dom";
+import { QueueCustomerSearch } from "../../_components/queue-customer-search";
+import { WorkCategoryField } from "../../orders/_components/work-category-field";
+import { getOrderWorkCategoryLabel, type OrderWorkCategory } from "@/lib/order-work-category";
+import { documentNumberHint, queueDesignDeposit, queueOrderCode, type QueueCustomer } from "@/lib/queue-customers";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -63,15 +68,6 @@ const formatDate = (value: string) => {
   return date.toLocaleDateString("en-GB");
 };
 
-const buildQuoteNo = () => {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const min = String(now.getMinutes()).padStart(2, "0");
-  return `QTF${yy}-${mm}${dd}${hh}${min}`;
-};
 
 function CardTitle({ icon: Icon, title, subtitle }: { icon: typeof FileText; title: string; subtitle: string }) {
   return (
@@ -122,6 +118,11 @@ export default function NewQuotationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const draftId = searchParams.get("draftId");
+  const queueId = searchParams.get("queueId");
+  const [savedDraftId, setSavedDraftId] = useState<string | null>(draftId);
+  const [designQueueEntryId, setDesignQueueEntryId] = useState<string | null>(null);
+  const [orderCode, setOrderCode] = useState("");
+  const [workCategory, setWorkCategory] = useState<OrderWorkCategory | "">("");
   const pageRef = useRef<HTMLDivElement | null>(null);
 
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
@@ -129,7 +130,7 @@ export default function NewQuotationPage() {
   const [saving, setSaving] = useState(false);
   const [creatingDeposit, setCreatingDeposit] = useState(false);
 
-  const [quoteNo, setQuoteNo] = useState(buildQuoteNo());
+  const [quoteNo, setQuoteNo] = useState("");
   const [quoteDate, setQuoteDate] = useState(getLocalDateInputValue);
   const [status, setStatus] = useState<QuotationDraftStatus>("draft");
   const [createdByName, setCreatedByName] = useState("");
@@ -162,6 +163,17 @@ export default function NewQuotationPage() {
   const [paymentTerms, setPaymentTerms] = useState(DEFAULT_TERMS);
   const [notes, setNotes] = useState("");
   const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loadingFabrics });
+
+  function applyQueueCustomer(row: QueueCustomer) {
+    setDesignQueueEntryId(row.id);
+    setOrderCode(queueOrderCode(row));
+    setWorkCategory(row.work_category || "");
+    setCustomerName(row.customer_name || "");
+    setCustomerPhone(row.customer_phone || "");
+    setCustomerWhatsapp("");
+    setCustomerFacebook("");
+    setDesignDeposit(queueDesignDeposit(row));
+  }
 
   useEffect(() => {
     const loadData = async () => {
@@ -196,6 +208,10 @@ export default function NewQuotationPage() {
       if (draftId) {
         const draft = await getQuotationDraftById(draftId);
         if (draft) {
+          setSavedDraftId(draft.id || draftId);
+          setDesignQueueEntryId(draft.designQueueEntryId || null);
+          setOrderCode(draft.orderCode || "");
+          setWorkCategory(draft.workCategory || "");
           setQuoteNo(draft.quoteNo);
           setQuoteDate(draft.quoteDate);
           setStatus(draft.status);
@@ -229,11 +245,17 @@ export default function NewQuotationPage() {
         }
       }
 
+      if (!draftId && queueId) {
+        const { data, error } = await supabase.from("design_queue_entries")
+          .select("id,queue_number,type_code,order_no,customer_name,customer_phone,work_category,design_payment_type,design_deposit_amount").eq("id", queueId).single();
+        if (error) toast.error(`ໂຫຼດຂໍ້ມູນຄິວບໍ່ສຳເລັດ: ${error.message}`);
+        else applyQueueCustomer(data as QueueCustomer);
+      }
       setLoadingFabrics(false);
     };
 
-    void loadData();
-  }, [draftId]);
+    void loadData().catch((error) => { toast.error(error?.message || "ໂຫຼດຂໍ້ມູນບໍ່ສຳເລັດ"); setLoadingFabrics(false); });
+  }, [draftId, queueId]);
 
   const selectedFabric = useMemo(() => fabrics.find((item) => item.id === fabricId) ?? null, [fabrics, fabricId]);
   const billableQty = useMemo(() => Math.max(0, shortQty) + Math.max(0, longQty), [shortQty, longQty]);
@@ -276,7 +298,11 @@ export default function NewQuotationPage() {
   );
 
   const resetForm = () => {
-    setQuoteNo(buildQuoteNo());
+    setSavedDraftId(null);
+    setDesignQueueEntryId(null);
+    setOrderCode("");
+    setWorkCategory("");
+    setQuoteNo("");
     setQuoteDate(getLocalDateInputValue());
     setStatus("draft");
     setCustomerName("");
@@ -322,7 +348,10 @@ export default function NewQuotationPage() {
   };
 
   const buildDraft = (): QuotationDraft => ({
-    id: draftId || undefined,
+    id: savedDraftId || undefined,
+    designQueueEntryId,
+    orderCode,
+    workCategory: workCategory || null,
     quoteNo,
     quoteDate,
     status,
@@ -362,29 +391,31 @@ export default function NewQuotationPage() {
     updatedAt: new Date().toISOString(),
   });
 
-  const handleSaveDraft = async () => {
-    if (!quoteNo.trim()) {
-      toast.error("ກະລຸນາປ້ອນເລກທີ່ໃບປະເມີນ");
-      return;
-    }
+  const validateDraft = () => {
+    if (!quoteDate) { toast.error("ກະລຸນາເລືອກວັນທີ"); return false; }
     if (!selectedFabric) {
       toast.error("ກະລຸນາເລືອກຜ້າ");
-      return;
+      return false;
     }
     for (const item of pantsItems) {
       if (getPantsTotalQty(item) <= 0) {
         toast.error("ລາຍການໂສ້ງແຕ່ລະອັນຕ້ອງມີຈຳນວນຫຼາຍກວ່າ 0");
-        return;
+        return false;
       }
       if (!item.fabricId) {
         toast.error("ກະລຸນາເລືອກຜ້າໃຫ້ລາຍການໂສ້ງ");
-        return;
+        return false;
       }
       if ((Number(item.unitPrice) || 0) <= 0) {
         toast.error("ກະລຸນາປ້ອນລາຄາຂາຍຂອງລາຍການໂສ້ງ");
-        return;
+        return false;
       }
     }
+    return true;
+  };
+
+  const handleSaveDraft = async () => {
+    if (!validateDraft()) return;
     setSaving(true);
     try {
       await saveQuotationDraft(buildDraft());
@@ -400,29 +431,7 @@ export default function NewQuotationPage() {
   };
 
   const handleCreateDepositOrder = async () => {
-    if (!quoteNo.trim()) {
-      toast.error("ກະລຸນາປ້ອນເລກທີ່ໃບປະເມີນ");
-      return;
-    }
-    if (!selectedFabric) {
-      toast.error("ກະລຸນາເລືອກຜ້າ");
-      return;
-    }
-    for (const item of pantsItems) {
-      if (getPantsTotalQty(item) <= 0) {
-        toast.error("ລາຍການໂສ້ງແຕ່ລະອັນຕ້ອງມີຈຳນວນຫຼາຍກວ່າ 0");
-        return;
-      }
-      if (!item.fabricId) {
-        toast.error("ກະລຸນາເລືອກຜ້າໃຫ້ລາຍການໂສ້ງ");
-        return;
-      }
-      if ((Number(item.unitPrice) || 0) <= 0) {
-        toast.error("ກະລຸນາປ້ອນລາຄາຂາຍຂອງລາຍການໂສ້ງ");
-        return;
-      }
-    }
-
+    if (!validateDraft()) return;
     setCreatingDeposit(true);
     try {
       const savedDraft = await saveQuotationDraft(buildDraft());
@@ -437,8 +446,16 @@ export default function NewQuotationPage() {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    if (!validateDraft()) return;
+    setSaving(true);
+    try {
+      const draft = await saveQuotationDraft(buildDraft());
+      flushSync(() => { setSavedDraftId(draft.id || null); setQuoteNo(draft.quoteNo); });
+      markClean();
+      window.print();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "ບັນທຶກກ່ອນພິມບໍ່ສຳເລັດ"); }
+    finally { setSaving(false); }
   };
 
   const previewRows = [
@@ -519,7 +536,7 @@ export default function NewQuotationPage() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleSaveDraft}
-            disabled={saving || creatingDeposit}
+            disabled={saving || creatingDeposit || loadingFabrics}
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Save size={16} />
@@ -527,7 +544,7 @@ export default function NewQuotationPage() {
           </button>
           <button
             onClick={handleCreateDepositOrder}
-            disabled={saving || creatingDeposit}
+            disabled={saving || creatingDeposit || loadingFabrics}
             className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <ReceiptText size={16} />
@@ -535,6 +552,7 @@ export default function NewQuotationPage() {
           </button>
           <button
             onClick={handlePrint}
+            disabled={saving || creatingDeposit || loadingFabrics}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
           >
             <Printer size={16} />
@@ -554,7 +572,8 @@ export default function NewQuotationPage() {
               </div>
               <div>
                 <FieldLabel>ເລກທີ່ໃບປະເມີນ</FieldLabel>
-                <input value={quoteNo} onChange={(e) => setQuoteNo(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100" />
+                <input value={quoteNo} readOnly placeholder={documentNumberHint("QT", quoteDate)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100" />
+                {!quoteNo && <p className="mt-1 text-xs text-slate-500">ເລກຈິງຈະສ້າງອັດຕະໂນມັດຕອນບັນທຶກ</p>}
               </div>
               <div>
                 <FieldLabel>ຜູ້ອອກໃບປະເມີນ</FieldLabel>
@@ -573,7 +592,16 @@ export default function NewQuotationPage() {
 
           <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <CardTitle icon={FileText} title="ລູກຄ້າ" subtitle="ຂໍ້ມູນລູກຄ້າ ແລະ ຊ່ອງທາງຕິດຕໍ່" />
+            <QueueCustomerSearch onSelect={applyQueueCustomer} disabled={saving || creatingDeposit || loadingFabrics} />
+            {designQueueEntryId && <div className="mb-4 flex items-center justify-between gap-3 text-sm font-bold text-sky-800">
+              <span>ຄິວທີ່ເລືອກ: {orderCode}</span>
+              <button type="button" onClick={() => { setDesignQueueEntryId(null); setDesignDeposit(0); setOrderCode(""); setWorkCategory(""); setCustomerName(""); setCustomerPhone(""); setCustomerWhatsapp(""); setCustomerFacebook(""); }} className="underline">ຍົກເລີກການເຊື່ອມ</button>
+            </div>}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div><FieldLabel>ລະຫັດອໍເດີ</FieldLabel><input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} readOnly={Boolean(designQueueEntryId)} placeholder="ເລືອກຈາກຄິວ ຫຼື ປ້ອນລະຫັດ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold" /></div>
+              <WorkCategoryField value={workCategory} onChange={setWorkCategory} disabled={Boolean(designQueueEntryId && workCategory)} />
+              <div><label htmlFor="quote-customer-name" className="mb-1.5 block text-xs font-bold text-slate-600">ຊື່ລູກຄ້າ</label><input id="quote-customer-name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" /></div>
+              <div><label htmlFor="quote-customer-phone" className="mb-1.5 block text-xs font-bold text-slate-600">ເບີໂທ</label><input id="quote-customer-phone" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" /></div>
              
               <div>
                 <FieldLabel>WhatsApp</FieldLabel>
@@ -745,7 +773,11 @@ export default function NewQuotationPage() {
           <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
             <CardTitle icon={ReceiptText} title="ສະຫຼຸບ" subtitle="ຫັກຄ່າແບບ, ສ່ວນຫຼຸດ ແລະ ມັດຈຳ" />
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div><FieldLabel>ຫັກຄ່າແບບ</FieldLabel><NumberField value={designDeposit} onChange={setDesignDeposit} /></div>
+              <div>
+                <label htmlFor="quote-design-deposit" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-600">ຫັກຄ່າແບບ</label>
+                <input id="quote-design-deposit" type="number" min={0} step="0.01" value={designDeposit > 0 ? designDeposit : ""} onChange={(event) => setDesignDeposit(Number(event.target.value))} readOnly={Boolean(designQueueEntryId)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-sky-400 read-only:bg-slate-50" />
+                {designQueueEntryId && <p className="mt-1 text-xs text-slate-500">{designDeposit > 0 ? "ດຶງຈາກເງິນມັດຈຳເຂົ້າຄິວອອກແບບ" : "ບໍ່ມີເງິນມັດຈຳຄ່າແບບ"}</p>}
+              </div>
               <div><FieldLabel>ສ່ວນຫຼຸດ</FieldLabel><NumberField value={discount} onChange={setDiscount} /></div>
               <div><FieldLabel>ມັດຈຳກ່ອນ</FieldLabel><NumberField value={deposit} onChange={setDeposit} /></div>
             </div>
@@ -804,11 +836,11 @@ export default function NewQuotationPage() {
                 />
               </div>
               <div className="flex gap-2">
-                <button onClick={handleSaveDraft} disabled={saving || creatingDeposit} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:opacity-60">
+                <button onClick={handleSaveDraft} disabled={saving || creatingDeposit || loadingFabrics} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:opacity-60">
                   <Save size={16} />
                   ບັນທຶກຮ່າງ
                 </button>
-                <button onClick={handleCreateDepositOrder} disabled={saving || creatingDeposit} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-sky-700 disabled:opacity-60">
+                <button onClick={handleCreateDepositOrder} disabled={saving || creatingDeposit || loadingFabrics} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-sky-700 disabled:opacity-60">
                   <ReceiptText size={16} />
                   ສ້າງໃບມັດຈຳ
                 </button>
@@ -852,7 +884,9 @@ export default function NewQuotationPage() {
                     <div className="text-[19px] font-black tracking-tight text-sky-700">ໃບປະເມີນລາຄາ</div>
                     <div className="mt-1 space-y-1 text-[12px]">
                       <div>ວັນທີ: <span className="font-bold text-slate-900">{formatDate(quoteDate)}</span></div>
-                      <div>ເລກທີ່: <span className="font-bold text-slate-900">{quoteNo || "-"}</span></div>
+                      <div>ເລກທີ່: <span className="font-bold text-slate-900">{quoteNo || documentNumberHint("QT", quoteDate)}</span></div>
+                      <div>ອໍເດີ: <span className="font-bold text-slate-900">{orderCode || "-"}</span></div>
+                      <div>ປະເພດງານ: <span className="font-bold text-slate-900">{getOrderWorkCategoryLabel(workCategory)}</span></div>
                     </div>
                   </div>
                 </div>
@@ -860,6 +894,7 @@ export default function NewQuotationPage() {
                 <div className="grid grid-cols-2 gap-4 py-2 text-[11px]">
                   <div className="space-y-1 leading-5">
                     <div className="font-black text-sky-700">ຊ່ອງທາງຕິດຕໍ່</div>
+                    <div className="text-slate-600">ເບີໂທ: {customerPhone || "-"}</div>
                     <div className="text-slate-600">WhatsApp: {customerWhatsapp || "-"}</div>
                     <div className="text-slate-600">Facebook: {customerFacebook || "-"}</div>
                   </div>

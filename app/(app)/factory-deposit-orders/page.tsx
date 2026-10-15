@@ -13,6 +13,7 @@ import {
   parsePantsDraftItems,
 } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
+import { normalizeOrderWorkCategory } from "@/lib/order-work-category";
 import { confirmOrderWorkCategory } from "@/lib/order-work-category-dialog";
 import { sortProductionPlayerRowsBySize } from "@/lib/production-player-rows";
 import type { AppRole } from "@/lib/access-control";
@@ -30,6 +31,7 @@ import { QuotationA5Preview } from "../_components/quotation-a5-preview";
 import { getQuotationDraftById, type QuotationDraft } from "@/lib/quotation-drafts";
 
 type DepositRow = {
+  work_category?: string | null;
   id: string;
   quotation_draft_id?: string | null;
   deposit_no: string;
@@ -670,7 +672,7 @@ export default function FactoryDepositOrdersPage() {
     if (row.order_id) return toast.error("ລາຍການນີ້ຖືກບັນທຶກເປັນອໍເດີແລ້ວ");
     if (!row.order_code?.trim()) return toast.error("ບໍ່ພົບລະຫັດອໍເດີ");
 
-    const workCategory = await confirmOrderWorkCategory(`${row.deposit_no} -> ${row.order_code}`);
+    const workCategory = normalizeOrderWorkCategory(row.work_category) || await confirmOrderWorkCategory(`${row.deposit_no} -> ${row.order_code}`);
     if (!workCategory) return;
 
     setWorkingId(row.id);

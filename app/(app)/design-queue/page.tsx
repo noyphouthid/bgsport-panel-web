@@ -1,6 +1,9 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
+import { WorkCategoryField } from "../orders/_components/work-category-field";
+import { getOrderWorkCategoryLabel, type OrderWorkCategory } from "@/lib/order-work-category";
+import { queueDesignDeposit, workflowErrorMessage, type DesignPaymentType } from "@/lib/queue-customers";
 import Link from "next/link";
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -25,8 +28,12 @@ type DesignQueueRow = {
   order_sequence: number;
   order_no: string;
   type_code: string;
+  customer_name: string;
+  work_category: OrderWorkCategory | null;
   customer_phone: string;
   style_name: string;
+  design_payment_type: DesignPaymentType | null;
+  design_deposit_amount: number | null;
   notes: string;
   is_designed: boolean;
   designed_at: string | null;
@@ -169,10 +176,14 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
 
   const [queueDate, setQueueDate] = useState(getLocalDateInputValue);
   const [typeTemplate, setTypeTemplate] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [workCategory, setWorkCategory] = useState<OrderWorkCategory | "">("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [styleName, setStyleName] = useState(NORMAL_WORK_TYPE);
   const [graphicUserId, setGraphicUserId] = useState("");
   const [notes, setNotes] = useState("");
+  const [designPaymentType, setDesignPaymentType] = useState<DesignPaymentType | "">("free");
+  const [designDepositAmount, setDesignDepositAmount] = useState("");
 
   const [monthFilter, setMonthFilter] = useState<MonthFilter>(today.getMonth() + 1);
   const [yearFilter, setYearFilter] = useState(today.getFullYear());
@@ -205,7 +216,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     let queueQuery = supabase
       .from("design_queue_entries")
       .select(
-        "id,queue_date,queue_year,queue_month,queue_sequence,queue_number,order_sequence,order_no,type_code,customer_phone,style_name,notes,is_designed,designed_at,graphic_user_id,created_by_user_id,created_at,updated_at"
+        "id,queue_date,queue_year,queue_month,queue_sequence,queue_number,order_sequence,order_no,type_code,customer_name,work_category,customer_phone,style_name,design_payment_type,design_deposit_amount,notes,is_designed,designed_at,graphic_user_id,created_by_user_id,created_at,updated_at"
       )
       .order("queue_date", { ascending: false })
       .order("created_at", { ascending: false });
@@ -222,7 +233,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
 
     if (queueResult.error) {
       setRows([]);
-      setErr(queueResult.error.message);
+      setErr(workflowErrorMessage(queueResult.error));
       setLoading(false);
       return;
     }
@@ -334,6 +345,8 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
         row.order_no,
         row.type_code,
         row.customer_phone,
+        row.customer_name,
+        getOrderWorkCategoryLabel(row.work_category),
         row.style_name,
         row.notes,
         row.graphic_user_id ? graphicNameMap.get(row.graphic_user_id) || "" : "",
@@ -369,9 +382,13 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const resetForm = () => {
     setEditingRowId(null);
     setCustomerPhone("");
+    setCustomerName("");
+    setWorkCategory("");
     setStyleName(NORMAL_WORK_TYPE);
     setGraphicUserId("");
     setNotes("");
+    setDesignPaymentType("free");
+    setDesignDepositAmount("");
     setQueueDate(getLocalDateInputValue());
     setTypeTemplate("");
   };
@@ -382,9 +399,13 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     setQueueDate(row.queue_date);
     setTypeTemplate(row.type_code);
     setCustomerPhone(row.customer_phone || "");
+    setCustomerName(row.customer_name || "");
+    setWorkCategory(row.work_category || "");
     setStyleName(row.style_name || NORMAL_WORK_TYPE);
     setGraphicUserId(row.graphic_user_id || "");
     setNotes(row.notes || "");
+    setDesignPaymentType(row.design_payment_type || "");
+    setDesignDepositAmount(queueDesignDeposit(row) > 0 ? String(queueDesignDeposit(row)) : "");
   };
 
   const handleSubmit = async () => {
@@ -402,6 +423,10 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       toast.error("ກະລຸນາປ້ອນເບີໂທ");
       return;
     }
+    if (!workCategory && !isEditing) {
+      toast.error("ກະລຸນາເລືອກປະເພດງານ");
+      return;
+    }
     if (!selectedGraphicUserId) {
       toast.error("ກະລຸນາເລືອກ Graphic");
       return;
@@ -411,6 +436,12 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       return;
     }
 
+    const receivedDeposit = Number(designDepositAmount);
+    if (designPaymentType === "deposit" && (!Number.isFinite(receivedDeposit) || receivedDeposit <= 0 || Math.round(receivedDeposit * 100) / 100 <= 0)) {
+      toast.error("ກະລຸນາປ້ອນຈຳນວນເງິນມັດຈຳທີ່ໄດ້ຮັບໃຫ້ຫຼາຍກວ່າ 0");
+      return;
+    }
+    const depositAmount = designPaymentType === "deposit" ? Math.round(receivedDeposit * 100) / 100 : null;
     setSaving(true);
 
     let error: { message: string } | null = null;
@@ -420,6 +451,10 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
         .from("design_queue_entries")
         .update({
           type_code: resolvedTypeCode,
+          customer_name: customerName.trim(),
+          work_category: workCategory || null,
+          design_payment_type: designPaymentType || null,
+          design_deposit_amount: depositAmount,
           customer_phone: customerPhone.trim(),
           style_name: styleName.trim(),
           notes: notes.trim(),
@@ -432,7 +467,10 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       const response = await supabase.rpc("create_design_queue_entry", {
         p_queue_date: queueDate,
         p_type_code: resolvedTypeCode,
-        p_customer_name: "",
+        p_customer_name: customerName,
+        p_work_category: workCategory || null,
+        p_design_payment_type: designPaymentType || null,
+        p_design_deposit_amount: depositAmount,
         p_customer_phone: customerPhone,
         p_style_name: styleName,
         p_notes: notes,
@@ -445,7 +483,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     setSaving(false);
 
     if (error) {
-      setErr(error.message);
+      setErr(workflowErrorMessage(error));
       toast.error(`${isEditing ? "ແກ້ໄຂ" : "ບັນທຶກ"}ຄິວບໍ່ສຳເລັດ: ${error.message}`);
       return;
     }
@@ -640,6 +678,12 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
             </div>
 
             <div>
+              <label className="mb-1.5 block text-sm font-black text-slate-700">ຊື່ລູກຄ້າ</label>
+              <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="ຊື່ລູກຄ້າ / ຊື່ທີມ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400" />
+            </div>
+            <WorkCategoryField value={workCategory} onChange={setWorkCategory} disabled={!canEditQueue} />
+
+            <div>
               <label className="mb-1.5 block text-sm font-black text-slate-700">ເບີໂທ / ຕິດຕໍ່</label>
               <input
                 type="text"
@@ -683,6 +727,19 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                 ))}
               </select>
             </div>
+
+            <div>
+              <label htmlFor="queue-design-payment-type" className="mb-1.5 block text-sm font-black text-slate-700">ຄ່າອອກແບບ</label>
+              <select id="queue-design-payment-type" value={designPaymentType} onChange={(event) => { setDesignPaymentType(event.target.value as DesignPaymentType | ""); setDesignDepositAmount(""); }} disabled={!canEditQueue || saving} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400">
+                {isEditing && !designPaymentType && <option value="">ຍັງບໍ່ລະບຸ (ຂໍ້ມູນເກົ່າ)</option>}
+                <option value="free">ອອກແບບຟຣີ</option>
+                <option value="deposit">ມັດຈຳເຂົ້າຄິວອອກແບບ</option>
+              </select>
+            </div>
+            {designPaymentType === "deposit" && <div>
+              <label htmlFor="queue-design-deposit-amount" className="mb-1.5 block text-sm font-black text-slate-700">ຈຳນວນເງິນມັດຈຳທີ່ໄດ້ຮັບ (ກີບ)</label>
+              <input id="queue-design-deposit-amount" type="number" min="0.01" step="0.01" value={designDepositAmount} onChange={(event) => setDesignDepositAmount(event.target.value)} disabled={!canEditQueue || saving} placeholder="ປ້ອນຈຳນວນເງິນ" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400" />
+            </div>}
 
             <div>
               <label className="mb-1.5 block text-sm font-black text-slate-700">ໝາຍເຫດ</label>
@@ -866,11 +923,15 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                         </td>
                         <td className="px-4 py-4">
                           <div className="font-black text-slate-900">{row.customer_phone || "-"}</div>
+                          <div className="mt-1 text-xs text-slate-500">{row.customer_name}</div>
+                          <div className="mt-1 text-xs text-sky-700">{getOrderWorkCategoryLabel(row.work_category)}</div>
                         </td>
                         <td className="px-4 py-4">
                           <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${getWorkTypeBadgeClass(row.style_name)}`}>
                             {row.style_name || "-"}
                           </span>
+                          {row.design_payment_type === "free" && <div className="mt-1 text-xs font-bold text-emerald-700">ອອກແບບຟຣີ</div>}
+                          {row.design_payment_type === "deposit" && <div className="mt-1 text-xs font-bold text-amber-700">ມັດຈຳຄ່າແບບ: {queueDesignDeposit(row).toLocaleString()} ກີບ</div>}
                           {row.notes ? <div className="mt-1 text-xs font-medium text-slate-500">{row.notes}</div> : null}
                         </td>
                         <td className="px-4 py-4">
@@ -902,6 +963,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex flex-wrap justify-end gap-2">
+                            {canManageQueue ? <Link href={`/quotations/new?queueId=${row.id}`} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-700">ສ້າງໃບປະເມີນ</Link> : null}
                             {canManageQueue ? (
                               <button
                                 type="button"

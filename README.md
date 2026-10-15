@@ -223,6 +223,67 @@ Validate the SQL and all 825 rows in isolated PostgreSQL with
 This checks both import snapshots, repeat imports, ID stability, source-field
 preservation, disabled rows, database permissions and isolation between carriers.
 
+## Queue customers, quotations, and factory deposits
+
+Apply `supabase/migrations/20261020_link_queue_customer_documents.sql` before
+deploying this workflow. The available application API keys cannot apply schema
+migrations; run the file through Supabase SQL Editor or a database migration runner.
+It adds customer/order links and categories without rewriting existing documents.
+
+`/design-queue` stores the customer name, phone and work category alongside each
+queue order. New queues require a category from the existing order category list;
+old unclassified queues can still be edited. TYPE and urgent/normal priority remain
+separate fields. Use **ສ້າງໃບປະເມີນ** on a queue, or search by customer name,
+phone, queue number or full order code at `/quotations/new`. Searches include
+pending and completed queues, normalize phone spacing, return up to 25 matches,
+and respect existing queue visibility permissions. Select the specific order when
+a phone has multiple queues. Selection fills the customer, category and full code
+(for example `PK26-10001`) and stores the queue UUID. Customer edits in a quotation
+do not update the original queue; later queue edits do not change saved documents.
+
+New quotations receive `QT26-10-000`, `QT26-10-001`, etc.; factory deposits receive
+`DPF26-10-000`, `DPF26-10-001`, etc. Each series starts at zero independently for
+each calendar month/year based on its document date. Database counters allocate
+numbers atomically when saved. The form shows a prefix hint until then. Printing
+a quotation saves it first so that its printed number is persisted. Subsequent
+saves, printing and date edits preserve the number; deleted numbers are not reused.
+Legacy document numbers remain unchanged.
+
+**ສ້າງໃບມັດຈຳ** saves the quotation and opens the deposit form with the queue's
+order code, the quotation's own number, customer details and category. These are
+distinct identifiers. The category also carries into order conversion; old
+unclassified deposits retain the existing category prompt.
+
+Validate SQL behavior and RLS with
+`node scripts/verify-queue-customer-documents.mjs /path/to/@electric-sql/pglite/dist/index.js`.
+With the development server running, use
+`node scripts/verify-browser-queue-customer-documents.mjs /path/to/playwright/index.mjs`
+to check the form flow with mocked backend calls and no production writes.
+
+### Design queue deposits
+
+Apply `supabase/migrations/20261021_add_queue_design_deposits.sql` after
+`20261020_link_queue_customer_documents.sql`. New queues offer free design or a
+received design deposit. Choosing a deposit requires a positive amount in kip;
+choosing free clears and hides the amount. Queue edits restore the saved choice
+and amount, and the list displays the recorded payment separately from notes.
+Existing queues retain an unspecified payment choice; no amount is inferred from
+notes, including notes containing numbers.
+
+Selecting a queue by customer search or its quotation link fills **ຫັກຄ່າແບບ**
+from the recorded deposit. Free or unrecorded deposits leave the input blank and
+contribute zero to calculations. Linked quotation amounts are read-only; update
+the queue and reselect it to use a revised amount. Switching to a free queue or
+unlinking clears a previously selected fee. Saved quotations retain their monetary
+snapshot on ordinary edits even if the original queue payment changes. Existing
+quotation amounts are not backfilled or rewritten. The amount continues into
+factory deposits through the existing quotation flow.
+
+Run `node scripts/verify-queue-design-deposits.mjs /path/to/@electric-sql/pglite/dist/index.js`
+for payment validation, inheritance, historical preservation and RLS checks. The
+browser workflow script above also checks paid/free switching, blank free fees,
+queue editing and saved quotation amounts.
+
 ## Getting Started
 
 First, run the development server:
