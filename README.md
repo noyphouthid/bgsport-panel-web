@@ -323,6 +323,29 @@ for payment validation, inheritance, historical preservation and RLS checks. The
 browser workflow script above also checks paid/free switching, blank free fees,
 queue editing and saved quotation amounts.
 
+### Repeat-order codes
+
+Apply `supabase/migrations/20261022_allow_order_code_suffixes.sql` after
+`20261021_add_queue_design_deposits.sql` through Supabase SQL Editor or the database
+migration runner. Application API keys cannot apply this schema change.
+
+Order codes in quotations and factory deposits remain editable when linked to a
+design queue. Codes such as `RK26-9124+2` and `RK26-9124+A` persist through quotation
+creation, deposit creation, subsequent edits and conversion to an order. The order
+create/edit forms already support letters and `+` in ORDER No. Search fields use
+the complete code. List pages continue to show 20 results per page.
+
+The link trigger preserves explicitly supplied order codes and inherits the source
+code when none is supplied. Changing only a document's source link inherits the
+new source code. Customer/category links and recorded design deposits continue to
+follow the existing workflow. No historical codes, document numbers or queue
+sequences are rewritten.
+
+Run `node scripts/verify-order-code-suffixes.mjs /path/to/@electric-sql/pglite/dist/index.js`
+for code round trips and database inheritance/reselection checks. The browser
+workflow script also exercises editable linked codes, quotation printing and
+deposit save/reopen with numeric and alphabetic suffixes.
+
 ## Getting Started
 
 First, run the development server:

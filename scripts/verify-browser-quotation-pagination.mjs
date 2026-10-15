@@ -8,7 +8,7 @@ const user = { id: uid(1), email: "qa@example.invalid", aud: "authenticated", ro
 const profile = { ...user, auth_user_id: user.id, full_name: "QA Admin", role: "superadmin", is_active: true, permission_settings: {} };
 const session = { access_token: "qa-token", refresh_token: "qa-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, token_type: "bearer", user };
 let quotations = Array.from({ length: 1205 }, (_, i) => ({
-  id: uid(i + 10), quote_no: `QT-${i + 1}`, order_code: `ORDER-${i + 1}`,
+  id: uid(i + 10), quote_no: `QT-${i + 1}`, order_code: i === 1204 ? "RK26-9124+A" : `ORDER-${i + 1}`,
   quote_date: i < 40 ? "2026-10-15" : "2026-10-01",
   customer_name: i < 21 ? `Group ${i + 1}` : `Customer ${i + 1}`,
   customer_phone: `PHONE-${i + 1}`, customer_whatsapp: `WA-${i + 1}`,
@@ -78,10 +78,10 @@ try {
 
   // Every original search field must find a quotation beyond the first 1000.
   await next.click();
-  for (const keyword of ["QT-1205", "ORDER-1205", "customer 1205", "PHONE-1205", "WA-1205", "fabric 1205"]) {
+  for (const keyword of ["QT-1205", "RK26-9124+A", "customer 1205", "PHONE-1205", "WA-1205", "fabric 1205"]) {
     await search.fill(keyword);
     await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText("ORDER-1205");
+    await expect(rows.first()).toContainText("RK26-9124+A");
     await expect(prev).toBeDisabled();
     await expect(next).toBeDisabled();
   }

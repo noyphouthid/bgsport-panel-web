@@ -8,7 +8,7 @@ const user = { id: uid(1), email: "qa@example.invalid", aud: "authenticated", ro
 const profile = { ...user, auth_user_id: user.id, full_name: "QA Admin", role: "superadmin", is_active: true, permission_settings: {} };
 const session = { access_token: "qa-token", refresh_token: "qa-refresh", expires_at: Math.floor(Date.now() / 1000) + 3600, token_type: "bearer", user };
 let orders = Array.from({ length: 1205 }, (_, i) => ({
-  id: uid(i + 10), deposit_no: `DP-${i + 1}`, order_code: `ORDER-${i + 1}`,
+  id: uid(i + 10), deposit_no: `DP-${i + 1}`, order_code: i === 1204 ? "RK26-9124+2" : `ORDER-${i + 1}`,
   quotation_quote_no: null, customer_name: `Customer ${i + 1}`, customer_phone: "2099999999",
   factory_bill_code: `FACTORY-${i + 1}`, status: i % 2 ? "approved" : "submitted",
   created_by_user_id: profile.id, net_total: 100, design_deposit: 0, initial_deposit: 20, balance: 80,
@@ -82,10 +82,10 @@ try {
   await expect(tableRows.first()).toContainText("ORDER-1");
 
   // Exact result beyond the first 1000, and all pre-existing search fields.
-  for (const keyword of ["DP-1205", "ORDER-1205", "customer 1205", "FACTORY-1205"]) {
+  for (const keyword of ["DP-1205", "RK26-9124+2", "customer 1205", "FACTORY-1205"]) {
     await search.fill(keyword);
     await expect(tableRows).toHaveCount(1);
-    await expect(tableRows.first()).toContainText("ORDER-1205");
+    await expect(tableRows.first()).toContainText("RK26-9124+2");
     await expect(prev).toBeDisabled();
     await expect(next).toBeDisabled();
   }
@@ -106,7 +106,7 @@ try {
   // A late response from the old search must not replace the newer results.
   delayId = uid(1214);
   const slowRequest = page.waitForRequest(req => req.url().includes("select=*") && req.url().includes(delayId));
-  await search.fill("ORDER-1205");
+  await search.fill("RK26-9124+2");
   await slowRequest;
   await search.fill("ORDER-1204");
   await expect(tableRows.first()).toContainText("ORDER-1204");
@@ -127,11 +127,11 @@ try {
   await expect(next).toBeDisabled();
 
   failDetails = true;
-  await search.fill("ORDER-1205");
+  await search.fill("RK26-9124+2");
   await expect(page.getByText(/QA detail load failed/)).toBeVisible();
   failDetails = false;
   await page.getByRole("button", { name: "ໂຫຼດໃໝ່", exact: true }).click();
-  await expect(tableRows.first()).toContainText("ORDER-1205");
+  await expect(tableRows.first()).toContainText("RK26-9124+2");
   await expect(page.getByText(/QA detail load failed/)).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });

@@ -21,6 +21,7 @@ const legacy = await one(`select * from create_design_queue_entry(p_customer_nam
 const historical = await one(`insert into quotation_drafts(created_by_user_id,quote_date,design_queue_entry_id,design_deposit) values ($1,'2026-10-15',$2,120000) returning *`, [admin, legacy.id]);
 await migration("20261021_add_queue_design_deposits.sql");
 await migration("20261021_add_queue_design_deposits.sql");
+await migration("20261022_allow_order_code_suffixes.sql");
 assert.equal((await one(`select * from quotation_drafts where id=$1`, [historical.id])).design_deposit, "120000.00");
 const oldQueue = await one(`select * from design_queue_entries where id=$1`, [legacy.id]);
 assert.equal(oldQueue.design_payment_type, null);

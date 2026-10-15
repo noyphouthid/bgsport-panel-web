@@ -2339,9 +2339,10 @@ export default function FactoryDepositOrderFormPage() {
                 <input
                   value={orderCode}
                   onChange={(e) => setOrderCode(e.target.value)}
-                  readOnly={Boolean(designQueueEntryId)}
+                  type="text"
+                  inputMode="text"
                   disabled={!canEdit}
-                  placeholder="ລະຫັດອໍເດີ"
+                  placeholder="ຕົວຢ່າງ RK26-9124+2 ຫຼື RK26-9124+A"
                   className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
                 />
               </div>

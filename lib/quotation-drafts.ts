@@ -331,7 +331,7 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     created_by_user_id: existingMeta?.created_by_user_id || draft.createdByUserId || currentUser.id,
     created_by_name: existingMeta?.created_by_name || draft.createdByName || currentUser.full_name || "",
     design_queue_entry_id: draft.designQueueEntryId || null,
-    order_code: draft.orderCode || "",
+    order_code: (draft.orderCode || "").trim(),
     work_category: draft.workCategory || null,
     quote_no: draft.id ? draft.quoteNo : "",
     quote_date: draft.quoteDate,

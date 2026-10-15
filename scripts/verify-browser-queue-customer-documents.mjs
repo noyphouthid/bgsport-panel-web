@@ -84,20 +84,23 @@ try {
   assert.equal(await field("ເລກທີ່ໃບປະເມີນ").getAttribute("readonly"), "");
   assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "100000.5");
   assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).getAttribute("readonly"), "");
+  // A linked quotation can carry a repeat-order suffix without losing its queue.
+  await field("ລະຫັດອໍເດີ").fill("RK26-9124+2");
   await page.getByRole("button", { name: "ພິມ A5", exact: true }).click();
   await page.waitForFunction(() => window.__printed === 1);
   assert.equal(quotation.design_queue_entry_id, queue.id);
-  assert.equal(quotation.order_code, "PK26-10001");
+  assert.equal(quotation.order_code, "RK26-9124+2");
   assert.equal(quotation.work_category, "sports");
   assert.equal(quotation.design_deposit, 100000.5);
   assert.equal(await field("ເລກທີ່ໃບປະເມີນ").inputValue(), "QT26-10-000");
   await page.getByRole("button", { name: "ສ້າງໃບມັດຈຳ", exact: true }).first().click();
   await page.waitForURL(/factory-deposit-orders\/new\?draftId=/);
   await page.waitForLoadState("networkidle");
-  assert.equal(await field("ລະຫັດອໍເດີ").inputValue(), "PK26-10001");
+  assert.equal(await field("ລະຫັດອໍເດີ").inputValue(), "RK26-9124+2");
   assert.equal(await field("ເລກທີ່ໃບປະເມີນ").inputValue(), "QT26-10-000");
   assert.equal(await page.getByLabel("ປະເພດງານ / ກຸ່ມເສື້ອ").inputValue(), "sports");
   assert.equal(writes.filter(w => w.table === "quotation_drafts" && w.method === "POST").length, 1, "Printing followed by deposit creation must update the saved quotation");
+  await field("ລະຫັດອໍເດີ").fill("RK26-9124+A");
   await field("ຊື່ທີມ").fill("QA Team");
   await page.getByLabel("ແອັດມິນ", { exact: true }).selectOption(profile.id);
   await page.getByLabel("ຜູ້ອອກແບບ", { exact: true }).selectOption(designer.id);
@@ -106,10 +109,19 @@ try {
   await page.waitForURL("**/factory-deposit-orders");
   assert.equal(deposit.deposit_no, "DPF26-10-000");
   assert.equal(deposit.quotation_quote_no, "QT26-10-000");
-  assert.equal(deposit.order_code, "PK26-10001");
+  assert.equal(deposit.order_code, "RK26-9124+A");
   assert.equal(deposit.work_category, "sports");
   assert.equal(deposit.design_queue_entry_id, queue.id);
   assert.equal(deposit.design_deposit, 100000.5);
+  await page.goto(`http://localhost:3000/factory-deposit-orders/new?id=${deposit.id}`, { waitUntil: "networkidle" });
+  assert.equal(await field("ລະຫັດອໍເດີ").inputValue(), "RK26-9124+A");
+  // Conversion must preserve the suffix in the real orders insert payload.
+  deposit = { ...deposit, status: "approved" };
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "ບັນທຶກເປັນອໍເດີ", exact: true }).first().click();
+  await page.waitForURL("**/factory-deposit-orders");
+  assert.equal(writes.find(w => w.table === "orders" && w.method === "POST").body.order_code, "RK26-9124+A");
+  assert.equal(deposit.status, "converted");
   // Direct queue handoff also hydrates the same data, including completed queues.
   await page.goto(`http://localhost:3000/quotations/new?queueId=${queue.id}`, { waitUntil: "networkidle" });
   assert.equal(await field("ລະຫັດອໍເດີ").inputValue(), "PK26-10001");
@@ -139,5 +151,5 @@ try {
   await page.screenshot({ path: "/tmp/bgsport-queue-quotation-mobile.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   assert.deepEqual(errors, []);
-  console.log("Browser checks passed: queue category/customer save, phone search, linked quotation, print-before-save, deposit inheritance/save, paid/free switching, blank free fees, saved financial history and mobile layout.");
+  console.log("Browser checks passed: queue category/customer save, phone search, linked repeat-order codes, print-before-save, deposit inheritance/save/reopen, paid/free switching, blank free fees, saved financial history and mobile layout.");
 } finally { await browser.close(); }
