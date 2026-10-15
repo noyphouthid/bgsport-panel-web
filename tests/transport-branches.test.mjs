@@ -25,10 +25,6 @@ function compile(path, deps) {
 const branches = compile("../lib/transport-branches.ts", {
   "@/lib/laos-provinces": provinces,
 });
-const { createTransportBranchLoader } = compile(
-  "../lib/transport-branches-server.ts",
-  { "@/lib/transport-branches": branches },
-);
 const hal = {
   id: 1,
   name: "ຮ່ອງຄ້າ",
@@ -45,11 +41,6 @@ const anousith = {
   districtName: "ເມືອງ ມະຫາໄຊ",
   provinceID: { provinceName: "ແຂວງ ຄຳມ່ວນ" },
 };
-const json = (value) =>
-  new Response(JSON.stringify(value), {
-    headers: { "Content-Type": "application/json" },
-  });
-
 test("HAL excludes hidden, closed, deleted and inactive branches, canonicalizes location and drops unused data", () => {
   const data = branches.normalizeTransportBranches("hal", [
     hal,
@@ -101,107 +92,80 @@ test("Anousith normalizes geography without guessing missing districts, keeps ca
   assert.equal(branches.branchProviderForTransporter("HAL Logistic"), "hal");
   assert.equal(branches.isBranchProvider("https://invalid.example"), false);
 });
-test("HAL uses the active=true endpoint, shares in-flight loads and caches for six hours", async () => {
-  let calls = 0;
-  const loader = createTransportBranchLoader(async (url) => {
-    calls++;
-    assert.equal(new URL(url).searchParams.get("is_active"), "true");
-    return json([hal]);
-  });
-  const [a, b] = await Promise.all([loader("hal"), loader("hal")]);
-  assert.deepEqual(a, b);
-  await loader("hal");
-  assert.equal(calls, 1);
-});
-test("Anousith loads every public page with the exact multiline query", async () => {
-  let calls = 0;
-  const loader = createTransportBranchLoader(async (url, init) => {
-    assert.equal(url, "https://pro.api.anousith.express/graphql");
-    assert.equal(init.method, "POST");
-    const body = JSON.parse(init.body);
-    assert.deepEqual(body.variables.where, { public: 1, isDeleted: 0 });
-    assert.ok(body.query.includes("\n      branch_name\n"));
-    const skip = body.variables.skip;
-    calls++;
-    return json({
-      data: {
-        branches: {
-          total: 205,
-          data: Array.from({ length: Math.min(200, 205 - skip) }, (_, i) => ({
-            ...anousith,
-            id_branch: String(skip + i),
-          })),
-        },
+const unitelProvinces = [
+  { id: 17, name: "ອັດຕະປື", status: 1, countrycode: "LA" },
+  { id: 1, name: "ນະຄອນຫຼວງ ວຽງຈັນ", status: 1, countrycode: "LA" },
+];
+const unitelDistricts = [
+  { id: 1701, parentId: 17, name: "ສາມະຄີໄຊ", status: 1, countrycode: "LA" },
+  { id: 101, parentId: 1, name: "ຈັນທະບູລີ", status: 1, countrycode: "LA" },
+];
+const unitel = {
+  id: 107,
+  code: "ATA01",
+  name: "ATA01 - ສູນການຕະຫຼາດ",
+  address: "ໃກ້ຕະຫຼາດ, ໂພນສະຫວ່າງ, ສາມະຄີໄຊ, ອັດຕະປື, Laos",
+  phone: "unused",
+};
+test("Unitel matches address suffixes against its geography and separates the branch code", () => {
+  const rows = branches.normalizeUnitelBranches(
+    [
+      unitel,
+      {
+        ...unitel,
+        id: 108,
+        code: "009",
+        name: "Unmatched",
+        address: "Text, ຈັນທະບູລີ, ອັດຕະປື, Laos",
       },
-    });
-  });
-  assert.equal((await loader("anousith")).branches.length, 205);
-  assert.equal(calls, 2);
-});
-test("an upstream failure serves recent last-good data and retries after a minute, then rejects expired data", async () => {
-  let time = Date.now(),
-    fail = false,
-    calls = 0;
-  const loader = createTransportBranchLoader(
-    async () => {
-      calls++;
-      if (fail) throw new Error("offline");
-      return json([hal]);
+      { ...unitel, id: 109, address: "Only a free-text address" },
+      { ...unitel, id: 110, address: "Text, ສາມະຄີໄຊ, ອັດຕະປື, Thailand" },
+    ],
+    unitelProvinces,
+    unitelDistricts,
+  );
+  assert.deepEqual(
+    rows.find((row) => row.id === "107"),
+    {
+      id: "107",
+      code: "ATA01",
+      name: "ສູນການຕະຫຼາດ",
+      district: "ສາມະຄີໄຊ",
+      province: "ອັດຕະປື",
     },
-    () => time,
   );
-  const initial = await loader("hal");
-  fail = true;
-  time += 6 * 60 * 60 * 1000 + 1;
-  const stale = await loader("hal");
-  assert.equal(stale.stale, true);
-  assert.equal(stale.fetchedAt, initial.fetchedAt);
-  await loader("hal");
-  assert.equal(calls, 2);
-  time += 60001;
-  await loader("hal");
-  assert.equal(calls, 3);
-  time += 7 * 24 * 60 * 60 * 1000;
-  await assert.rejects(loader("hal"), /offline/);
-});
-test("GraphQL errors, incomplete pagination and repeated pages do not become a partial directory", async () => {
-  for (const response of [
-    { errors: [{ message: "upstream" }] },
-    { data: { branches: { total: 300, data: [anousith] } } },
-  ]) {
-    await assert.rejects(
-      createTransportBranchLoader(async () => json(response))("anousith"),
-    );
+  assert.equal(
+    rows.find((row) => row.id === "108").district,
+    "",
+    "A district from another province must not be assigned",
+  );
+  for (const id of ["109", "110"]) {
+    assert.equal(rows.find((row) => row.id === id).district, "");
+    assert.equal(rows.find((row) => row.id === id).province, "");
   }
-  const repeated = Array.from({ length: 200 }, (_, i) => ({
-    ...anousith,
-    id_branch: String(i),
-  }));
-  await assert.rejects(
-    createTransportBranchLoader(async () =>
-      json({ data: { branches: { total: 400, data: repeated } } }),
-    )("anousith"),
-    /pagination changed/,
+  assert.equal(
+    branches.branchProviderForTransporter("Unitel Logistic"),
+    "unitel",
+  );
+  assert.equal(branches.isBranchProvider("unitel"), true);
+  assert.deepEqual(
+    branches.addressForTransportBranch(
+      "unitel",
+      rows.find((row) => row.id === "107"),
+    ),
+    {
+      branch: "ສູນການຕະຫຼາດ",
+      branchCode: "ATA01",
+      city: "ສາມະຄີໄຊ",
+      province: "ອັດຕະປື",
+      transporters: ["Unitel Logistic"],
+    },
+  );
+  assert.throws(
+    () => branches.normalizeUnitelBranches([unitel], [], unitelDistricts),
+    /geography/,
   );
 });
-
-if (process.env.VERIFY_LIVE_BRANCHES === "1") {
-  const loader = createTransportBranchLoader();
-  for (const provider of ["hal", "anousith"]) {
-    const directory = await loader(provider);
-    assert.ok(directory.branches.length > 100);
-    assert.equal(directory.stale, false);
-    console.log(
-      JSON.stringify({
-        provider,
-        branches: directory.branches.length,
-        missingDistrict: directory.branches.filter((b) => !b.district).length,
-        missingProvince: directory.branches.filter((b) => !b.province).length,
-      }),
-    );
-  }
-}
-
 test("the route authenticates requests and rejects arbitrary providers before loading upstream data", async () => {
   let authenticated = false,
     loads = 0;
@@ -220,11 +184,17 @@ test("the route authenticates requests and rejects arbitrary providers before lo
         authenticated ? { profileId: "qa" } : null,
     },
     "@/lib/transport-branches": branches,
-    "@/lib/transport-branches-server": {
-      loadTransportBranchDirectory: async (provider) => {
+    "@/lib/supabase-admin": { getSupabaseAdmin: () => ({ from: () => {} }) },
+    "@/lib/shipping-branches": {
+      loadImportedTransportBranches: async (client, provider) => {
         loads++;
-        return { provider, branches: [] };
+        return {
+          provider,
+          branches: [],
+          source: "supabase",
+        };
       },
+      ShippingBranchDirectoryError: class extends Error {},
     },
   });
   const request = (provider) => ({
@@ -244,4 +214,13 @@ test("the route authenticates requests and rejects arbitrary providers before lo
   assert.equal(result.body.provider, "hal");
   assert.equal(result.headers["Cache-Control"], "private, no-store");
   assert.equal(loads, 1);
+  const imported = await GET(request("anousith"));
+  assert.equal(imported.status, 200);
+  assert.equal(imported.body.source, "supabase");
+  assert.equal(loads, 2);
+  const unitel = await GET(request("unitel"));
+  assert.equal(unitel.status, 200);
+  assert.equal(unitel.body.source, "supabase");
+  assert.equal(unitel.body.provider, "unitel");
+  assert.equal(loads, 3);
 });

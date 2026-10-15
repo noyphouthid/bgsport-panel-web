@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { Banknote, Camera, FileUp, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react";
 import { TransportBranchPicker } from "./_components/transport-branch-picker";
+import { isPassengerBusTransport } from "@/lib/transport-notes";
 import { ensureTransportBranchCodeStorage } from "@/lib/transport-branch-code";
 import { supabase } from "@/lib/supabase";
 import { canAccessPath, type AppRole } from "@/lib/access-control";
@@ -244,7 +245,7 @@ export default function ShipmentsPage() {
     setTransportReceiverName(request.transport_receiver_name || "");
     setTransportReceiverPhone(request.transport_receiver_phone || "");
     setTransportBranch(request.transport_branch || "");
-    setTransportBranchCode(request.transport_branch_code || "");
+    setTransportBranchCode(isPassengerBusTransport(request.transport_providers || []) ? "" : request.transport_branch_code || "");
     setTransportCity(request.transport_city || "");
     setTransportProvince(request.transport_province || "");
     setTransportProviders(Array.isArray(request.transport_providers) ? request.transport_providers : []);
@@ -515,6 +516,8 @@ export default function ShipmentsPage() {
   const saveWillSubmit = deliveryMethod === "pickup";
 
   const saveDeliveryRequest = async () => {
+    const passengerBus = isPassengerBusTransport(transportProviders);
+    const branchCode = passengerBus ? "" : transportBranchCode.trim();
     if (!active) {
       toast.error("ກະລຸນາສະແກນ QR ກ່ອນ");
       return;
@@ -549,6 +552,10 @@ export default function ShipmentsPage() {
       return;
     }
     if (deliveryMethod === "transport") {
+      if (passengerBus && !transportBranch.trim()) {
+        toast.error("ກະລຸນາປ້ອນບ່ອນຝາກລົງ");
+        return;
+      }
       if (!transportCity.trim() || !transportProvince.trim()) {
         toast.error("ກະລຸນາປ້ອນເມືອງ ແລະ ແຂວງຂອງບ່ອນສົ່ງ");
         return;
@@ -569,7 +576,7 @@ export default function ShipmentsPage() {
 
     setSaving(true);
     try {
-      if (deliveryMethod === "transport" && transportBranchCode.trim()) await ensureTransportBranchCodeStorage(supabase, true);
+      if (deliveryMethod === "transport" && branchCode) await ensureTransportBranchCodeStorage(supabase, true);
       const scheduledAtIso = new Date(shippedAt).toISOString();
       const paymentAtIso = paymentAmount > 0 ? new Date(paymentDate).toISOString() : null;
       const uploadedSlip = await uploadTransferSlipIfNeeded(active.order.id, active.label.id);
@@ -603,7 +610,7 @@ export default function ShipmentsPage() {
         transport_receiver_name: deliveryMethod === "transport" ? transportReceiverName.trim() : null,
         transport_receiver_phone: deliveryMethod === "transport" ? transportReceiverPhone.trim() : null,
         transport_branch: deliveryMethod === "transport" ? transportBranch.trim() : null,
-        ...(transportBranchCode.trim() || activeRequest?.transport_branch_code !== undefined ? { transport_branch_code: deliveryMethod === "transport" ? transportBranchCode.trim() || null : null } : {}),
+        ...(branchCode || activeRequest?.transport_branch_code !== undefined ? { transport_branch_code: deliveryMethod === "transport" ? branchCode || null : null } : {}),
         transport_city: deliveryMethod === "transport" ? transportCity.trim() : null,
         transport_province: deliveryMethod === "transport" ? transportProvince.trim() : null,
         transport_providers: deliveryMethod === "transport" ? transportProviders : [],
@@ -662,7 +669,7 @@ export default function ShipmentsPage() {
             receiver_name: transportReceiverName.trim(),
             receiver_phone: transportReceiverPhone.trim(),
             branch: transportBranch.trim() || null,
-            ...(transportBranchCode.trim() || linkedTransportNote?.branch_code !== undefined ? { branch_code: transportBranchCode.trim() || null } : {}),
+            ...(branchCode || linkedTransportNote?.branch_code !== undefined ? { branch_code: branchCode || null } : {}),
             city: transportCity.trim() || null,
             province: transportProvince.trim() || null,
             transporters: transportProviders,

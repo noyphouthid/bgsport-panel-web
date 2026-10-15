@@ -81,6 +81,15 @@ const directories = {
       province: "ວຽງຈັນ",
     },
   ],
+  unitel: [
+    {
+      id: "u1",
+      name: "ສູນການຕະຫຼາດ",
+      code: "ATA01",
+      district: "ສາມະຄີໄຊ",
+      province: "ອັດຕະປື",
+    },
+  ],
   anousith: [
     {
       id: "a1",
@@ -240,6 +249,7 @@ try {
     "",
     "Switching carrier clears the previous destination",
   );
+  assert.ok((await picker.innerText()).includes("ລາຍຊື່ທີ່ນຳເຂົ້າ"), "Anousith indicates the imported directory");
   await picker.getByLabel(/^ສາຂາຂົນສົ່ງ/).selectOption("a1");
   await page.getByRole("button", { name: "ອັບເດດ", exact: true }).click();
   await page.waitForTimeout(200);
@@ -314,6 +324,36 @@ try {
     .getByLabel("ຝາກຂົນສົ່ງ", { exact: true })
     .selectOption("HAL Logistic");
   await picker.getByLabel(/^ສາຂາຂົນສົ່ງ/).selectOption("h1");
+  await picker
+    .getByLabel("ຝາກຂົນສົ່ງ", { exact: true })
+    .selectOption("Unitel Logistic");
+  assert.equal(
+    await picker.getByLabel("ລະຫັດສາຂາ", { exact: true }).inputValue(),
+    "",
+  );
+  await picker.getByLabel(/^ສາຂາຂົນສົ່ງ/).selectOption("u1");
+  assert.equal(
+    await picker.getByLabel("ເມືອງ", { exact: true }).inputValue(),
+    "ສາມະຄີໄຊ",
+  );
+  assert.equal(
+    await picker.getByLabel("ແຂວງ", { exact: true }).inputValue(),
+    "ອັດຕະປື",
+  );
+  await page.getByRole("button", { name: "ອັບເດດ", exact: true }).click();
+  await page.waitForTimeout(200);
+  assert.deepEqual(writes.at(-1).body.transporters, ["Unitel Logistic"]);
+  assert.equal(writes.at(-1).body.branch_code, "ATA01");
+  await page.reload({ waitUntil: "networkidle" });
+  assert.equal(
+    await picker.getByLabel("ລະຫັດສາຂາ", { exact: true }).inputValue(),
+    "ATA01",
+  );
+  assert.ok(
+    (await page.locator("[data-transport-note-preview]").innerText()).includes(
+      "Unitel Logistic",
+    ),
+  );
   await picker.screenshot({
     path: "/tmp/bgsport-transport-branches-mobile.png",
   });
@@ -343,8 +383,8 @@ try {
   await page.getByLabel("ເບີຜູ້ຮັບ", { exact: true }).fill("02012345678");
   await picker
     .getByLabel("ຝາກຂົນສົ່ງ", { exact: true })
-    .selectOption("HAL Logistic");
-  await picker.getByLabel(/^ສາຂາຂົນສົ່ງ/).selectOption("h1");
+    .selectOption("Unitel Logistic");
+  await picker.getByLabel(/^ສາຂາຂົນສົ່ງ/).selectOption("u1");
   assert.equal(
     await page.getByLabel("ຊື່ຜູ້ຮັບ", { exact: true }).inputValue(),
     "QA Receiver",
@@ -361,10 +401,10 @@ try {
     "Delivery request saved: " +
       (await page.locator("body").innerText()).slice(-2400),
   );
-  assert.equal(delivery.transport_branch, directories.hal[0].name);
-  assert.equal(delivery.transport_branch_code, "HL01");
-  assert.equal(delivery.transport_city, "ຈັນທະບູລີ");
-  assert.equal(delivery.transport_province, "ນະຄອນຫຼວງວຽງຈັນ");
+  assert.equal(delivery.transport_branch, directories.unitel[0].name);
+  assert.equal(delivery.transport_branch_code, "ATA01");
+  assert.equal(delivery.transport_city, "ສາມະຄີໄຊ");
+  assert.equal(delivery.transport_province, "ອັດຕະປື");
   assert.equal(writes.at(-1).table, "transport_notes");
   assert.equal(writes.at(-1).body.branch, delivery.transport_branch);
   assert.equal(writes.at(-1).body.branch_code, delivery.transport_branch_code);
@@ -388,11 +428,25 @@ try {
   );
   note = {
     ...note,
-    branch: "ສາຂາຈອມແຈ້ງ(ເມືອງລອງ)",
-    branch_code: "FCS-0310-PM",
-    city: "ລອງ",
-    province: "ຫຼວງນ້ຳທາ",
+    branch:
+      "ບ້ານ ຕານມີໄຊ  ໜ້າຮ້ານລ້າງລົດ ທູບີຄາແຄ ເສັ້ນທາງຫວຍຫົງ - ເມືອງ ໄຊທານີ",
+    branch_code: "VIC0603",
+    city: "ໄຊທານີ",
+    province: "ນະຄອນຫຼວງວຽງຈັນ",
   };
+  await page.goto(
+    "http://localhost:3000/shipments/transport-note?id=" + note.id,
+    { waitUntil: "networkidle" },
+  );
+  const longPreview = page.locator("[data-transport-note-preview]");
+  assert.ok(
+    await longPreview.evaluate(
+      (element) =>
+        element.querySelector("div.mt-auto").getBoundingClientRect().bottom <=
+        element.getBoundingClientRect().bottom,
+    ),
+    "A long Unitel branch name must not clip the label footer",
+  );
   await context.addInitScript(() => {
     window.print = () => {};
   });
@@ -411,8 +465,11 @@ try {
   const branchIndex = printLines.findIndex((line) =>
     line.startsWith("ຝາກສາຂາ:"),
   );
-  assert.ok(printLines[branchIndex + 1].includes("ລະຫັດສາຂາ: FCS-0310-PM"));
+  assert.ok(printLines[branchIndex + 1].includes("ລະຫັດສາຂາ: VIC0603"));
   assert.equal(await popup.locator(".barcode-wrap svg").count(), 1);
+  assert.ok(
+    (await popup.locator(".note").innerText()).includes("Unitel Logistic"),
+  );
   assert.ok(
     await popup.evaluate(
       () =>
@@ -426,6 +483,117 @@ try {
     .locator(".note")
     .screenshot({ path: "/tmp/bgsport-printed-branch-code.png" });
   await popup.close();
+  await page.goto(
+    "http://localhost:3000/shipments/transport-note?id=" + note.id,
+    { waitUntil: "networkidle" },
+  );
+  picker = page.locator("[data-transport-branch-picker]");
+  const apiCallsBeforeBus = apiCalls.length;
+  await picker
+    .getByLabel("ຝາກຂົນສົ່ງ", { exact: true })
+    .selectOption("ລົດໂດຍສານ");
+  assert.equal(
+    await picker.getByLabel("ລະຫັດສາຂາ", { exact: true }).count(),
+    0,
+  );
+  assert.equal(await picker.getByLabel(/^ສາຂາຂົນສົ່ງ/).count(), 0);
+  const writesBeforeEmptyBus = writes.length;
+  await page.getByRole("button", { name: "ອັບເດດ", exact: true }).click();
+  await page.getByText("ກະລຸນາປ້ອນບ່ອນຝາກລົງ", { exact: true }).waitFor();
+  assert.equal(writes.length, writesBeforeEmptyBus);
+  await picker.getByLabel("ຝາກລົງ", { exact: true }).fill("ສະຖານີລົດ ເມືອງລອງ");
+  await page.getByRole("button", { name: "ອັບເດດ", exact: true }).click();
+  await page
+    .getByText("ກະລຸນາປ້ອນເມືອງ ແລະ ແຂວງຂອງບ່ອນສົ່ງ", { exact: true })
+    .waitFor();
+  assert.equal(writes.length, writesBeforeEmptyBus);
+  await page.getByPlaceholder("ລະບຸຊື່ຜູ້ຮັບ").fill("RK26-9087");
+  await page.getByPlaceholder("20 xxxx xxxx").fill("+856 20 98 034 103");
+  await picker.getByLabel("ເມືອງ", { exact: true }).fill("ລອງ");
+  await picker.getByLabel("ແຂວງ", { exact: true }).fill("ຫຼວງນ້ຳທາ");
+  await page.getByRole("radio", { name: "ຈ່າຍຕົ້ນທາງ", exact: true }).check();
+  await page.getByRole("button", { name: "ອັບເດດ", exact: true }).click();
+  await page.waitForTimeout(200);
+  assert.deepEqual(writes.at(-1).body.transporters, ["ລົດໂດຍສານ"]);
+  assert.equal(writes.at(-1).body.branch, "ສະຖານີລົດ ເມືອງລອງ");
+  assert.equal(
+    writes.at(-1).body.branch_code,
+    null,
+    "Switching to bus clears a previously saved branch code",
+  );
+  assert.equal(writes.at(-1).body.shipping_charge_mode, "origin");
+  await page.reload({ waitUntil: "networkidle" });
+  assert.equal(
+    await picker.getByLabel("ຝາກລົງ", { exact: true }).inputValue(),
+    "ສະຖານີລົດ ເມືອງລອງ",
+  );
+  const busPreview = page.locator("[data-transport-note-preview]");
+  assert.ok((await busPreview.innerText()).includes("ຄ່າຂົນສົ່ງ: ຈ່າຍຕົ້ນທາງ"));
+  assert.equal((await busPreview.innerText()).includes("ລະຫັດສາຂາ:"), false);
+  await busPreview.screenshot({
+    path: "/tmp/bgsport-passenger-bus-preview.png",
+  });
+  await page.goto("http://localhost:3000/shipments/notes", {
+    waitUntil: "networkidle",
+  });
+  await page.locator('tbody input[type="checkbox"]').first().check();
+  const busPopupPromise = page.waitForEvent("popup");
+  await page.getByRole("button", { name: /^ເປີດພິມ/ }).click();
+  const busPopup = await busPopupPromise;
+  await busPopup.locator(".note .details").waitFor();
+  const busPrintText = await busPopup.locator(".note .details").innerText();
+  assert.ok(busPrintText.includes("RK26-9087"));
+  assert.ok(busPrintText.includes("+856 20 98 034 103"));
+  assert.ok(busPrintText.includes("ຝາກລົງ: ສະຖານີລົດ ເມືອງລອງ"));
+  assert.equal(busPrintText.includes("ລະຫັດສາຂາ:"), false);
+  assert.equal(busPrintText.includes("ຝາກຂົນສົ່ງ:"), false);
+  await busPopup.close();
+  submitted = false;
+  await page.goto("http://localhost:3000/shipments", {
+    waitUntil: "networkidle",
+  });
+  await page
+    .getByPlaceholder(
+      "ວາງ QR ໂຮງງານ, QR ຂອງຮ້ານ, ລະຫັດບິນໂຮງງານ ຫຼື ລະຫັດອໍເດີ",
+    )
+    .fill(order.order_code);
+  await page.getByRole("button", { name: "ເປີດອໍເດີ", exact: true }).click();
+  await page
+    .getByText(`ໂຫຼດ ${order.order_code} ສຳເລັດ`, { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "ຝາກຂົນສົ່ງ", exact: true }).click();
+  picker = page.locator("[data-transport-branch-picker]");
+  await picker
+    .getByLabel("ຝາກຂົນສົ່ງ", { exact: true })
+    .selectOption("ລົດໂດຍສານ");
+  await page.getByLabel("ຊື່ຜູ້ຮັບ", { exact: true }).fill("RK26-9087");
+  await page
+    .getByLabel("ເບີຜູ້ຮັບ", { exact: true })
+    .fill("+856 20 98 034 103");
+  await picker.getByLabel("ຝາກລົງ", { exact: true }).fill("ສະຖານີລົດ ເມືອງລອງ");
+  await picker.getByLabel("ເມືອງ", { exact: true }).fill("ລອງ");
+  await picker.getByLabel("ແຂວງ", { exact: true }).fill("ຫຼວງນ້ຳທາ");
+  await page.getByRole("radio", { name: "ຈ່າຍປາຍທາງ", exact: true }).check();
+  const writesBeforeBusShipment = writes.length;
+  await page
+    .getByRole("button", { name: "ບັນທຶກບິນ ແລະ ການຈັດສົ່ງ", exact: true })
+    .click();
+  await page.waitForTimeout(300);
+  const busRequest = writes
+    .slice(writesBeforeBusShipment)
+    .find((write) => write.table === "shipment_delivery_requests")?.body;
+  assert.ok(busRequest);
+  assert.deepEqual(busRequest.transport_providers, ["ລົດໂດຍສານ"]);
+  assert.equal(busRequest.transport_branch, "ສະຖານີລົດ ເມືອງລອງ");
+  assert.equal(busRequest.transport_branch_code ?? null, null);
+  assert.equal(busRequest.transport_charge_mode, "destination");
+  assert.deepEqual(writes.at(-1).body.transporters, ["ລົດໂດຍສານ"]);
+  assert.equal(writes.at(-1).body.shipping_charge_mode, "destination");
+  assert.equal(
+    apiCalls.length,
+    apiCallsBeforeBus,
+    "Bus uses manual drop-off fields without calling carrier APIs",
+  );
   assert.deepEqual(errors, []);
   console.log(
     JSON.stringify({
@@ -441,6 +609,8 @@ try {
         "mobile layout",
         "shipment linked note",
         "submitted lock",
+        "passenger bus: required drop-off location, both charge modes, saved/reopened/printed bills, linked shipment note, no carrier API",
+        "Unitel selection, automatic code and address, standalone save and reload, shipment linked note",
         "branch-code persistence, preview ordering and reload",
         "printed branch code and barcode fit",
         "missing migration aborts before any writes",

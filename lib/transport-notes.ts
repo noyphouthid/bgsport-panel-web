@@ -51,7 +51,12 @@ export type TransportNoteForm = {
   shippingChargeMode: ShippingChargeMode;
 };
 
-export const TRANSPORTERS = ["Anousith Express", "HAL Logistic", "Mixay Express"];
+export const PASSENGER_BUS_TRANSPORTER = "ລົດໂດຍສານ";
+export const TRANSPORTERS = ["Anousith Express", "HAL Logistic", "Unitel Logistic", "Mixay Express", PASSENGER_BUS_TRANSPORTER];
+
+export function isPassengerBusTransport(transporters: readonly string[]) {
+  return transporters.length === 1 && transporters[0] === PASSENGER_BUS_TRANSPORTER;
+}
 
 export const DEFAULT_TRANSPORT_NOTE_FORM: TransportNoteForm = {
   receiverName: "",
@@ -140,7 +145,7 @@ export function mapTransportNoteToForm(row: Partial<TransportNoteRow>): Transpor
     receiverName: row.receiver_name || "",
     receiverPhone: row.receiver_phone || "",
     branch: row.branch || "",
-    branchCode: row.branch_code || "",
+    branchCode: isPassengerBusTransport(row.transporters || []) ? "" : row.branch_code || "",
     city: row.city || "",
     province: row.province || "",
     transporters: Array.isArray(row.transporters) ? row.transporters : [],
@@ -162,6 +167,7 @@ function escapeNoteText(value: string | null | undefined) {
 export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
   const cards = rows
     .map((row) => {
+      const passengerBus = isPassengerBusTransport(row.transporters);
       const shippingModeText = row.shipping_charge_mode === "origin" ? "ຈ່າຍຕົ້ນທາງ" : "ຈ່າຍປາຍທາງ";
       const transporters = row.transporters.join(", ");
       const barcodeHtml =
@@ -173,7 +179,7 @@ export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
           `
           : "";
       return `
-        <section class="note">
+        <section class="note${(row.branch || "").length > 40 ? " note--compact" : ""}">
           <div class="header">
             <div class="logo">BG</div>
             <div class="shop">
@@ -188,13 +194,13 @@ export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
             <div class="details">
               <div>ຊື່ຜູ້ຮັບ: <strong>${escapeNoteText(row.receiver_name)}</strong></div>
               <div>ເບີຜູ້ຮັບ: <strong>${escapeNoteText(row.receiver_phone)}</strong></div>
-              <div>ຝາກສາຂາ: <strong>${escapeNoteText(row.branch)}</strong></div>
-              <div>ລະຫັດສາຂາ: <strong>${escapeNoteText(row.branch_code)}</strong></div>
+              <div>${passengerBus ? "ຝາກລົງ" : "ຝາກສາຂາ"}: <strong>${escapeNoteText(row.branch)}</strong></div>
+              ${passengerBus ? "" : `<div>ລະຫັດສາຂາ: <strong>${escapeNoteText(row.branch_code)}</strong></div>`}
               <div>ເມືອງ: <strong>${escapeNoteText(row.city)}</strong></div>
               <div>ແຂວງ: <strong>${escapeNoteText(row.province)}</strong></div>
               <div class="divider"></div>
-              <div>ຝາກຂົນສົ່ງ: <strong>${escapeNoteText(transporters)}</strong></div>
-              <div>ຄ່າຂົນສົ່ງ: <strong>${shippingModeText}</strong></div>
+              ${passengerBus ? "" : `<div>ຝາກຂົນສົ່ງ: <strong>${escapeNoteText(transporters)}</strong></div>`}
+              <div${passengerBus ? ' class="bus-charge"' : ""}>ຄ່າຂົນສົ່ງ: <strong>${shippingModeText}</strong></div>
             </div>
             <div class="divider"></div>
             ${barcodeHtml}
@@ -277,6 +283,9 @@ export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
       .body strong {
         font-size: 15px;
       }
+      .note--compact .body { font-size: 13px; line-height: 1.4; }
+      .note--compact .body strong { font-size: 14px; }
+      .bus-charge { font-weight: 700; }
       .divider {
         border-bottom: 1.5px solid #000;
         margin: 4px 0;

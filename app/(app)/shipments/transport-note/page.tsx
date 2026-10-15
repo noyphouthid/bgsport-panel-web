@@ -16,6 +16,7 @@ import {
   canManageAllTransportNotes,
   DEFAULT_TRANSPORT_NOTE_FORM,
   mapTransportNoteToForm,
+  isPassengerBusTransport,
   type TransportNoteForm,
   type TransportNoteRow,
 } from "@/lib/transport-notes";
@@ -100,6 +101,7 @@ export default function TransportNotePage() {
     }
   }, [currentNote, viewerRole, viewerUserId]);
 
+  const passengerBus = isPassengerBusTransport(form.transporters);
   const transporterText = useMemo(() => form.transporters.join(", "), [form.transporters]);
   const shippingModeText = form.shippingChargeMode === "origin" ? "ຈ່າຍຕົ້ນທາງ" : "ຈ່າຍປາຍທາງ";
 
@@ -125,9 +127,18 @@ export default function TransportNotePage() {
       return;
     }
 
+    if (passengerBus && !form.branch.trim()) {
+      toast.error("ກະລຸນາປ້ອນບ່ອນຝາກລົງ");
+      return;
+    }
+    if (passengerBus && (!form.city.trim() || !form.province.trim())) {
+      toast.error("ກະລຸນາປ້ອນເມືອງ ແລະ ແຂວງຂອງບ່ອນສົ່ງ");
+      return;
+    }
+    const branchCode = passengerBus ? "" : form.branchCode.trim();
     setSaving(true);
     try {
-      if (form.branchCode.trim()) await ensureTransportBranchCodeStorage(supabase);
+      if (branchCode) await ensureTransportBranchCodeStorage(supabase);
       const payload = {
         note_no: currentNote?.note_no || buildTransportNoteNo(),
         source_type: currentNote?.source_type || "standalone",
@@ -136,7 +147,7 @@ export default function TransportNotePage() {
         receiver_name: form.receiverName.trim(),
         receiver_phone: form.receiverPhone.trim(),
         branch: form.branch.trim() || null,
-        ...(form.branchCode.trim() || currentNote?.branch_code !== undefined ? { branch_code: form.branchCode.trim() || null } : {}),
+        ...(branchCode || currentNote?.branch_code !== undefined ? { branch_code: branchCode || null } : {}),
         city: form.city.trim() || null,
         province: form.province.trim() || null,
         transporters: form.transporters,
@@ -301,7 +312,7 @@ export default function TransportNotePage() {
               ຜູ້ຮັບ (Receiver):
             </div>
 
-            <div className="flex grow flex-col px-[10px] py-[6px] text-[14px] leading-[1.78]">
+            <div className={`flex grow flex-col px-[10px] py-[6px] ${form.branch.length > 40 ? "text-[13px] leading-[1.4] [&_span]:text-[14px]" : "text-[14px] leading-[1.78]"}`}>
               <div>
                 ຊື່ຜູ້ຮັບ: <span className="text-[15px] font-bold">{form.receiverName}</span>
               </div>
@@ -309,11 +320,11 @@ export default function TransportNotePage() {
                 ເບີຜູ້ຮັບ: <span className="text-[15px] font-bold">{form.receiverPhone}</span>
               </div>
               <div>
-                ຝາກສາຂາ: <span className="text-[15px] font-bold">{form.branch}</span>
+                {passengerBus ? "ຝາກລົງ" : "ຝາກສາຂາ"}: <span className="text-[15px] font-bold">{form.branch}</span>
               </div>
-              <div>
+              {!passengerBus ? <div>
                 ລະຫັດສາຂາ: <span className="text-[15px] font-bold">{form.branchCode || "-"}</span>
-              </div>
+              </div> : null}
               <div>
                 ເມືອງ: <span className="text-[15px] font-bold">{form.city}</span>
               </div>
@@ -323,9 +334,9 @@ export default function TransportNotePage() {
 
               <div className="my-[4px] border-b-[1.5px] border-black" />
 
-              <div className="text-[14px] font-bold">
+              {!passengerBus ? <div className="text-[14px] font-bold">
                 ຝາກຂົນສົ່ງ: <span>{transporterText}</span>
-              </div>
+              </div> : null}
               <div className="text-[14px] font-bold">
                 ຄ່າຂົນສົ່ງ: <span>{shippingModeText}</span>
               </div>

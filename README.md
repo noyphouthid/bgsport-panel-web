@@ -113,18 +113,74 @@ With the development server running, mocked browser checks can be run using
 ## Carrier branch directories
 
 `/shipments` and `/shipments/transport-note` share a searchable branch picker for
-[HAL Express](https://halexpress.la/branch) and
-[Anousith Express](https://app.anousith.express/branches). Selecting a branch fills
+[HAL Express](https://halexpress.la/branch),
+[Anousith Express](https://app.anousith.express/branches), and
+[Unitel Logistic](https://unilogistic.besgroup.vn/lo/offices). Selecting a branch fills
 its name, district and canonical province into the existing address fields and
 bill preview. A bill uses one selected carrier; legacy records with multiple
 carriers remain intact until the operator explicitly chooses a carrier. Switching
 carriers clears the previous address. Existing saved addresses are never replaced
 just because the directory loads. Mixay and unlisted branches allow manual entry.
 
-The authenticated `/api/transport-branches?provider=hal|anousith` route reads only
-fixed public carrier endpoints. HAL uses `is_active=true` and excludes hidden,
-closed and deleted branches. Anousith paginates all public, undeleted branches;
-GraphQL errors or incomplete pages cannot become a partially successful directory.
+The authenticated `/api/transport-branches?provider=hal|anousith|unitel` route
+loads all three carriers from `public.shipping_branches` using the server
+service-role client, filtering by `company` (`HAL`, `ANOUSITH`, or `UNITEL`) and
+`is_active = true`. It paginates the whole
+directory in stable ID order, validates row counts and duplicate source IDs,
+and returns no partial list if any page fails. There are no calls or fallbacks to
+carrier branch APIs, including when the table is missing or empty. Database
+reads are uncached, so imported edits appear on the next picker load. Existing
+bill/address/code snapshots are preserved.
+
+For a fresh database, apply
+`supabase/migrations/20261018_import_anousith_branches.sql` with a PostgreSQL
+migration runner or direct database connection. This **single transaction creates the table and imports all 825 Anousith
+records from the user's `shipping_branches_import_partial.sql`**. It does not
+import the 20 partial Unitel rows or any HAL data. `(company, source_id)` is the
+unique import key: branch codes repeat and one record has no code. Re-running
+updates the same source records without duplicating them, changing their IDs or
+created dates, reactivating disabled rows, or deleting other branches. Address
+contact text, village metadata and raw source JSON are preserved as supplied;
+the picker receives only name/code/district/province. Raw table access is denied
+to browser roles with RLS enabled; the authenticated endpoint returns only the
+picker fields. The available app keys cannot create a missing database table.
+Until a carrier has been imported, its picker displays an import instruction and allows
+manual address entry. A previously imported table with duplicate source IDs must
+be corrected before the unique index can be installed; the import never deletes
+those records to force uniqueness.
+
+`supabase/migrations/20261019_import_hal_unitel_branches.sql` adds **832 HAL** and
+**895 Unitel** offices using the same repeatable source-ID key. It requires the
+table from the Anousith migration and never changes Anousith or saved bills.
+The user-provided `HAL Logistic.json` contains only 22 provinces, 151 districts,
+and 857 villages; actual active office records were obtained once from HAL's
+public directory. `Unitel Logistic.json` contains only 20/895 offices. Those 20
+uploaded records were preserved and matched the public source; all remaining
+pages were fetched once to complete the 895-office snapshot. Unitel district
+names were matched within each province using its geography directory; one
+source office has an unverifiable district and retains a blank for manual entry.
+Only source-verified locations were stored. No branch APIs are used at runtime.
+
+The remaining import was applied to the existing Supabase table with one atomic
+REST upsert. `node scripts/apply-remaining-shipping-branches.mjs` checks the
+reviewed snapshot against the database without writing. Add `--apply` to reimport
+that HAL/Unitel snapshot in one transaction, preserving existing IDs, creation
+dates and manual active flags. It verifies all imported fields and that Anousith
+is unchanged. It does not create tables or delete other records. The full SQL
+snapshots can exceed the SQL Editor query-size limit; use a migration runner or
+direct database connection for them. The existing database already contains all
+2,552 imported offices, so there is no need to paste either snapshot into SQL
+Editor again. To check counts in SQL Editor, run only:
+
+```sql
+select company, count(*) as branch_count
+from public.shipping_branches
+group by company
+order by company;
+```
+
+Long branch names use tighter spacing in the preview and printed label to keep
+the footer/barcode inside the existing 80×100 mm paper size.
 Only branch IDs, names, codes, districts and provinces are returned to the browser.
 No carrier account or API key is needed. Existing text fields store address
 snapshots for requests and transport notes. For branch-code snapshots, apply
@@ -138,21 +194,34 @@ notes without codes show a dash. Code-bearing saves check column availability
 before any write, and display the migration filename if storage is unavailable.
 Legacy saves with no code still work before the migration.
 
-Each server process caches a successful directory for six hours and shares
-concurrent requests. During an upstream outage it can serve last-good data up to
-seven days old, displaying its timestamp, with retries limited to once per minute.
-A process restart clears this memory cache. Without cached data, the form displays
-a retry button and keeps manual address entry available. Submitted shipment
-requests retain their editing lock.
+The `ລົດໂດຍສານ` option supports passenger-bus delivery in both shipment
+requests and standalone notes. It uses manual `ຝາກລົງ` (drop-off), district and
+province fields and requires all three before saving. Recipient name/phone and
+origin/destination shipping-charge choices use the existing fields. Bus labels
+show the drop-off instead of a branch, omit branch-code/carrier rows, and print
+the selected charge mode. Switching from a carrier clears its old code/address.
+The drop-off is stored in `branch`/`transport_branch`; existing reports and
+province analysis continue using the recorded district/province. No carrier API
+or new schema migration is required for this option.
 
-Run `node --test tests/transport-branches.test.mjs` for normalization, pagination,
-caching, failure and route authentication checks. Add `VERIFY_LIVE_BRANCHES=1`
-to verify both public APIs using read-only calls. With the development server
+All imported directories are read directly from Supabase on each picker load;
+there is no six-hour external API cache or API fallback. Database errors leave
+manual address entry available. Submitted requests retain their editing lock.
+
+Run `node --test tests/transport-branches.test.mjs tests/shipping-branches.test.mjs`
+for normalization, company scoping, pagination, failure and authentication checks.
+With the development server
 running, use `node scripts/verify-browser-transport-branches.mjs /path/to/playwright/index.mjs`
 for mocked saving and browser checks; it makes no production writes. Code and
 print checks: `node --test tests/transport-branch-code.test.mjs`.
 Validate the branch-code migration in isolated PostgreSQL with
 `node scripts/verify-transport-branch-code.mjs /path/to/@electric-sql/pglite/dist/index.js`.
+
+Imported Anousith reader checks: `node --test tests/shipping-branches.test.mjs`.
+Validate the SQL and all 825 rows in isolated PostgreSQL with
+`node scripts/verify-shipping-branch-import.mjs /path/to/@electric-sql/pglite/dist/index.js`.
+This checks both import snapshots, repeat imports, ID stability, source-field
+preservation, disabled rows, database permissions and isolation between carriers.
 
 ## Getting Started
 

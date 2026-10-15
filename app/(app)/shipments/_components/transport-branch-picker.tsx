@@ -9,7 +9,7 @@ import {
   type TransportAddress,
   type TransportBranchDirectory,
 } from "@/lib/transport-branches";
-import { TRANSPORTERS } from "@/lib/transport-notes";
+import { isPassengerBusTransport, TRANSPORTERS } from "@/lib/transport-notes";
 
 const inputClass =
   "mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 disabled:bg-slate-100";
@@ -30,6 +30,7 @@ export function TransportBranchPicker({
         ? "legacy-multiple"
         : "";
   const provider = branchProviderForTransporter(carrier);
+  const passengerBus = isPassengerBusTransport(value.transporters);
   const [directory, setDirectory] = useState<TransportBranchDirectory | null>(
     null,
   );
@@ -160,7 +161,7 @@ export function TransportBranchPicker({
       {provider && !disabled ? (
         <div className="rounded-xl border border-orange-200 bg-orange-50/50 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-            <span>ເລືອກສາຂາເພື່ອເຕີມເມືອງ ແລະແຂວງອັດຕະໂນມັດ</span>
+            <span>ເລືອກສາຂາຈາກລາຍຊື່ທີ່ນຳເຂົ້າ ເພື່ອເຕີມເມືອງ ແລະແຂວງ</span>
             <a
               href={BRANCH_PROVIDERS[provider].sourceUrl}
               target="_blank"
@@ -290,37 +291,46 @@ export function TransportBranchPicker({
       <div className="grid gap-3 sm:grid-cols-2">
         {(
           [
-            ["branch", "ຝາກສາຂາ"],
+            ["branch", passengerBus ? "ຝາກລົງ" : "ຝາກສາຂາ"],
             ["branchCode", "ລະຫັດສາຂາ"],
             ["city", "ເມືອງ"],
             ["province", "ແຂວງ"],
           ] as const
-        ).map(([field, label]) => (
-          <label
-            key={field}
-            htmlFor={`${id}-${field}`}
-            className={`block text-sm font-bold text-slate-700 ${field === "branch" || field === "branchCode" ? "sm:col-span-2" : ""}`}
-          >
-            {label}
-            <input
-              id={`${id}-${field}`}
-              className={inputClass}
-              value={value[field]}
-              disabled={disabled}
-              onChange={(e) =>
-                onChange({
-                  ...value,
-                  [field]: e.target.value,
-                  ...(field === "branch" ? { branchCode: "" } : {}),
-                })
-              }
-            />
-          </label>
-        ))}
+        )
+          .filter(([field]) => !passengerBus || field !== "branchCode")
+          .map(([field, label]) => (
+            <label
+              key={field}
+              htmlFor={`${id}-${field}`}
+              className={`block text-sm font-bold text-slate-700 ${field === "branch" || field === "branchCode" ? "sm:col-span-2" : ""}`}
+            >
+              {label}
+              <input
+                id={`${id}-${field}`}
+                className={inputClass}
+                value={value[field]}
+                disabled={disabled}
+                placeholder={
+                  passengerBus && field === "branch"
+                    ? "ລະບຸຈຸດຝາກລົງ ຫຼື ສະຖານີ"
+                    : undefined
+                }
+                onChange={(e) =>
+                  onChange({
+                    ...value,
+                    [field]: e.target.value,
+                    ...(field === "branch" ? { branchCode: "" } : {}),
+                  })
+                }
+              />
+            </label>
+          ))}
       </div>
       {!disabled ? (
         <p className="text-xs text-slate-500">
-          ສາມາດແກ້ໄຂທີ່ຢູ່ ຫຼືປ້ອນເອງໄດ້ ຫາກບໍ່ພົບສາຂາ.
+          {passengerBus
+            ? "ປ້ອນຈຸດຝາກລົງ, ເມືອງ ແລະແຂວງຂອງປາຍທາງ."
+            : "ສາມາດແກ້ໄຂທີ່ຢູ່ ຫຼືປ້ອນເອງໄດ້ ຫາກບໍ່ພົບສາຂາ."}
         </p>
       ) : null}
     </div>

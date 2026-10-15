@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { isBranchProvider } from "@/lib/transport-branches";
-import { loadTransportBranchDirectory } from "@/lib/transport-branches-server";
+
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import {
+  loadImportedTransportBranches,
+  ShippingBranchDirectoryError,
+} from "@/lib/shipping-branches";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,10 +27,19 @@ export async function GET(request: NextRequest) {
       { status: 400 },
     );
   try {
-    return NextResponse.json(await loadTransportBranchDirectory(provider), {
+    const directory = await loadImportedTransportBranches(
+      getSupabaseAdmin(),
+      provider,
+    );
+    return NextResponse.json(directory, {
       headers: { "Cache-Control": "private, no-store" },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof ShippingBranchDirectoryError)
+      return NextResponse.json(
+        { message: error.message },
+        { status: error.status },
+      );
     return NextResponse.json(
       { message: "ໂຫຼດສາຂາບໍ່ສຳເລັດ ກະລຸນາລອງໃໝ່ ຫຼືປ້ອນທີ່ຢູ່ເອງ" },
       { status: 502 },

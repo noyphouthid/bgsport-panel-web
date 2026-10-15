@@ -11,9 +11,12 @@ function compile(path) {
   new Function("module", "exports", outputText)(compiled, compiled.exports);
   return compiled.exports;
 }
-const { mapTransportNoteToForm, getTransportNotePrintHtml } = compile(
-  "../lib/transport-notes.ts",
-);
+const {
+  mapTransportNoteToForm,
+  getTransportNotePrintHtml,
+  isPassengerBusTransport,
+  PASSENGER_BUS_TRANSPORTER,
+} = compile("../lib/transport-notes.ts");
 const { ensureTransportBranchCodeStorage } = compile(
   "../lib/transport-branch-code.ts",
 );
@@ -88,4 +91,44 @@ test("shipment preflight checks both storage columns and rejects an unapplied mi
       };
     },
   });
+});
+
+test("passenger bus bills use drop-off fields, omit branch codes and preserve either charge mode", () => {
+  assert.equal(isPassengerBusTransport([PASSENGER_BUS_TRANSPORTER]), true);
+  assert.equal(
+    isPassengerBusTransport([PASSENGER_BUS_TRANSPORTER, "HAL Logistic"]),
+    false,
+  );
+  assert.equal(
+    mapTransportNoteToForm({
+      transporters: [PASSENGER_BUS_TRANSPORTER],
+      branch_code: "OLD-CODE",
+    }).branchCode,
+    "",
+  );
+  for (const [mode, label] of [
+    ["origin", "ຈ່າຍຕົ້ນທາງ"],
+    ["destination", "ຈ່າຍປາຍທາງ"],
+  ]) {
+    const html = getTransportNotePrintHtml([
+      {
+        receiver_name: "RK26-9087",
+        receiver_phone: "+856 20 98 034 103",
+        branch: "ສະຖານີລົດ ເມືອງລອງ",
+        branch_code: "OLD-CODE",
+        city: "ລອງ",
+        province: "ຫຼວງນ້ຳທາ",
+        transporters: [PASSENGER_BUS_TRANSPORTER],
+        shipping_charge_mode: mode,
+      },
+    ]);
+    assert.ok(html.includes("ຝາກລົງ: <strong>ສະຖານີລົດ ເມືອງລອງ</strong>"));
+    assert.ok(html.includes(`ຄ່າຂົນສົ່ງ: <strong>${label}</strong>`));
+    assert.ok(html.includes("RK26-9087"));
+    assert.ok(html.includes("+856 20 98 034 103"));
+    assert.equal(html.includes("ລະຫັດສາຂາ:"), false);
+    assert.equal(html.includes("OLD-CODE"), false);
+    assert.equal(html.includes("ຝາກສາຂາ:"), false);
+    assert.equal(html.includes("ຝາກຂົນສົ່ງ:"), false);
+  }
 });
