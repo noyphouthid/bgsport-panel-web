@@ -7,6 +7,7 @@ import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import { isAdminRole, isGraphicRole } from "@/lib/role-groups";
+import { ORDER_WORK_CATEGORIES, normalizeOrderWorkCategory } from "@/lib/order-work-category";
 
 type FabricRow = {
   id: string;
@@ -138,6 +139,7 @@ export default function ImportExcelPage() {
         customer_remaining_due_at: "",
         factory_payment_due_at: "",
         order_code: "PK26-001",
+        work_category: "ເສື້ອກິລາ",
         customer_phone: "020XXXXXXXX",
         factory_bill_code: "FB-001",
         fabric_name: fabricExample,
@@ -171,6 +173,8 @@ export default function ImportExcelPage() {
     return rawRows.map((row, idx) => {
       const orderDate = parseDateOnly(readFirst(row, ["order_date", "date"]));
       const orderCode = readFirst(row, ["order_code"]);
+      const categoryInput = readFirst(row, ["work_category", "ປະເພດງານ"]);
+      const workCategory = normalizeOrderWorkCategory(categoryInput) || ORDER_WORK_CATEGORIES.find((category) => category.label === categoryInput)?.value || null;
       const customerPhone = readFirst(row, ["customer_phone", "phone"]);
       const factoryBillCode = readFirst(row, ["factory_bill_code"]);
       const fabricName = readFirst(row, ["fabric_name"]);
@@ -202,6 +206,9 @@ export default function ImportExcelPage() {
       }
       if (!orderCode) {
         return { rowNo: idx + 2, valid: false, reason: "ບໍ່ມີ order_code", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
+      }
+      if (categoryInput && !workCategory) {
+        return { rowNo: idx + 2, valid: false, reason: "ປະເພດງານບໍ່ຖືກຕ້ອງ", orderCode, orderDate, adminName, graphicName, payload: null } satisfies PreviewRow;
       }
 
       const pickedFabric =
@@ -241,6 +248,7 @@ export default function ImportExcelPage() {
         customer_remaining_due_at: customerRemainingDueAt,
         factory_payment_due_at: factoryPaymentDueAt,
         order_code: orderCode,
+        ...(workCategory ? { work_category: workCategory } : {}),
         customer_phone: customerPhone || null,
         factory_bill_code: factoryBillCode || null,
         admin_user_id: pickedAdmin.id,
@@ -340,11 +348,16 @@ export default function ImportExcelPage() {
 
     try {
       if (importMode === "upsert") {
-        const { error } = await supabase.from("orders").upsert(payloads, { onConflict: "order_code" });
-        if (error) {
-          setErr(error.message);
-          toast.error(`ນຳເຂົ້າຂໍ້ມູນບໍ່ສຳເລັດ: ${error.message}`);
-          return;
+        // Keep omitted categories out of the update columns, including mixed files.
+        const groups = [payloads.filter((row) => !("work_category" in row)), payloads.filter((row) => "work_category" in row)];
+        for (const group of groups) {
+          if (!group.length) continue;
+          const { error } = await supabase.from("orders").upsert(group, { onConflict: "order_code" });
+          if (error) {
+            setErr(error.message);
+            toast.error(`ນຳເຂົ້າຂໍ້ມູນບໍ່ສຳເລັດ: ${error.message}`);
+            return;
+          }
         }
         setInfo(`ນຳເຂົ້າສຳເລັດ (upsert): ${payloads.length} ລາຍການ`);
         toast.success(`ນຳເຂົ້າສຳເລັດ: ${payloads.length} ລາຍການ`);
@@ -393,6 +406,7 @@ export default function ImportExcelPage() {
     { key: "customer_remaining_due_at", label: "ກຳນົດຊຳລະເງິນຄົງເຫຼືອລູກຄ້າ" },
     { key: "factory_payment_due_at", label: "ກຳນົດຈ່າຍໂຮງງານ" },
     { key: "order_code", label: "ລະຫັດອໍເດີ" },
+    { key: "work_category", label: "ປະເພດງານ" },
     { key: "customer_phone", label: "ເບີລູກຄ້າ" },
     { key: "factory_bill_code", label: "ເລກບິນໂຮງງານ" },
     { key: "admin_full_name", label: "ຊື່ Admin" },

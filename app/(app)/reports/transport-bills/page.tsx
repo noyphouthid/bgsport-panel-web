@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Download, FileDown, Printer, ReceiptText } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { fetchReportRowsByIds } from "@/lib/report-query";
 import type { AppRole } from "@/lib/access-control";
 import {
   getTransportNoteDisplayNo,
@@ -151,14 +152,16 @@ export default function TransportBillsReportPage() {
 
     const userMap = new Map(((userData ?? []) as UserRow[]).map((user) => [user.id, user]));
     const noteRows = (noteData ?? []) as TransportNoteRow[];
-    const orderIds = [...new Set(noteRows.map((row) => row.order_id).filter(Boolean))];
+    const orderIds = [...new Set(noteRows.map((row) => row.order_id).filter((id): id is string => Boolean(id)))];
 
     let ordersById = new Map<string, OrderRow>();
     if (orderIds.length > 0) {
-      const { data: orderData, error: orderError } = await supabase
-        .from("orders")
-        .select("id,order_code,factory_bill_code")
-        .in("id", orderIds);
+      const { data: orderData, error: orderError } = await fetchReportRowsByIds<OrderRow>(orderIds, (batchIds) =>
+        supabase
+          .from("orders")
+          .select("id,order_code,factory_bill_code")
+          .in("id", batchIds)
+      );
 
       if (orderError) {
         setErr(orderError.message);

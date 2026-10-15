@@ -13,6 +13,7 @@ export type TransportNoteRow = {
   receiver_name: string;
   receiver_phone: string;
   branch: string | null;
+  branch_code?: string | null;
   city: string | null;
   province: string | null;
   transporters: string[];
@@ -43,6 +44,7 @@ export type TransportNoteForm = {
   receiverName: string;
   receiverPhone: string;
   branch: string;
+  branchCode: string;
   city: string;
   province: string;
   transporters: string[];
@@ -55,6 +57,7 @@ export const DEFAULT_TRANSPORT_NOTE_FORM: TransportNoteForm = {
   receiverName: "",
   receiverPhone: "",
   branch: "",
+  branchCode: "",
   city: "",
   province: "",
   transporters: [],
@@ -137,6 +140,7 @@ export function mapTransportNoteToForm(row: Partial<TransportNoteRow>): Transpor
     receiverName: row.receiver_name || "",
     receiverPhone: row.receiver_phone || "",
     branch: row.branch || "",
+    branchCode: row.branch_code || "",
     city: row.city || "",
     province: row.province || "",
     transporters: Array.isArray(row.transporters) ? row.transporters : [],
@@ -149,6 +153,10 @@ export function getTransportNoteDisplayNo(row: Pick<TransportNoteRow, "note_no" 
     return orderCode.trim();
   }
   return row.note_no;
+}
+
+function escapeNoteText(value: string | null | undefined) {
+  return (value || "-").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 }
 
 export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
@@ -178,13 +186,14 @@ export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
           </div>
           <div class="body">
             <div class="details">
-              <div>ຊື່ຜູ້ຮັບ: <strong>${row.receiver_name || "-"}</strong></div>
-              <div>ເບີຜູ້ຮັບ: <strong>${row.receiver_phone || "-"}</strong></div>
-              <div>ຝາກສາຂາ: <strong>${row.branch || "-"}</strong></div>
-              <div>ເມືອງ: <strong>${row.city || "-"}</strong></div>
-              <div>ແຂວງ: <strong>${row.province || "-"}</strong></div>
+              <div>ຊື່ຜູ້ຮັບ: <strong>${escapeNoteText(row.receiver_name)}</strong></div>
+              <div>ເບີຜູ້ຮັບ: <strong>${escapeNoteText(row.receiver_phone)}</strong></div>
+              <div>ຝາກສາຂາ: <strong>${escapeNoteText(row.branch)}</strong></div>
+              <div>ລະຫັດສາຂາ: <strong>${escapeNoteText(row.branch_code)}</strong></div>
+              <div>ເມືອງ: <strong>${escapeNoteText(row.city)}</strong></div>
+              <div>ແຂວງ: <strong>${escapeNoteText(row.province)}</strong></div>
               <div class="divider"></div>
-              <div>ຝາກຂົນສົ່ງ: <strong>${transporters || "-"}</strong></div>
+              <div>ຝາກຂົນສົ່ງ: <strong>${escapeNoteText(transporters)}</strong></div>
               <div>ຄ່າຂົນສົ່ງ: <strong>${shippingModeText}</strong></div>
             </div>
             <div class="divider"></div>
@@ -260,7 +269,7 @@ export function getTransportNotePrintHtml(rows: TransportNotePrintRow[]) {
       .body {
         padding: 6px 10px 4px;
         font-size: 14px;
-        line-height: 1.78;
+        line-height: 1.55;
       }
       .details {
         min-width: 0;

@@ -7,6 +7,8 @@ import toast from "react-hot-toast";
 import { ArrowLeft, CheckCheck, RefreshCcw, Save, Trash2, Undo2 } from "lucide-react";
 import { OrderActivityPanel, type OrderHistoryEntry } from "../../_components/order-activity-panel";
 import { OrderSummaryPanel } from "../../_components/order-summary-panel";
+import { WorkCategoryField } from "../../_components/work-category-field";
+import { getOrderWorkCategoryLabel, normalizeOrderWorkCategory, type OrderWorkCategory } from "@/lib/order-work-category";
 import { supabase } from "@/lib/supabase";
 import {
   buildEmptyPantsOrderItem,
@@ -39,6 +41,7 @@ type OrderDetail = {
   id: string;
   order_code: string;
   order_date: string;
+  work_category?: OrderWorkCategory | null;
   customer_phone: string | null;
   customer_whatsapp: string | null;
   factory_bill_code: string | null;
@@ -210,6 +213,7 @@ function formatDateTime(value: string | null) {
 const ORDER_AUDIT_FIELD_LABELS: Record<string, string> = {
   order_code: "ລະຫັດອໍເດີ",
   order_date: "ວັນທີອໍເດີ",
+  work_category: "ປະເພດງານ",
   customer_phone: "ເບີລູກຄ້າ",
   customer_whatsapp: "WhatsApp",
   factory_bill_code: "ບິນໂຮງງານ",
@@ -273,6 +277,7 @@ export default function EditOrderPage() {
   const [orderDate, setOrderDate] = useState("");
   const [orderType, setOrderType] = useState<OrderType>("");
   const [orderNo, setOrderNo] = useState("");
+  const [workCategory, setWorkCategory] = useState<OrderWorkCategory | "">("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerWhatsapp, setCustomerWhatsapp] = useState("");
   const [factoryBillCode, setFactoryBillCode] = useState("");
@@ -398,6 +403,7 @@ export default function EditOrderPage() {
     const parsedOrderCode = parseOrderCode(o.order_code);
     setOrder(o);
     setOrderDate(o.order_date);
+    setWorkCategory(normalizeOrderWorkCategory(o.work_category) || "");
     setOrderType(parsedOrderCode.orderType);
     setOrderNo(parsedOrderCode.orderNo);
     setCustomerPhone(o.customer_phone || "");
@@ -992,6 +998,7 @@ export default function EditOrderPage() {
 
     const comparableValues: Record<string, unknown> = {
       ...nextValues,
+      work_category: getOrderWorkCategoryLabel(nextValues.work_category),
       admin_user_id: getUserLabel(adminUserId || null),
       graphic_user_id: getUserLabel(graphicUserId || null),
       fabric_id: getFabricLabel(fabricId || null),
@@ -1000,7 +1007,7 @@ export default function EditOrderPage() {
     };
 
     const changed_fields = Object.entries(comparableValues).reduce<Array<{ label: string; before: string; after: string }>>((acc, [key, value]) => {
-      const before = normalizeAuditValue(previousValues[key]);
+      const before = key === "work_category" ? getOrderWorkCategoryLabel(order.work_category) : normalizeAuditValue(previousValues[key]);
       const after = normalizeAuditValue(value);
       if (before === after) return acc;
       acc.push({
@@ -1159,6 +1166,8 @@ export default function EditOrderPage() {
       const payload = {
         order_code: currentOrderCode,
         order_date: orderDate,
+        // Leave older databases and unclassified legacy orders editable.
+        ...(workCategory || order.work_category !== undefined ? { work_category: workCategory || null } : {}),
         customer_phone: customerPhone.trim() || null,
         customer_whatsapp: customerWhatsapp.trim() || null,
         factory_bill_code: factoryBillCode.trim() || null,
@@ -1819,6 +1828,7 @@ export default function EditOrderPage() {
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <WorkCategoryField value={workCategory} onChange={setWorkCategory} disabled={isReadOnlyAdmin} />
               <div>
                 <label className="mb-1 block text-xs font-bold text-slate-700">ວັນທີມັດຈຳສັ່ງຜະລິດ</label>
                 <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputClassName} />

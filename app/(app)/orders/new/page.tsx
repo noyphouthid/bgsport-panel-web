@@ -6,6 +6,8 @@ import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import { OrderSummaryPanel } from "../_components/order-summary-panel";
+import { WorkCategoryField } from "../_components/work-category-field";
+import type { OrderWorkCategory } from "@/lib/order-work-category";
 import {
   buildEmptyPantsOrderItem,
   buildPantsOrderItemPayload,
@@ -94,6 +96,7 @@ export default function NewOrderPage() {
   const [orderDate, setOrderDate] = useState(getLocalDateInputValue);
   const [orderType, setOrderType] = useState<OrderType>("");
   const [orderNo, setOrderNo] = useState("");
+  const [workCategory, setWorkCategory] = useState<OrderWorkCategory | "">("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerWhatsapp, setCustomerWhatsapp] = useState("");
   const [factoryBillCode, setFactoryBillCode] = useState(""); // optional
@@ -245,6 +248,7 @@ export default function NewOrderPage() {
   const orderTypeSelectValue = isCustomOrderType ? CUSTOM_ORDER_TYPE_VALUE : orderType;
 
   const resetForm = () => {
+    setWorkCategory("");
     setOrderDate(getLocalDateInputValue());
     setOrderType("");
     setOrderNo("");
@@ -524,6 +528,10 @@ export default function NewOrderPage() {
       toast.error("ກະລຸນາປ້ອນ ORDER No.");
       return;
     }
+    if (!workCategory) {
+      toast.error("ກະລຸນາເລືອກປະເພດງານ");
+      return;
+    }
     if (!adminUserId) {
       toast.error("ກະລຸນາເລືອກ Admin");
       return;
@@ -564,6 +572,7 @@ export default function NewOrderPage() {
     const payload = {
       order_code: orderCode,
       order_date: orderDate,
+      work_category: workCategory,
       customer_phone: customerPhone.trim() || null,
       customer_whatsapp: customerWhatsapp.trim() || null,
       factory_bill_code: factoryBillCode.trim() || null,
@@ -753,6 +762,7 @@ export default function NewOrderPage() {
             <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">1) ກ່ຽວກັບອໍເດີ </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <WorkCategoryField value={workCategory} onChange={setWorkCategory} disabled={!canEditOrders} />
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">ວັນທີມັດຈຳສັ່ງຜະລິດ</label>
                 <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />

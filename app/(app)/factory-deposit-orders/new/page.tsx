@@ -17,6 +17,7 @@ import {
   type PantsOrderItemDraft,
 } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
+import { confirmOrderWorkCategory } from "@/lib/order-work-category-dialog";
 import { sortProductionPlayerRowsBySize } from "@/lib/production-player-rows";
 import type { AppRole } from "@/lib/access-control";
 import { isAdminRole, isGraphicRole } from "@/lib/role-groups";
@@ -1998,13 +1999,8 @@ export default function FactoryDepositOrderFormPage() {
     if (status !== "approved") return toast.error("ກະລຸນາອະນຸມັດກ່ອນ");
     if (!orderCode.trim()) return toast.error("ບໍ່ພົບລະຫັດອໍເດີ");
     if (!selectedFabric) return toast.error("ກະລຸນາເລືອກຜ້າ");
-    const confirmed = await confirmAction({
-      title: "ຢືນຢັນບັນທຶກເປັນອໍເດີ?",
-      text: `${depositNo} -> ${orderCode}`,
-      confirmButtonText: "ບັນທຶກເປັນອໍເດີ",
-      cancelToast: "ຍົກເລີກການບັນທຶກເປັນອໍເດີແລ້ວ",
-    });
-    if (!confirmed) return;
+    const workCategory = await confirmOrderWorkCategory(`${depositNo} -> ${orderCode}`);
+    if (!workCategory) return;
 
     setWorkingAction("convert");
     setErr(null);
@@ -2020,6 +2016,7 @@ export default function FactoryDepositOrderFormPage() {
       const orderPayload = {
         order_code: orderCode.trim(),
         order_date: depositDate,
+        work_category: workCategory,
         customer_phone: customerPhone.trim() || null,
         customer_whatsapp: customerWhatsapp.trim() || null,
         factory_bill_code: factoryBillCode.trim() || null,

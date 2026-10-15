@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { Banknote, Camera, FileUp, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react";
+import { TransportBranchPicker } from "./_components/transport-branch-picker";
+import { ensureTransportBranchCodeStorage } from "@/lib/transport-branch-code";
 import { supabase } from "@/lib/supabase";
 import { canAccessPath, type AppRole } from "@/lib/access-control";
 import {
@@ -126,6 +128,7 @@ export default function ShipmentsPage() {
   const [transportReceiverName, setTransportReceiverName] = useState("");
   const [transportReceiverPhone, setTransportReceiverPhone] = useState("");
   const [transportBranch, setTransportBranch] = useState("");
+  const [transportBranchCode, setTransportBranchCode] = useState("");
   const [transportCity, setTransportCity] = useState("");
   const [transportProvince, setTransportProvince] = useState("");
   const [transportProviders, setTransportProviders] = useState<string[]>([]);
@@ -222,6 +225,7 @@ export default function ShipmentsPage() {
     setTransportReceiverName("");
     setTransportReceiverPhone("");
     setTransportBranch("");
+    setTransportBranchCode("");
     setTransportCity("");
     setTransportProvince("");
     setTransportProviders([]);
@@ -240,6 +244,7 @@ export default function ShipmentsPage() {
     setTransportReceiverName(request.transport_receiver_name || "");
     setTransportReceiverPhone(request.transport_receiver_phone || "");
     setTransportBranch(request.transport_branch || "");
+    setTransportBranchCode(request.transport_branch_code || "");
     setTransportCity(request.transport_city || "");
     setTransportProvince(request.transport_province || "");
     setTransportProviders(Array.isArray(request.transport_providers) ? request.transport_providers : []);
@@ -544,6 +549,10 @@ export default function ShipmentsPage() {
       return;
     }
     if (deliveryMethod === "transport") {
+      if (!transportCity.trim() || !transportProvince.trim()) {
+        toast.error("ກະລຸນາປ້ອນເມືອງ ແລະ ແຂວງຂອງບ່ອນສົ່ງ");
+        return;
+      }
       if (!transportReceiverName.trim()) {
         toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ຮັບ");
         return;
@@ -560,6 +569,7 @@ export default function ShipmentsPage() {
 
     setSaving(true);
     try {
+      if (deliveryMethod === "transport" && transportBranchCode.trim()) await ensureTransportBranchCodeStorage(supabase, true);
       const scheduledAtIso = new Date(shippedAt).toISOString();
       const paymentAtIso = paymentAmount > 0 ? new Date(paymentDate).toISOString() : null;
       const uploadedSlip = await uploadTransferSlipIfNeeded(active.order.id, active.label.id);
@@ -593,6 +603,7 @@ export default function ShipmentsPage() {
         transport_receiver_name: deliveryMethod === "transport" ? transportReceiverName.trim() : null,
         transport_receiver_phone: deliveryMethod === "transport" ? transportReceiverPhone.trim() : null,
         transport_branch: deliveryMethod === "transport" ? transportBranch.trim() : null,
+        ...(transportBranchCode.trim() || activeRequest?.transport_branch_code !== undefined ? { transport_branch_code: deliveryMethod === "transport" ? transportBranchCode.trim() || null : null } : {}),
         transport_city: deliveryMethod === "transport" ? transportCity.trim() : null,
         transport_province: deliveryMethod === "transport" ? transportProvince.trim() : null,
         transport_providers: deliveryMethod === "transport" ? transportProviders : [],
@@ -637,6 +648,12 @@ export default function ShipmentsPage() {
         }));
 
         if (deliveryMethod === "transport") {
+          const { data: linkedTransportNote } = await supabase
+            .from("transport_notes")
+            .select("*")
+            .eq("delivery_request_id", savedRequest.id)
+            .maybeSingle();
+
           const transportNotePayload = {
             note_no: active.order.order_code,
             source_type: "shipment_request",
@@ -645,6 +662,7 @@ export default function ShipmentsPage() {
             receiver_name: transportReceiverName.trim(),
             receiver_phone: transportReceiverPhone.trim(),
             branch: transportBranch.trim() || null,
+            ...(transportBranchCode.trim() || linkedTransportNote?.branch_code !== undefined ? { branch_code: transportBranchCode.trim() || null } : {}),
             city: transportCity.trim() || null,
             province: transportProvince.trim() || null,
             transporters: transportProviders,
@@ -653,12 +671,6 @@ export default function ShipmentsPage() {
             created_by_user_id: viewerUserId,
             updated_at: new Date().toISOString(),
           };
-
-          const { data: linkedTransportNote } = await supabase
-            .from("transport_notes")
-            .select("id,note_no")
-            .eq("delivery_request_id", savedRequest.id)
-            .maybeSingle();
 
           if (linkedTransportNote?.id) {
             const { error: updateTransportNoteError } = await supabase
@@ -1256,61 +1268,18 @@ export default function ShipmentsPage() {
                         className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </label>
-                    <label className="text-sm font-bold text-slate-700">
-                      ຝາກສາຂາ
-                      <input
-                        value={transportBranch}
-                        onChange={(e) => setTransportBranch(e.target.value)}
-                        disabled={requestSubmitted}
-                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                      />
-                    </label>
-                    <label className="text-sm font-bold text-slate-700">
-                      ເມືອງ
-                      <input
-                        value={transportCity}
-                        onChange={(e) => setTransportCity(e.target.value)}
-                        disabled={requestSubmitted}
-                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                      />
-                    </label>
-                    <label className="text-sm font-bold text-slate-700 sm:col-span-2">
-                      ແຂວງ
-                      <input
-                        value={transportProvince}
-                        onChange={(e) => setTransportProvince(e.target.value)}
-                        disabled={requestSubmitted}
-                        className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
-                      />
-                    </label>
                     <div className="sm:col-span-2">
-                      <label className="mb-2 block text-sm font-bold text-slate-700">ຝາກຂົນສົ່ງ</label>
-                      <div className="flex flex-wrap gap-2">
-                        {["Anousith Express", "HAL Logistic", "Mixay Express"].map((provider) => {
-                          const checked = transportProviders.includes(provider);
-                          return (
-                            <label
-                              key={provider}
-                              className={`flex cursor-pointer items-center rounded-xl border px-3 py-2 text-sm font-bold ${
-                                checked ? "border-orange-300 bg-orange-50 text-orange-800" : "border-slate-200 bg-white text-slate-600"
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={requestSubmitted}
-                                onChange={() =>
-                                  setTransportProviders((prev) =>
-                                    prev.includes(provider) ? prev.filter((item) => item !== provider) : [...prev, provider]
-                                  )
-                                }
-                                className="mr-2"
-                              />
-                              {provider}
-                            </label>
-                          );
-                        })}
-                      </div>
+                      <TransportBranchPicker
+                        value={{ branch: transportBranch, branchCode: transportBranchCode, city: transportCity, province: transportProvince, transporters: transportProviders }}
+                        disabled={requestSubmitted}
+                        onChange={(address) => {
+                          setTransportBranch(address.branch);
+                          setTransportBranchCode(address.branchCode);
+                          setTransportCity(address.city);
+                          setTransportProvince(address.province);
+                          setTransportProviders(address.transporters);
+                        }}
+                      />
                     </div>
                     <div className="sm:col-span-2">
                       <label className="mb-2 block text-sm font-bold text-slate-700">ຄ່າຂົນສົ່ງ</label>

@@ -1,9 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Download, FileDown, Printer, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { fetchAllReportRows, fetchReportRowsByIds } from "@/lib/report-query";
+import { getDeliveryMarketLocation, UNKNOWN_LOCATION } from "@/lib/customer-delivery-marketing";
+import { ORDER_WORK_CATEGORIES, getOrderWorkCategoryLabel, isMissingWorkCategoryError, normalizeOrderWorkCategory, type OrderWorkCategory } from "@/lib/order-work-category";
+import { MarketingSummary } from "./_components/marketing-summary";
+import { resolveLaosProvince } from "@/lib/laos-provinces";
 import type { AppRole } from "@/lib/access-control";
 import {
   SHIPMENT_DELIVERY_METHOD_LABELS,
@@ -22,6 +28,12 @@ type OrderRow = {
   customer_phone: string | null;
   customer_whatsapp: string | null;
   admin_user_id: string | null;
+  order_date: string | null;
+  work_category?: OrderWorkCategory | null;
+  short_qty: number;
+  long_qty: number;
+  free_qty: number;
+  net_total: number;
 };
 
 type UserRow = {
@@ -44,6 +56,13 @@ type ReportRow = ShipmentDeliveryRequestRow & {
   admin_name: string;
   receiver_summary: string;
   transporter_summary: string;
+  order_date: string | null;
+  work_category: OrderWorkCategory | null;
+  market_province: string;
+  market_district: string;
+  is_store_pickup: boolean;
+  shirt_quantity: number;
+  order_net_total: number;
 };
 
 function toLocalDateInputValue(date = new Date()) {
@@ -119,6 +138,9 @@ function matchesSearch(row: ReportRow, query: string) {
     row.requested_by_name,
     row.admin_name,
     row.note || "",
+    row.market_province,
+    row.market_district,
+    getOrderWorkCategoryLabel(row.work_category),
   ].map((value) => String(value || "").toLowerCase());
 
   if (textHaystacks.some((value) => value.includes(normalizedQuery))) return true;
@@ -153,18 +175,27 @@ export default function CustomerDeliveryReportPage() {
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
   const [requesterFilter, setRequesterFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const [provinceFilter, setProvinceFilter] = useState("all");
+  const [districtFilter, setDistrictFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [dateBasis, setDateBasis] = useState<"delivery" | "order">("delivery");
 
   const load = async () => {
     setLoading(true);
     setErr(null);
 
     const [{ data: requestData, error: requestError }, { data: userData, error: userError }] = await Promise.all([
-      supabase
-        .from("shipment_delivery_requests")
-        .select(
-          "id,request_no,order_id,qr_label_id,delivery_method,status,requested_by_user_id,delivery_scheduled_at,delivery_person_name,note,payment_outstanding_amount,payment_amount,payment_method,payment_paid_at,transport_receiver_name,transport_receiver_phone,transport_branch,transport_city,transport_province,transport_providers,transport_charge_mode,approved_at,approved_by_user_id,delivered_at,delivered_by_user_id,rejected_at,rejected_by_user_id,rejection_note,created_at,updated_at"
-        )
-        .order("delivery_scheduled_at", { ascending: false }),
+      fetchAllReportRows<ShipmentDeliveryRequestRow>((from, to) =>
+        supabase
+          .from("shipment_delivery_requests")
+          .select(
+            "id,request_no,order_id,qr_label_id,delivery_method,status,requested_by_user_id,delivery_scheduled_at,delivery_person_name,note,payment_outstanding_amount,payment_amount,payment_method,payment_paid_at,transport_receiver_name,transport_receiver_phone,transport_branch,transport_city,transport_province,transport_providers,transport_charge_mode,approved_at,approved_by_user_id,delivered_at,delivered_by_user_id,rejected_at,rejected_by_user_id,rejection_note,created_at,updated_at"
+          )
+          .order("delivery_scheduled_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to)
+          .returns<ShipmentDeliveryRequestRow[]>()
+      ),
       supabase.from("users").select("id,full_name,role").order("full_name", { ascending: true }),
     ]);
 
@@ -188,10 +219,16 @@ export default function CustomerDeliveryReportPage() {
 
     let ordersById = new Map<string, OrderRow>();
     if (orderIds.length > 0) {
-      const { data: orderData, error: orderError } = await supabase
-        .from("orders")
-        .select("id,order_code,factory_bill_code,customer_phone,customer_whatsapp,admin_user_id")
-        .in("id", orderIds);
+      const baseColumns = "id,order_code,factory_bill_code,customer_phone,customer_whatsapp,admin_user_id,order_date,short_qty,long_qty,free_qty,net_total";
+      let categoriesAvailable = true;
+      const { data: orderData, error: orderError } = await fetchReportRowsByIds<OrderRow>(orderIds, async (batchIds) => {
+        const result = await supabase.from("orders").select(categoriesAvailable ? `${baseColumns},work_category` : baseColumns).in("id", batchIds).returns<OrderRow[]>();
+        if (categoriesAvailable && isMissingWorkCategoryError(result.error)) {
+          categoriesAvailable = false;
+          return supabase.from("orders").select(baseColumns).in("id", batchIds).returns<OrderRow[]>();
+        }
+        return result;
+      });
 
       if (orderError) {
         setErr(orderError.message);
@@ -205,6 +242,7 @@ export default function CustomerDeliveryReportPage() {
 
     const mergedRows = requestRows.map((row) => {
       const order = ordersById.get(row.order_id);
+      const location = getDeliveryMarketLocation(row);
       const requestedBy = row.requested_by_user_id ? userMap.get(row.requested_by_user_id) : null;
       const adminUser = order?.admin_user_id ? userMap.get(order.admin_user_id) : null;
       const receiverSummary =
@@ -225,6 +263,13 @@ export default function CustomerDeliveryReportPage() {
         admin_name: adminUser?.full_name || "-",
         receiver_summary: receiverSummary,
         transporter_summary: transporterSummary,
+        order_date: order?.order_date || null,
+        work_category: normalizeOrderWorkCategory(order?.work_category),
+        market_province: resolveLaosProvince(location.province)?.name || location.province,
+        market_district: location.district,
+        is_store_pickup: location.isStorePickup,
+        shirt_quantity: Math.max(0, Number(order?.short_qty) || 0) + Math.max(0, Number(order?.long_qty) || 0) + Math.max(0, Number(order?.free_qty) || 0),
+        order_net_total: Number(order?.net_total) || 0,
       } satisfies ReportRow;
     });
 
@@ -239,13 +284,24 @@ export default function CustomerDeliveryReportPage() {
     return () => clearTimeout(timer);
   }, []);
 
+  const provinceOptions = useMemo(() => [...new Set(rows.map((row) => row.market_province))].sort(), [rows]);
+  const districtOptions = useMemo(() => [...new Set(rows.filter((row) => provinceFilter === "all" || row.market_province === provinceFilter).map((row) => row.market_district).filter(Boolean))].sort(), [provinceFilter, rows]);
+
   const filteredRows = useMemo(() => {
     const fromDateUtc = getUtcIsoRangeForLocalDate(fromDate, "start");
     const toDateUtc = getUtcIsoRangeForLocalDate(toDate, "end");
 
     return rows.filter((row) => {
-      if (fromDateUtc && row.delivery_scheduled_at < fromDateUtc) return false;
-      if (toDateUtc && row.delivery_scheduled_at > toDateUtc) return false;
+      if (dateBasis === "order") {
+        if (fromDate && (!row.order_date || row.order_date < fromDate)) return false;
+        if (toDate && (!row.order_date || row.order_date > toDate)) return false;
+      } else {
+        if (fromDateUtc && row.delivery_scheduled_at < fromDateUtc) return false;
+        if (toDateUtc && row.delivery_scheduled_at > toDateUtc) return false;
+      }
+      if (provinceFilter !== "all" && row.market_province !== provinceFilter) return false;
+      if (districtFilter !== "all" && row.market_district !== districtFilter) return false;
+      if (categoryFilter !== "all" && (row.work_category || "unclassified") !== categoryFilter) return false;
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
       if (methodFilter !== "all" && row.delivery_method !== methodFilter) return false;
       if (paymentFilter !== "all" && getPaymentStatus(row) !== paymentFilter) return false;
@@ -253,7 +309,7 @@ export default function CustomerDeliveryReportPage() {
       if (!matchesSearch(row, query)) return false;
       return true;
     });
-  }, [fromDate, methodFilter, paymentFilter, query, requesterFilter, rows, statusFilter, toDate]);
+  }, [categoryFilter, dateBasis, districtFilter, fromDate, methodFilter, paymentFilter, provinceFilter, query, requesterFilter, rows, statusFilter, toDate]);
 
   const summary = useMemo(() => {
     const delivered = filteredRows.filter((row) => row.status === "delivered").length;
@@ -272,7 +328,8 @@ export default function CustomerDeliveryReportPage() {
     };
   }, [filteredRows]);
 
-  const dateSummary = `${fromDate || "-"} -> ${toDate || "-"}`;
+  const dateSummary = `${dateBasis === "order" ? "ວັນທີອໍເດີ" : "ນັດສົ່ງ"}: ${fromDate || "-"} -> ${toDate || "-"}`;
+  const marketFilterSummary = `ແຂວງ: ${provinceFilter === "all" ? "ທັງໝົດ" : provinceFilter} | ເມືອງ: ${districtFilter === "all" ? "ທັງໝົດ" : districtFilter} | ປະເພດງານ: ${categoryFilter === "all" ? "ທັງໝົດ" : getOrderWorkCategoryLabel(categoryFilter)}`;
   const printSummary = [
     { label: "ລາຍການທັງໝົດ", value: summary.total.toLocaleString() },
     { label: "ສົ່ງມອບແລ້ວ", value: summary.delivered.toLocaleString() },
@@ -285,6 +342,10 @@ export default function CustomerDeliveryReportPage() {
       filteredRows.map((row) => ({
         request_no: row.request_no,
         order_code: row.order_code,
+        order_date: row.order_date || "",
+        work_category: getOrderWorkCategoryLabel(row.work_category),
+        province: row.market_province,
+        district: row.is_store_pickup ? "ຮັບໜ້າຮ້ານ (ບໍ່ລະບຸເມືອງ)" : row.market_district || UNKNOWN_LOCATION,
         factory_bill_code: row.factory_bill_code || "",
         customer_phone: row.customer_phone || row.customer_whatsapp || "",
         scheduled_at: formatDateTime(row.delivery_scheduled_at),
@@ -313,12 +374,14 @@ export default function CustomerDeliveryReportPage() {
   const handlePrint = () => {
     openReportPrintWindow({
       title: "ລາຍງານຈັດສົ່ງລູກຄ້າ",
-      subtitle: `ໄລຍະ: ${dateSummary} | ສະຖານະ: ${statusFilter === "all" ? "ທັງໝົດ" : SHIPMENT_DELIVERY_STATUS_LABELS[statusFilter]} | ວິທີສົ່ງ: ${methodFilter === "all" ? "ທັງໝົດ" : SHIPMENT_DELIVERY_METHOD_LABELS[methodFilter]} | ຜູ້ຂໍສົ່ງ: ${requesterFilter === "all" ? "ທັງໝົດ" : requesterOptions.find((item) => item.id === requesterFilter)?.full_name || "-"} | ຄົ້ນຫາ: ${query || "-"}`,
+      subtitle: `ໄລຍະ: ${dateSummary} | ${marketFilterSummary} | ສະຖານະ: ${statusFilter === "all" ? "ທັງໝົດ" : SHIPMENT_DELIVERY_STATUS_LABELS[statusFilter]} | ວິທີສົ່ງ: ${methodFilter === "all" ? "ທັງໝົດ" : SHIPMENT_DELIVERY_METHOD_LABELS[methodFilter]} | ຜູ້ຂໍສົ່ງ: ${requesterFilter === "all" ? "ທັງໝົດ" : requesterOptions.find((item) => item.id === requesterFilter)?.full_name || "-"} | ຄົ້ນຫາ: ${query || "-"}`,
       summary: printSummary,
-      headers: ["ເລກຄຳຂໍ", "ອໍເດີ", "ເບີໂທ", "ນັດສົ່ງ", "ວິທີສົ່ງ", "ຜູ້ຮັບ/ຜູ້ມາຮັບ", "ຈ່າຍແລ້ວ", "ຄ້າງ", "ສະຖານະ"],
+      headers: ["ເລກຄຳຂໍ", "ອໍເດີ", "ປະເພດງານ", "ແຂວງ / ເມືອງ", "ເບີໂທ", "ນັດສົ່ງ", "ວິທີສົ່ງ", "ຜູ້ຮັບ/ຜູ້ມາຮັບ", "ຈ່າຍແລ້ວ", "ຄ້າງ", "ສະຖານະ"],
       rows: filteredRows.map((row) => [
         row.request_no,
         row.order_code,
+        getOrderWorkCategoryLabel(row.work_category),
+        `${row.market_province} / ${row.is_store_pickup ? "ຮັບໜ້າຮ້ານ" : row.market_district || UNKNOWN_LOCATION}`,
         row.customer_phone || row.customer_whatsapp || "-",
         formatDateTime(row.delivery_scheduled_at),
         SHIPMENT_DELIVERY_METHOD_LABELS[row.delivery_method],
@@ -336,12 +399,14 @@ export default function CustomerDeliveryReportPage() {
       await exportReportDocumentAsPdf(
         {
           title: "ລາຍງານຈັດສົ່ງລູກຄ້າ",
-          subtitle: `ໄລຍະ: ${dateSummary} | ສະຖານະ: ${statusFilter === "all" ? "ທັງໝົດ" : SHIPMENT_DELIVERY_STATUS_LABELS[statusFilter]} | ວິທີສົ່ງ: ${methodFilter === "all" ? "ທັງໝົດ" : SHIPMENT_DELIVERY_METHOD_LABELS[methodFilter]} | ສະຖານະການຮັບເງິນ: ${paymentFilter === "all" ? "ທັງໝົດ" : getPaymentStatusLabel(paymentFilter)} | ຄົ້ນຫາ: ${query || "-"}`,
+          subtitle: `ໄລຍະ: ${dateSummary} | ${marketFilterSummary} | ສະຖານະ: ${statusFilter === "all" ? "ທັງໝົດ" : SHIPMENT_DELIVERY_STATUS_LABELS[statusFilter]} | ວິທີສົ່ງ: ${methodFilter === "all" ? "ທັງໝົດ" : SHIPMENT_DELIVERY_METHOD_LABELS[methodFilter]} | ສະຖານະການຮັບເງິນ: ${paymentFilter === "all" ? "ທັງໝົດ" : getPaymentStatusLabel(paymentFilter)} | ຄົ້ນຫາ: ${query || "-"}`,
           summary: printSummary,
-          headers: ["ເລກຄຳຂໍ", "ອໍເດີ", "ເບີໂທ", "ນັດສົ່ງ", "ວິທີສົ່ງ", "ຜູ້ຮັບ/ຜູ້ມາຮັບ", "ຈ່າຍແລ້ວ", "ຄ້າງ", "ສະຖານະ"],
+          headers: ["ເລກຄຳຂໍ", "ອໍເດີ", "ປະເພດງານ", "ແຂວງ / ເມືອງ", "ເບີໂທ", "ນັດສົ່ງ", "ວິທີສົ່ງ", "ຜູ້ຮັບ/ຜູ້ມາຮັບ", "ຈ່າຍແລ້ວ", "ຄ້າງ", "ສະຖານະ"],
           rows: filteredRows.map((row) => [
             row.request_no,
             row.order_code,
+            getOrderWorkCategoryLabel(row.work_category),
+            `${row.market_province} / ${row.is_store_pickup ? "ຮັບໜ້າຮ້ານ" : row.market_district || UNKNOWN_LOCATION}`,
             row.customer_phone || row.customer_whatsapp || "-",
             formatDateTime(row.delivery_scheduled_at),
             SHIPMENT_DELIVERY_METHOD_LABELS[row.delivery_method],
@@ -408,6 +473,29 @@ export default function CustomerDeliveryReportPage() {
           </select>
         </div>
 
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <select aria-label="ແຂວງບ່ອນສົ່ງ" value={provinceFilter} onChange={(event) => { setProvinceFilter(event.target.value); setDistrictFilter("all"); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
+            <option value="all">ທຸກແຂວງ</option>
+            {provinceOptions.map((province) => <option key={province} value={province}>{province}</option>)}
+          </select>
+          <select aria-label="ເມືອງບ່ອນສົ່ງ" value={districtFilter} onChange={(event) => setDistrictFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
+            <option value="all">ທຸກເມືອງ / ຮັບໜ້າຮ້ານ</option>
+            {districtOptions.map((district) => <option key={district} value={district}>{district}</option>)}
+          </select>
+          <select aria-label="ກອງປະເພດງານ" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
+            <option value="all">ທຸກປະເພດງານ</option>
+            {ORDER_WORK_CATEGORIES.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+            <option value="unclassified">ຍັງບໍ່ລະບຸ</option>
+          </select>
+          <select aria-label="ອີງຊ່ວງວັນທີຈາກ" value={dateBasis} onChange={(event) => setDateBasis(event.target.value as "delivery" | "order")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
+            <option value="delivery">ອີງວັນທີນັດສົ່ງ</option><option value="order">ອີງວັນທີອໍເດີ</option>
+          </select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
+          <button type="button" onClick={() => { setDateBasis("order"); setFromDate(`${today.slice(0, 4)}-01-01`); setToDate(today); }} className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-bold text-sky-700">ເບິ່ງປະເພດງານປີນີ້</button>
+          ຮັບໜ້າຮ້ານ = ກຸ່ມນະຄອນຫຼວງວຽງຈັນ; ເມື່ອກອງເມືອງສະເພາະ ຈະສະແດງສະເພາະບ່ອນສົ່ງທີ່ລະບຸເມືອງນັ້ນ
+        </div>
+
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.6fr_1fr]">
           <input
             value={query}
@@ -457,6 +545,8 @@ export default function CustomerDeliveryReportPage() {
         </div>
       </div>
 
+      {!loading ? <MarketingSummary rows={filteredRows} periodLabel={dateSummary} onProvinceFilter={(province) => { setProvinceFilter(province); setDistrictFilter("all"); }} /> : null}
+
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
         <div className="border-b bg-slate-50 p-4 text-sm font-black uppercase text-slate-800">ຕາຕະລາງລາຍງານ ({filteredRows.length})</div>
         <div className="overflow-x-auto">
@@ -465,6 +555,8 @@ export default function CustomerDeliveryReportPage() {
               <tr>
                 <th className="p-3 text-left text-xs font-black uppercase">ເລກຄຳຂໍ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ອໍເດີ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ປະເພດງານ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ແຂວງ / ເມືອງ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ເບີໂທລູກຄ້າ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ນັດສົ່ງ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ວິທີສົ່ງ</th>
@@ -478,7 +570,7 @@ export default function CustomerDeliveryReportPage() {
             <tbody className="divide-y divide-slate-50">
               {!loading && filteredRows.length === 0 ? (
                 <tr>
-                  <td className="p-8 text-center font-bold text-slate-500" colSpan={10}>
+                  <td className="p-8 text-center font-bold text-slate-500" colSpan={12}>
                     ບໍ່ມີຂໍ້ມູນ
                   </td>
                 </tr>
@@ -489,7 +581,10 @@ export default function CustomerDeliveryReportPage() {
                     <td className="p-3 text-slate-800">
                       <div className="font-bold">{row.order_code}</div>
                       <div className="text-xs text-slate-500">{row.factory_bill_code || "-"}</div>
+                      <div className="text-xs text-slate-500">ວັນທີອໍເດີ: {row.order_date || "-"}</div>
                     </td>
+                    <td className="p-3 text-slate-800"><Link href={`/orders/${row.order_id}/edit`} className="font-bold text-sky-700 hover:underline">{getOrderWorkCategoryLabel(row.work_category)}</Link></td>
+                    <td className="p-3 text-slate-800"><div className="font-bold">{row.market_province}</div><div className="text-xs text-slate-500">{row.is_store_pickup ? "ຮັບໜ້າຮ້ານ (ບໍ່ລະບຸເມືອງ)" : row.market_district || UNKNOWN_LOCATION}</div></td>
                     <td className="p-3 text-slate-800">{row.customer_phone || row.customer_whatsapp || "-"}</td>
                     <td className="p-3 text-slate-800">{formatDateTime(row.delivery_scheduled_at)}</td>
                     <td className="p-3 text-slate-800">{SHIPMENT_DELIVERY_METHOD_LABELS[row.delivery_method]}</td>

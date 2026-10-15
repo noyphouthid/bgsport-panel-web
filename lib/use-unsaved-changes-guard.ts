@@ -19,6 +19,12 @@ export function useUnsavedChangesGuard({
   const bypassRef = useRef(false);
   const popstateBypassRef = useRef(false);
   const pushedGuardRef = useRef(false);
+  const pendingDirtyRef = useRef<number | null>(null);
+
+  const clearPendingDirty = useCallback(() => {
+    if (pendingDirtyRef.current !== null) window.clearTimeout(pendingDirtyRef.current);
+    pendingDirtyRef.current = null;
+  }, []);
 
   const confirmIfDirty = useCallback(() => {
     if (!enabled || !isDirty || bypassRef.current) return true;
@@ -35,10 +41,11 @@ export function useUnsavedChangesGuard({
   }, []);
 
   const markClean = useCallback(() => {
+    clearPendingDirty();
     setIsDirty(false);
     pushedGuardRef.current = false;
     allowNextNavigation();
-  }, [allowNextNavigation]);
+  }, [allowNextNavigation, clearPendingDirty]);
 
   useEffect(() => {
     if (enabled && isDirty) return;
@@ -54,17 +61,24 @@ export function useUnsavedChangesGuard({
       const source = event.target as HTMLElement | null;
       if (!source) return;
       if (source.closest("[data-unsaved-ignore='true']")) return;
-      setIsDirty(true);
+      // A capture listener must wait for React onChange to commit the value.
+      // Updating synchronously can restore the old value before onChange runs.
+      if (pendingDirtyRef.current !== null) return;
+      pendingDirtyRef.current = window.setTimeout(() => {
+        pendingDirtyRef.current = null;
+        setIsDirty(true);
+      }, 0);
     };
 
     target.addEventListener("input", markDirtyFromEvent, true);
     target.addEventListener("change", markDirtyFromEvent, true);
 
     return () => {
+      clearPendingDirty();
       target.removeEventListener("input", markDirtyFromEvent, true);
       target.removeEventListener("change", markDirtyFromEvent, true);
     };
-  }, [enabled, scopeRef]);
+  }, [clearPendingDirty, enabled, scopeRef]);
 
   useEffect(() => {
     if (!enabled || !isDirty) return;

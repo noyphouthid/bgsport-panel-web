@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { ArrowLeft, Save } from "lucide-react";
+import { TransportBranchPicker } from "../_components/transport-branch-picker";
+import { ensureTransportBranchCodeStorage } from "@/lib/transport-branch-code";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
@@ -14,7 +16,6 @@ import {
   canManageAllTransportNotes,
   DEFAULT_TRANSPORT_NOTE_FORM,
   mapTransportNoteToForm,
-  TRANSPORTERS,
   type TransportNoteForm,
   type TransportNoteRow,
 } from "@/lib/transport-notes";
@@ -106,15 +107,6 @@ export default function TransportNotePage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const toggleTransporter = (name: string) => {
-    setForm((prev) => ({
-      ...prev,
-      transporters: prev.transporters.includes(name)
-        ? prev.transporters.filter((item) => item !== name)
-        : [...prev.transporters, name],
-    }));
-  };
-
   const handleSave = async () => {
     if (!form.receiverName.trim()) {
       toast.error("ກະລຸນາປ້ອນຊື່ຜູ້ຮັບ");
@@ -135,6 +127,7 @@ export default function TransportNotePage() {
 
     setSaving(true);
     try {
+      if (form.branchCode.trim()) await ensureTransportBranchCodeStorage(supabase);
       const payload = {
         note_no: currentNote?.note_no || buildTransportNoteNo(),
         source_type: currentNote?.source_type || "standalone",
@@ -143,6 +136,7 @@ export default function TransportNotePage() {
         receiver_name: form.receiverName.trim(),
         receiver_phone: form.receiverPhone.trim(),
         branch: form.branch.trim() || null,
+        ...(form.branchCode.trim() || currentNote?.branch_code !== undefined ? { branch_code: form.branchCode.trim() || null } : {}),
         city: form.city.trim() || null,
         province: form.province.trim() || null,
         transporters: form.transporters,
@@ -235,61 +229,11 @@ export default function TransportNotePage() {
                 />
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1.5 block text-sm font-bold">ຝາກສາຂາ:</label>
-                  <input
-                    type="text"
-                    value={form.branch}
-                    onChange={(e) => updateField("branch", e.target.value)}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-sm font-bold">ເມືອງ:</label>
-                  <input
-                    type="text"
-                    value={form.city}
-                    onChange={(e) => updateField("city", e.target.value)}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-bold">ແຂວງ:</label>
-                <input
-                  type="text"
-                  value={form.province}
-                  onChange={(e) => updateField("province", e.target.value)}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-bold">ຝາກຂົນສົ່ງ:</label>
-                <div className="flex flex-wrap gap-2">
-                  {TRANSPORTERS.map((name) => {
-                    const checked = form.transporters.includes(name);
-                    return (
-                      <label
-                        key={name}
-                        className={`flex cursor-pointer items-center rounded-md border-2 px-3 py-2 text-sm ${
-                          checked ? "border-blue-600 bg-blue-50 text-blue-800" : "border-transparent bg-slate-100 text-slate-700"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleTransporter(name)}
-                          className="mr-2"
-                        />
-                        {name}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
+              <TransportBranchPicker
+                value={form}
+                disabled={loading || saving || accessDenied}
+                onChange={(address) => setForm((prev) => ({ ...prev, ...address }))}
+              />
 
               <div>
                 <label className="mb-2 block text-sm font-bold">ຄ່າຂົນສົ່ງ:</label>
@@ -341,6 +285,7 @@ export default function TransportNotePage() {
         <div className="flex justify-center overflow-auto py-6">
           <div className="origin-top scale-[1.45] transform-gpu">
             <div
+              data-transport-note-preview
               className={`relative flex h-[100mm] w-[80mm] flex-col overflow-hidden border-2 border-black bg-white text-black ${notoSansLaoLooped.className}`}
             >
             <div className="flex items-center border-b-[1.5px] border-black px-[10px] py-[8px]">
@@ -365,6 +310,9 @@ export default function TransportNotePage() {
               </div>
               <div>
                 ຝາກສາຂາ: <span className="text-[15px] font-bold">{form.branch}</span>
+              </div>
+              <div>
+                ລະຫັດສາຂາ: <span className="text-[15px] font-bold">{form.branchCode || "-"}</span>
               </div>
               <div>
                 ເມືອງ: <span className="text-[15px] font-bold">{form.city}</span>

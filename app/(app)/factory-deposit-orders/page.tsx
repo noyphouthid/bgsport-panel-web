@@ -13,6 +13,7 @@ import {
   parsePantsDraftItems,
 } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
+import { confirmOrderWorkCategory } from "@/lib/order-work-category-dialog";
 import { sortProductionPlayerRowsBySize } from "@/lib/production-player-rows";
 import type { AppRole } from "@/lib/access-control";
 import {
@@ -669,13 +670,8 @@ export default function FactoryDepositOrdersPage() {
     if (row.order_id) return toast.error("ລາຍການນີ້ຖືກບັນທຶກເປັນອໍເດີແລ້ວ");
     if (!row.order_code?.trim()) return toast.error("ບໍ່ພົບລະຫັດອໍເດີ");
 
-    const confirmed = await confirmAction({
-      title: "ຢືນຢັນບັນທຶກເປັນອໍເດີ?",
-      text: `${row.deposit_no} -> ${row.order_code}`,
-      confirmButtonText: "ຢືນຢັນ",
-      cancelToast: "ຍົກເລີກການບັນທຶກເປັນອໍເດີແລ້ວ",
-    });
-    if (!confirmed) return;
+    const workCategory = await confirmOrderWorkCategory(`${row.deposit_no} -> ${row.order_code}`);
+    if (!workCategory) return;
 
     setWorkingId(row.id);
     let createdOrderId: string | null = null;
@@ -694,6 +690,7 @@ export default function FactoryDepositOrdersPage() {
       const orderPayload = {
         order_code: row.order_code.trim(),
         order_date: row.order_date || row.deposit_date,
+        work_category: workCategory,
         customer_phone: row.customer_phone?.trim() || null,
         customer_whatsapp: row.customer_whatsapp?.trim() || null,
         factory_bill_code: row.factory_bill_code?.trim() || null,

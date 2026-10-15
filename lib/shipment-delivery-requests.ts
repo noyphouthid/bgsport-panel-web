@@ -52,6 +52,7 @@ export type ShipmentDeliveryRequestRow = {
   transport_receiver_name: string | null;
   transport_receiver_phone: string | null;
   transport_branch: string | null;
+  transport_branch_code?: string | null;
   transport_city: string | null;
   transport_province: string | null;
   transport_providers: string[];
