@@ -6,8 +6,9 @@ import Link from "next/link";
 import toast from "react-hot-toast";
 import { Images, Plus, Save, Upload, X, Search, Eye, EyeOff, ExternalLink, Loader2, Trash2, ArrowLeft, ArrowRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { DEFAULT_STOREFRONT_CATEGORIES, type StorefrontCategory, LIBRARY_SELECT as librarySelect, type LibraryImage, isPublicImageUrl, type CatalogImage, type ShirtCatalogEntry } from "@/lib/shirt-catalog";
+import { DEFAULT_STOREFRONT_CATEGORIES, shirtCategoryIds, type StorefrontCategory, LIBRARY_SELECT as librarySelect, type LibraryImage, isPublicImageUrl, type CatalogImage, type ShirtCatalogEntry } from "@/lib/shirt-catalog";
 import { CatalogDialog } from "./_components/catalog-dialog";
+import { CategoryTags } from "./_components/category-tags";
 import { CategoryManager } from "./_components/category-manager";
 import { StorefrontManager } from "./_components/storefront-manager";
 import { BatchPublisher } from "./_components/batch-publisher";
@@ -18,8 +19,8 @@ import { buildDesignQueueOrderCode } from "@/lib/design-queue-media";
 
 const sourceCode = (image: LibraryImage) => image.queue?.order_no ? buildDesignQueueOrderCode(image.queue) : "";
 const sourceImage = (image: LibraryImage): CatalogImage => ({ url: image.file_url!, path: image.file_path, bucket: "order-media", mockup_id: image.id, queue_entry_id: image.queue_entry_id, order_code: sourceCode(image), name: image.file_name });
-type Draft = Pick<ShirtCatalogEntry, "design_code" | "name_lo" | "name_en" | "description_lo" | "description_en" | "caption_lo" | "caption_en" | "slogan_lo" | "slogan_en" | "category" | "placement" | "images" | "is_published" | "is_featured"> & { id?: string; price: string };
-const freshDraft = (category = "football"): Draft => ({ design_code: "", name_lo: "", name_en: "", description_lo: "", description_en: "", caption_lo: "", caption_en: "", slogan_lo: "", slogan_en: "", category, placement: "catalog", images: [], is_published: false, is_featured: false, price: "" });
+type Draft = Pick<ShirtCatalogEntry, "design_code" | "name_lo" | "name_en" | "description_lo" | "description_en" | "caption_lo" | "caption_en" | "slogan_lo" | "slogan_en" | "category" | "placement" | "images" | "is_published" | "is_featured"> & { id?: string; price: string; category_ids: string[] };
+const freshDraft = (category = "football"): Draft => ({ design_code: "", name_lo: "", name_en: "", description_lo: "", description_en: "", caption_lo: "", caption_en: "", slogan_lo: "", slogan_en: "", category, category_ids: [category], placement: "catalog", images: [], is_published: false, is_featured: false, price: "" });
 const control = "w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-surface)] px-3 py-2.5 text-sm text-[var(--theme-foreground)]";
 
 export default function ShirtCatalogPage() {
@@ -106,7 +107,7 @@ export default function ShirtCatalogPage() {
 
   const visible = useMemo(() => entries.filter(row => {
     const match = `${row.design_code} ${row.name_lo} ${row.name_en}`.toLowerCase().includes(query.toLowerCase().trim());
-    return match && (!selectedCategories.length || selectedCategories.includes(row.category)) && (status === "all" || row.is_published === (status === "published"));
+    return match && (!selectedCategories.length || shirtCategoryIds(row).some(id => selectedCategories.includes(id))) && (status === "all" || row.is_published === (status === "published"));
   }), [entries, query, status, selectedCategories]);
   const patch = (value: Partial<Draft>) => setDraft(current => current ? { ...current, ...value } : current);
   const linkedOrderCode = draft?.images.find(image => image.mockup_id && image.order_code)?.order_code || "";
@@ -131,14 +132,14 @@ export default function ShirtCatalogPage() {
     const codes = [...new Set(images.filter(image => image.mockup_id).map(image => image.order_code).filter(Boolean))];
     if (codes.length > 1) return toast.error("ແບບນີ້ມີຮູບຈາກຫຼາຍອໍເດີ. ກະລຸນາແຍກເປັນແບບຕາມລະຫັດອໍເດີ.");
     const { price_lak, ...fields } = row;
-    setDraft({ ...freshDraft(), ...fields, images, design_code: codes[0] || row.design_code, price: price_lak == null ? "" : String(price_lak) });
+    setDraft({ ...freshDraft(), ...fields, category_ids: shirtCategoryIds(row), images, design_code: codes[0] || row.design_code, price: price_lak == null ? "" : String(price_lak) });
     setLibraryOpen(false);
   };
 
   const save = async () => {
     if (!draft || !canEdit || saving || uploading) return;
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{1,59}$/.test(draft.design_code.trim())) return toast.error("ລະຫັດໃຊ້ A–Z, 0–9, - ຫຼື _ ຄວາມຍາວ 2–60 ຕົວ");
-    if (!categories.some(category => category.id === draft.category)) return toast.error("ກະລຸນາເລືອກປະເພດງານທີ່ມີຢູ່");
+    if (!draft.category_ids.length || draft.category_ids.some(id => !categories.some(category => category.id === id))) return toast.error("ກະລຸນາເລືອກປະເພດງານທີ່ມີຢູ່");
     if (!draft.name_lo.trim()) return toast.error("ກະລຸນາໃສ່ຊື່ແບບ");
     if (draft.is_published && !draft.images.length) return toast.error("ເພີ່ມຮູບກ່ອນເຜີຍແຜ່");
     const price = draft.price.trim() ? Number(draft.price) : null;
@@ -146,11 +147,11 @@ export default function ShirtCatalogPage() {
     setSaving(true);
     const { id, price: ignoredPrice, ...fields } = draft;
     void ignoredPrice;
-    const payload = { ...fields, design_code: (linkedOrderCode || fields.design_code).trim().toUpperCase(), name_lo: fields.name_lo.trim(), price_lak: price };
+    const payload = { ...fields, category: fields.category_ids[0], design_code: (linkedOrderCode || fields.design_code).trim().toUpperCase(), name_lo: fields.name_lo.trim(), price_lak: price };
     const result = id ? await supabase.from("shirt_catalog_entries").update(payload).eq("id", id).select("id").single()
       : await supabase.from("shirt_catalog_entries").insert(payload).select("id").single();
     setSaving(false);
-    if (result.error) { toast.error(result.error.code === "23505" ? "ລະຫັດແບບນີ້ມີແລ້ວ" : result.error.code === "PGRST204" ? "ກະລຸນາຕິດຕັ້ງ 20261013_storefront_management.sql ກ່ອນ" : result.error.message); return; }
+    if (result.error) { toast.error(result.error.code === "23505" ? "ລະຫັດແບບນີ້ມີແລ້ວ" : result.error.code === "PGRST204" ? "ກະລຸນາຕິດຕັ້ງ 20261016_add_shirt_catalog_category_tags.sql ກ່ອນ" : result.error.message); return; }
     toast.success(draft.is_published ? "ເຜີຍແຜ່ແລ້ວ" : "ບັນທຶກແບບຮ່າງແລ້ວ");
     setDraft(null); setLibraryOpen(false); await load();
   };
@@ -217,7 +218,7 @@ export default function ShirtCatalogPage() {
       <div><p className="text-xs font-bold tracking-widest text-amber-600">BG SPORT STORE</p><h1 className="mt-1 text-2xl font-bold">ເຜີຍແຜ່ແບບເສື້ອ</h1><p className="mt-2 text-sm text-[var(--theme-muted)]">ເລືອກຮູບຈາກຄັງ ແລະ ຈັດການແບບທີ່ສະແດງໃຫ້ລູກຄ້າເຫັນ</p></div>
       <div className="flex gap-2"><Link href="/design-queue/assets" className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm"><Images size={16}/>ຄັງຮູບ</Link><button hidden={tab !== "designs"} disabled={!canEdit || !!error || loading || !categories.length} onClick={() => { setDraft(freshDraft(categories[0]?.id)); setLibraryOpen(false); }} className="inline-flex items-center gap-2 rounded-xl bg-amber-300 px-4 py-2 text-sm font-bold text-black disabled:opacity-40"><Plus size={16}/>ເພີ່ມແບບ</button></div>
     </header>
-    <nav className="flex flex-wrap gap-2" aria-label="ຈັດການໜ້າຮ້ານ">{[["designs", "ແບບເສື້ອ"], ["content", "ຂໍ້ຄວາມຮ້ານ"], ["promotions", "ສະໄລດ໌ໂປຣໂມຊັນ"], ["categories", "ປະເພດງານ"]].map(([key, label]) => <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)} className={`rounded-xl border px-4 py-2 text-sm ${tab === key ? "bg-amber-300 font-bold text-black" : ""}`}>{label}</button>)}</nav>
+    <nav className="flex flex-wrap gap-2" aria-label="ຈັດການໜ້າຮ້ານ"><Link href="/shirt-catalog/reviews" className="rounded-xl border px-4 py-2 text-sm">ລີວິວສິນຄ້າຈິງ</Link><Link href="/shirt-catalog/fabrics" className="rounded-xl border px-4 py-2 text-sm">ລາຍການຜ້າ</Link>{[["designs", "ແບບເສື້ອ"], ["content", "ຂໍ້ຄວາມຮ້ານ"], ["promotions", "ສະໄລດ໌ໂປຣໂມຊັນ"], ["categories", "ປະເພດງານ"]].map(([key, label]) => <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)} className={`rounded-xl border px-4 py-2 text-sm ${tab === key ? "bg-amber-300 font-bold text-black" : ""}`}>{label}</button>)}</nav>
     {tab === "categories" && <CategoryManager canEdit={canEdit} onChanged={loadCategories} />}
     {tab !== "designs" && tab !== "categories" && <StorefrontManager key={tab} section={tab} canEdit={canEdit} />}
     {tab === "designs" && <>
@@ -227,7 +228,7 @@ export default function ShirtCatalogPage() {
     {canEdit && visible.length > 0 && <div className="flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm"><label className="flex gap-2"><input type="checkbox" disabled={saving} checked={visible.every(row => selectedEntries.includes(row.id))} onChange={e => setSelectedEntries(e.target.checked ? [...new Set([...selectedEntries, ...visible.map(row => row.id)])] : selectedEntries.filter(id => !visible.some(row => row.id === id)))}/>ເລືອກທັງໝົດ</label><span>{selectedEntries.length} ແບບ</span><button disabled={!selectedEntries.length || saving} onClick={() => void bulkStatus(true)} className="rounded-lg border px-3 py-2">ເຜີຍແຜ່ທີ່ເລືອກ</button><button disabled={!selectedEntries.length || saving} onClick={() => void bulkStatus(false)} className="rounded-lg border px-3 py-2">ຊ່ອນທີ່ເລືອກ</button><button disabled={!selectedEntries.length || saving} onClick={() => void deleteEntries(selectedEntries)} className="rounded-lg border px-3 py-2 text-red-500">ລົບທີ່ເລືອກ</button></div>}
     {loading ? <p className="flex items-center gap-2 py-8"><Loader2 className="animate-spin" size={18}/>ກຳລັງໂຫຼດ…</p> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">{visible.map(row => <article key={row.id} className="overflow-hidden rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)]">
       <div className="relative aspect-[4/3] bg-[var(--theme-surface-muted)]">{row.images[0] ? <img src={row.images[0].url} alt={row.name_lo} className="h-full w-full object-contain"/> : <div className="grid h-full place-items-center"><Images className="text-gray-400"/></div>}<label className="absolute right-3 top-3 rounded-lg bg-white p-2 text-black"><input type="checkbox" aria-label={`ເລືອກ ${row.design_code}`} disabled={!canEdit || saving} checked={selectedEntries.includes(row.id)} onChange={e => setSelectedEntries(current => e.target.checked ? [...current, row.id] : current.filter(id => id !== row.id))}/></label><span className={`absolute left-3 top-3 rounded-lg px-2 py-1 text-xs font-bold ${row.is_published ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>{row.is_published ? "ເຜີຍແຜ່" : "ແບບຮ່າງ"}</span></div>
-      <div className="space-y-2 p-4"><p className="text-xs font-bold text-amber-600">{row.design_code}</p><h2 className="font-bold">{row.name_lo}</h2><p className="text-xs text-[var(--theme-muted)]">{categories.find(c => c.id === row.category)?.lo} · {row.placement === "both" ? "Catalog + Store" : row.placement}</p>{row.placement !== "catalog" && <p className="text-sm">{row.price_lak ? `${Number(row.price_lak).toLocaleString()} ກີບ` : "ສອບຖາມລາຄາ"}</p>}<div className="flex gap-2 pt-2"><button disabled={!canEdit || saving} onClick={() => void editEntry(row)} className="flex-1 rounded-lg border px-3 py-2 text-sm disabled:opacity-40">ແກ້ໄຂ</button><button disabled={!canEdit || saving} aria-label={row.is_published ? "ຊ່ອນແບບ" : "ເຜີຍແຜ່ແບບ"} onClick={() => void togglePublished(row)} className="rounded-lg border p-2 disabled:opacity-40">{row.is_published ? <EyeOff size={18}/> : <Eye size={18}/>}</button><button disabled={!canEdit || saving} aria-label={`ລົບ ${row.design_code}`} onClick={() => void deleteEntries([row.id])} className="rounded-lg border p-2 text-red-500 disabled:opacity-40"><Trash2 size={18}/></button></div></div>
+      <div className="space-y-2 p-4"><p className="text-xs font-bold text-amber-600">{row.design_code}</p><h2 className="font-bold">{row.name_lo}</h2><p className="text-xs text-[var(--theme-muted)]">{shirtCategoryIds(row).map(id => categories.find(c => c.id === id)?.lo || id).join(" · ")} · {row.placement === "both" ? "Catalog + Store" : row.placement}</p>{row.placement !== "catalog" && <p className="text-sm">{row.price_lak ? `${Number(row.price_lak).toLocaleString()} ກີບ` : "ສອບຖາມລາຄາ"}</p>}<div className="flex gap-2 pt-2"><button disabled={!canEdit || saving} onClick={() => void editEntry(row)} className="flex-1 rounded-lg border px-3 py-2 text-sm disabled:opacity-40">ແກ້ໄຂ</button><button disabled={!canEdit || saving} aria-label={row.is_published ? "ຊ່ອນແບບ" : "ເຜີຍແຜ່ແບບ"} onClick={() => void togglePublished(row)} className="rounded-lg border p-2 disabled:opacity-40">{row.is_published ? <EyeOff size={18}/> : <Eye size={18}/>}</button><button disabled={!canEdit || saving} aria-label={`ລົບ ${row.design_code}`} onClick={() => void deleteEntries([row.id])} className="rounded-lg border p-2 text-red-500 disabled:opacity-40"><Trash2 size={18}/></button></div></div>
     </article>)}</div>}
     {!loading && !error && visible.length === 0 && <div className="rounded-2xl border border-dashed p-12 text-center"><Images className="mx-auto mb-3 text-amber-500"/><p>{entries.length ? "ບໍ່ພົບແບບທີ່ຄົ້ນຫາ" : "ເພີ່ມແບບເສື້ອທຳອິດຈາກຄັງຮູບຂອງຮ້ານ"}</p></div>}
     {!loading && !allEntriesLoaded && <button className="rounded-xl border px-4 py-2" onClick={async () => { const result = await supabase.from("shirt_catalog_entries").select("*").order("created_at", { ascending: false }).range(entries.length, entries.length + 999); if (result.error) toast.error(result.error.message); else { setEntries(current => [...current, ...(result.data ?? []) as ShirtCatalogEntry[]]); setAllEntriesLoaded((result.data?.length ?? 0) < 1000); } }}>ໂຫຼດແບບເພີ່ມ</button>}
@@ -237,7 +238,7 @@ export default function ShirtCatalogPage() {
       <header className="flex items-center justify-between border-b border-[var(--theme-border)] p-4"><h2 className="font-bold">{draft.id ? "ແກ້ໄຂແບບ" : "ເພີ່ມແບບເສື້ອ"}</h2><button disabled={saving || uploading} aria-label="ປິດ" onClick={() => setDraft(null)}><X/></button></header>
       <div className="space-y-5 overflow-y-auto p-5"><fieldset disabled={saving || uploading} className="grid gap-4 md:grid-cols-2">
         <label className="space-y-1 text-sm">ລະຫັດແບບ *<input aria-label="ລະຫັດແບບ" maxLength={60} readOnly={!!linkedOrderCode} className={`${control} read-only:bg-[var(--theme-surface-muted)]`} value={linkedOrderCode || draft.design_code} onChange={e => patch({ design_code: e.target.value })} placeholder="ພິມລະຫັດສຳລັບຮູບທີ່ອັບໂຫຼດເອງ"/><span className="block text-xs text-[var(--theme-muted)]">{linkedOrderCode ? "ດຶງຈາກລະຫັດອໍເດີໃນຄັງຮູບອັດຕະໂນມັດ" : "ຮູບທີ່ອັບໂຫຼດເອງ ສາມາດກຳນົດລະຫັດໄດ້"}</span></label>
-        <label className="space-y-1 text-sm">ໝວດໝູ່<select aria-label="ໝວດໝູ່" className={control} value={draft.category} onChange={e => patch({ category: e.target.value as Draft["category"] })}>{!categories.some(c => c.id === draft.category) && <option value={draft.category} disabled>ກະລຸນາເລືອກປະເພດ</option>}{categories.map(c => <option key={c.id} value={c.id}>{c.lo} / {c.en}</option>)}</select></label>
+        <div className="md:col-span-2"><CategoryTags categories={categories} value={draft.category_ids} onChange={category_ids => patch({ category_ids })}/></div>
         <label className="space-y-1 text-sm">ຊື່ແບບ (ລາວ) *<input maxLength={200} className={control} value={draft.name_lo} onChange={e => patch({ name_lo: e.target.value })}/></label>
         <label className="space-y-1 text-sm">ຊື່ແບບ (English)<input maxLength={200} className={control} value={draft.name_en} onChange={e => patch({ name_en: e.target.value })}/></label>
         <label className="space-y-1 text-sm">ລາຍລະອຽດ (ລາວ)<textarea rows={3} maxLength={5000} className={control} value={draft.description_lo} onChange={e => patch({ description_lo: e.target.value })}/></label>

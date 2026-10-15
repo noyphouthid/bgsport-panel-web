@@ -3,32 +3,35 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { FilePlus2, PencilLine, Printer, Search, Trash2 } from "lucide-react";
-import { deleteQuotationDraft, getQuotationDrafts, type QuotationDraft } from "@/lib/quotation-drafts";
+import { ChevronLeft, ChevronRight, FilePlus2, PencilLine, Printer, Search, Trash2 } from "lucide-react";
+import { deleteQuotationDraft, getQuotationDraftSummaries, type QuotationDraftSummary } from "@/lib/quotation-drafts";
 
-const badgeStyles: Record<QuotationDraft["status"], string> = {
+const PAGE_SIZE = 20;
+
+const badgeStyles: Record<QuotationDraftSummary["status"], string> = {
   draft: "bg-amber-100 text-amber-700 border border-amber-200",
   confirmed: "bg-emerald-100 text-emerald-700 border border-emerald-200",
   cancelled: "bg-rose-100 text-rose-700 border border-rose-200",
 };
 
-const badgeLabels: Record<QuotationDraft["status"], string> = {
+const badgeLabels: Record<QuotationDraftSummary["status"], string> = {
   draft: "ຮ່າງ",
   confirmed: "ຢືນຢັນແລ້ວ",
   cancelled: "ຍົກເລີກ",
 };
 
 export default function QuotationsPage() {
-  const [rows, setRows] = useState<QuotationDraft[]>([]);
+  const [rows, setRows] = useState<QuotationDraftSummary[]>([]);
   const [query, setQuery] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
 
   const loadRows = async () => {
     setLoading(true);
     try {
-      setRows(await getQuotationDrafts());
+      setRows(await getQuotationDraftSummaries());
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ໂຫຼດໃບປະເມີນລາຄາບໍ່ສຳເລັດ");
     } finally {
@@ -52,6 +55,11 @@ export default function QuotationsPage() {
         .includes(keyword);
     });
   }, [fromDate, query, rows, toDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageRows = filteredRows.slice(pageStart, pageStart + PAGE_SIZE);
 
   const handleDelete = async (id: string) => {
     const ok = window.confirm("ຢືນຢັນລົບໃບປະເມີນລາຄານີ້?");
@@ -94,21 +102,32 @@ export default function QuotationsPage() {
           <div className="grid gap-3 md:grid-cols-[180px,180px,minmax(0,1fr)]">
             <input
               type="date"
+              aria-label="ວັນທີເລີ່ມຕົ້ນ"
               value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
+              onChange={(e) => {
+                setFromDate(e.target.value);
+                setPage(1);
+              }}
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-900 outline-none transition focus:ring-2 focus:ring-emerald-500"
             />
             <input
               type="date"
+              aria-label="ວັນທີສິ້ນສຸດ"
               value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
+              onChange={(e) => {
+                setToDate(e.target.value);
+                setPage(1);
+              }}
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-900 outline-none transition focus:ring-2 focus:ring-emerald-500"
             />
             <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setPage(1);
+              }}
               placeholder="ຄົ້ນຫາລະຫັດອໍເດີ / ເລກທີ່ / ຊື່ລູກຄ້າ / ເບີໂທ"
               className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:ring-2 focus:ring-emerald-500"
             />
@@ -144,7 +163,7 @@ export default function QuotationsPage() {
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((row) => (
+                pageRows.map((row) => (
                   <tr key={row.id} className="transition-colors hover:bg-slate-50/60">
                     <td className="p-4 font-medium text-slate-700">{row.quoteDate}</td>
                     <td className="p-4 font-black text-slate-900">{row.quoteNo}<div className="mt-1 text-xs text-slate-500">{row.orderCode}</div></td>
@@ -183,7 +202,7 @@ export default function QuotationsPage() {
                           ພິມ
                         </Link>
                         <button
-                          onClick={() => void handleDelete(row.id!)}
+                          onClick={() => void handleDelete(row.id)}
                           className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-black text-rose-700 transition hover:bg-rose-50"
                         >
                           <Trash2 size={14} />
@@ -196,6 +215,32 @@ export default function QuotationsPage() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 p-4 text-sm font-bold text-slate-600">
+          <div role="status">
+            ສະແດງ {filteredRows.length === 0 ? 0 : pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filteredRows.length)} ຈາກ {filteredRows.length.toLocaleString()} ລາຍການ
+          </div>
+          <nav aria-label="ເລືອກໜ້າລາຍການ" className="flex items-center gap-3">
+            <button
+              type="button"
+              aria-label="ໜ້າກ່ອນໜ້າ"
+              onClick={() => setPage(currentPage - 1)}
+              disabled={loading || currentPage <= 1}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <span>ໜ້າ {currentPage} / {totalPages}</span>
+            <button
+              type="button"
+              aria-label="ໜ້າຖັດໄປ"
+              onClick={() => setPage(currentPage + 1)}
+              disabled={loading || currentPage >= totalPages}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </nav>
         </div>
       </div>
     </div>

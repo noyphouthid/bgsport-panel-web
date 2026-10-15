@@ -72,6 +72,8 @@ const nav: NavItem[] = [
   { type: "link", href: "/design-queue", label: "ຄິວອອກແບບ", icon: Palette },
   { type: "link", href: "/design-queue/assets", label: "ຄັງຮູບເສື້ອ", icon: Images },
   { type: "link", href: "/shirt-catalog", label: "ເຜີຍແຜ່ແບບເສື້ອ", icon: Images },
+  { type: "link", href: "/shirt-catalog/reviews", label: "ລີວິວສິນຄ້າຈິງ", icon: Images },
+  { type: "link", href: "/shirt-catalog/fabrics", label: "ລາຍການຜ້າໜ້າຮ້ານ", icon: Images },
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
   { type: "link", href: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", icon: Factory },
@@ -477,7 +479,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <nav className="flex-1 overflow-y-auto px-3 py-6 space-y-1 text-sm font-medium">
           {availableNav.map((item) => {
             if (item.type === "link") {
-              const active = pathname === item.href || pathname.startsWith(item.href + "/");
+              const active = pathname === item.href || (item.href !== "/shirt-catalog" && pathname.startsWith(item.href + "/"));
               const Icon = item.icon;
               const badgeCount = getNavBadgeCount(item.href);
 

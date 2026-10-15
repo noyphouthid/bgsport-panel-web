@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
-import { Download, ExternalLink, Eye, FileImage, FilePlus2, FileText, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, ExternalLink, Eye, FileImage, FilePlus2, FileText, PencilLine, RefreshCw, Trash2, X } from "lucide-react";
 import {
   buildPantsOrderItemPayload,
   buildShirtOrderItemPayload,
@@ -29,6 +29,7 @@ import {
 import { getMissingOrderCollarFieldsMessage, isMissingOrderCollarFieldsError } from "@/lib/order-collar-fields";
 import { QuotationA5Preview } from "../_components/quotation-a5-preview";
 import { getQuotationDraftById, type QuotationDraft } from "@/lib/quotation-drafts";
+import { fetchAllReportRows } from "@/lib/report-query";
 
 type DepositRow = {
   work_category?: string | null;
@@ -85,6 +86,14 @@ type UserRow = {
   auth_user_id: string | null;
   role: AppRole;
 };
+
+// Keep search and totals available for every order without loading production details.
+type DepositIndexRow = Pick<DepositRow,
+  "id" | "deposit_no" | "order_code" | "quotation_quote_no" | "customer_name" |
+  "factory_bill_code" | "status" | "created_by_user_id" | "net_total"
+>;
+
+const PAGE_SIZE = 20;
 
 type DepositSlipRow = {
   id: string;
@@ -360,8 +369,8 @@ function getPrimaryDocumentCode(row: Pick<DepositRow, "quotation_quote_no" | "or
 }
 
 function getSecondaryDocumentCode(row: Pick<DepositRow, "quotation_quote_no" | "order_code" | "deposit_no">) {
-  const primary = getPrimaryDocumentCode(row);
-  const candidates = [row.order_code?.trim(), row.deposit_no.trim()].filter((value): value is string => Boolean(value && value !== primary));
+  const primary = row.order_code?.trim() || getPrimaryDocumentCode(row);
+  const candidates = [row.quotation_quote_no?.trim(), row.deposit_no.trim()].filter((value): value is string => Boolean(value && value !== primary));
   return candidates.join(" / ");
 }
 
@@ -458,7 +467,8 @@ function buildProductionCsvFileName(row: DepositRow) {
 }
 
 export default function FactoryDepositOrdersPage() {
-  const [rows, setRows] = useState<DepositRow[]>([]);
+  const [orderIndex, setOrderIndex] = useState<DepositIndexRow[]>([]);
+  const [loadedPage, setLoadedPage] = useState<{ indexRows: DepositIndexRow[]; rows: DepositRow[] } | null>(null);
   const [fabrics, setFabrics] = useState<FabricRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -466,6 +476,7 @@ export default function FactoryDepositOrdersPage() {
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<FactoryDepositOrderStatus | "all">("all");
+  const [page, setPage] = useState(1);
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [previewRow, setPreviewRow] = useState<DepositRow | null>(null);
@@ -488,7 +499,14 @@ export default function FactoryDepositOrdersPage() {
         { data: sessionData },
       ] =
         await Promise.all([
-          supabase.from("factory_deposit_orders").select("*").order("deposit_date", { ascending: false }).order("created_at", { ascending: false }),
+          fetchAllReportRows<DepositIndexRow>((from, to) =>
+            supabase.from("factory_deposit_orders")
+              .select("id,deposit_no,order_code,quotation_quote_no,customer_name,factory_bill_code,status,created_by_user_id,net_total")
+              .order("deposit_date", { ascending: false })
+              .order("created_at", { ascending: false })
+              .order("id", { ascending: false })
+              .range(from, to)
+          ),
           supabase.from("users").select("id,auth_user_id,role").eq("is_active", true),
           supabase.from("fabrics").select("id,name").eq("is_active", true).order("name", { ascending: true }),
           supabase.auth.getSession(),
@@ -498,7 +516,7 @@ export default function FactoryDepositOrdersPage() {
       if (usersError) throw usersError;
       if (fabricsError) throw fabricsError;
 
-      setRows((depositData ?? []) as DepositRow[]);
+      setOrderIndex(depositData ?? []);
       setFabrics((fabricsData ?? []) as FabricRow[]);
       const authUserId = sessionData.session?.user.id ?? null;
       const currentUser = ((usersData ?? []) as UserRow[]).find((item) => item.auth_user_id === authUserId) || null;
@@ -506,7 +524,7 @@ export default function FactoryDepositOrdersPage() {
       setViewerUserId(currentUser?.id ?? null);
     } catch (error) {
       setErr(error instanceof Error ? error.message : "ໂຫຼດລາຍການບໍ່ສຳເລັດ");
-      setRows([]);
+      setOrderIndex([]);
     } finally {
       setLoading(false);
     }
@@ -518,7 +536,7 @@ export default function FactoryDepositOrdersPage() {
 
   const filteredRows = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    return rows.filter((row) => {
+    return orderIndex.filter((row) => {
       if (!canManageAllFactoryDepositOrders(viewerRole) && row.created_by_user_id !== viewerUserId) return false;
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
       if (!keyword) return true;
@@ -527,7 +545,46 @@ export default function FactoryDepositOrdersPage() {
         .toLowerCase()
         .includes(keyword);
     });
-  }, [query, rows, statusFilter, viewerRole, viewerUserId]);
+  }, [query, orderIndex, statusFilter, viewerRole, viewerUserId]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageIndexRows = useMemo(() => filteredRows.slice(pageStart, pageStart + PAGE_SIZE), [filteredRows, pageStart]);
+  const tableLoading = loading || loadedPage?.indexRows !== pageIndexRows;
+  const rows = loadedPage?.rows ?? [];
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPage = async () => {
+      if (pageIndexRows.length === 0) {
+        setLoadedPage({ indexRows: pageIndexRows, rows: [] });
+        return;
+      }
+
+      setErr(null);
+      try {
+        const { data, error } = await supabase.from("factory_deposit_orders")
+          .select("*")
+          .in("id", pageIndexRows.map((row) => row.id));
+        if (error) throw error;
+        if (cancelled) return;
+
+        const byId = new Map(((data ?? []) as DepositRow[]).map((row) => [row.id, row]));
+        const pageRows = pageIndexRows.flatMap((row) => {
+          const detail = byId.get(row.id);
+          return detail ? [detail] : [];
+        });
+        setLoadedPage({ indexRows: pageIndexRows, rows: pageRows });
+      } catch (error) {
+        if (cancelled) return;
+        setErr(getErrorMessage(error, "ໂຫຼດລາຍການບໍ່ສຳເລັດ"));
+        setLoadedPage({ indexRows: pageIndexRows, rows: [] });
+      }
+    };
+    void loadPage();
+    return () => { cancelled = true; };
+  }, [pageIndexRows]);
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -979,7 +1036,10 @@ export default function FactoryDepositOrdersPage() {
         <div className="mb-4 grid gap-3 md:grid-cols-[220px,1fr,180px]">
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as FactoryDepositOrderStatus | "all")}
+            onChange={(e) => {
+              setStatusFilter(e.target.value as FactoryDepositOrderStatus | "all");
+              setPage(1);
+            }}
             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500"
           >
             <option value="all">ສະຖານະທັງໝົດ</option>
@@ -989,7 +1049,10 @@ export default function FactoryDepositOrdersPage() {
           </select>
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
             placeholder="ຄົ້ນຫາເລກທີ່ໃບມັດຈຳ / ລະຫັດອໍເດີ / ລູກຄ້າ / ລະຫັດໂຮງງານ"
             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500"
           />
@@ -1009,17 +1072,23 @@ export default function FactoryDepositOrdersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {!loading && filteredRows.length === 0 ? (
+              {tableLoading ? (
+                <tr>
+                  <td colSpan={6} className="p-10 text-center font-medium text-slate-400">
+                    ກຳລັງໂຫຼດ...
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="p-10 text-center font-medium text-slate-400">
                     ຍັງບໍ່ມີລາຍການ
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((row) => (
+                rows.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50/70">
                     <td className="p-3">
-                      <div className="font-black text-slate-900">{getPrimaryDocumentCode(row)}</div>
+                      <div className="font-black text-slate-900">{row.order_code?.trim() || getPrimaryDocumentCode(row)}</div>
                       <div className="text-xs font-medium text-slate-500">{getSecondaryDocumentCode(row) || "-"}</div>
                     </td>
                     <td className="p-3">
@@ -1119,6 +1188,32 @@ export default function FactoryDepositOrdersPage() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm font-bold text-slate-600">
+          <div role="status">
+            ສະແດງ {filteredRows.length === 0 ? 0 : pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filteredRows.length)} ຈາກ {filteredRows.length.toLocaleString()} ລາຍການ
+          </div>
+          <nav aria-label="ເລືອກໜ້າລາຍການ" className="flex items-center gap-3">
+            <button
+              type="button"
+              aria-label="ໜ້າກ່ອນໜ້າ"
+              onClick={() => setPage(currentPage - 1)}
+              disabled={tableLoading || currentPage <= 1}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <span>ໜ້າ {currentPage} / {totalPages}</span>
+            <button
+              type="button"
+              aria-label="ໜ້າຖັດໄປ"
+              onClick={() => setPage(currentPage + 1)}
+              disabled={tableLoading || currentPage >= totalPages}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </nav>
         </div>
       </div>
 

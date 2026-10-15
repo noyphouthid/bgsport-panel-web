@@ -39,6 +39,45 @@ delete; category checkboxes filter multiple categories. Deleting a post or promo
 keeps its source image in the library. Both catalog and promotion references protect
 shared storage objects against deletion.
 
+### Customer-photo reviews and fabric posts
+
+Apply only `supabase/migrations/20261016_create_storefront_posts.sql` after
+`20261013_storefront_management.sql`, then deploy the updated panel. This migration
+is independent of the multiple-category-tag migration. App API keys cannot apply
+schema migrations; run the SQL in the existing project's Supabase SQL Editor.
+
+Use `/shirt-catalog/reviews` for **ລີວິວສິນຄ້າຈິງ** and
+`/shirt-catalog/fabrics` for **ລາຍການຜ້າ**. Both pages are linked in the sidebar
+and catalog navigation and inherit the catalog's access/edit permission. Upload
+up to 12 JPG/PNG/WebP photos per post (15 MB per source), order photos to select the
+cover, add Lao/English titles and details, choose display order, and save as a draft
+or publish. Published posts require at least one photo. Each page supports title
+search, published/draft filters, pagination, editing, hiding and deletion.
+
+The storefront's `/reviews/` and `/fabrics/` use the narrow `storefront_posts_feed`
+RPC with kind, search and pagination. The public feed omits drafts, original file
+names and storage metadata. A gallery shows each post's photos and translated
+details; absent English text falls back to Lao. No example customer reviews or
+fabric claims are seeded. Post deletion keeps source images; linked photos remain
+protected by the existing storage cleanup policies while any post uses them.
+The existing `/fabric` pricing settings are managed independently.
+
+### Multiple shirt category tags
+
+Apply only `supabase/migrations/20261016_add_shirt_catalog_category_tags.sql` after
+the category migration below, then deploy the panel. A design can select multiple
+**Tag ປະເພດເສື້ອ**, for example Teamwear + Polo, in both the individual form and
+batch publisher. Existing designs retain their category. Admin and public
+Catalog/Store filters match any assigned tag, while each design appears once in
+the full list. Cards and details display all selected category names.
+
+The migration updates the public RPC and atomic batch publisher, validates all
+category memberships with foreign keys, and prevents deleting secondary categories
+that are in use. Existing clients that send only `category` remain compatible and
+preserve secondary tags. Deploying the storefront before the migration is safe;
+it also accepts the old single-category public response. Apply the migration using
+Supabase SQL Editor; app API keys cannot execute database schema changes.
+
 ### Manage work categories
 
 Apply `supabase/migrations/20261014_create_storefront_categories.sql` after the

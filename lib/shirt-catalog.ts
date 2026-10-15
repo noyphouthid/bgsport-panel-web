@@ -23,6 +23,7 @@ export type ShirtCatalogEntry = {
   slogan_lo: string;
   slogan_en: string;
   category: ShirtCategory;
+  category_ids?: ShirtCategory[];
   placement: "catalog" | "store" | "both";
   price_lak: number | null;
   images: CatalogImage[];
@@ -31,6 +32,11 @@ export type ShirtCatalogEntry = {
   created_at: string;
   updated_at: string;
 };
+
+// Older databases and public responses still contain only the original category.
+export function shirtCategoryIds(entry: { category: string; category_ids?: string[] | null }): string[] {
+  return [...new Set(entry.category_ids ?? [entry.category])].filter(Boolean);
+}
 
 export function isPublicImageUrl(value: string) {
   try {

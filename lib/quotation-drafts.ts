@@ -2,6 +2,7 @@ import { workflowErrorMessage } from "@/lib/queue-customers";
 import { buildEmptyPantsOrderItem, parsePantsDraftItems, type PantsOrderItemDraft } from "@/lib/order-items";
 import type { OrderWorkCategory } from "@/lib/order-work-category";
 import { supabase } from "@/lib/supabase";
+import { fetchAllReportRows } from "@/lib/report-query";
 
 export type QuotationDraftStatus = "draft" | "confirmed" | "cancelled";
 
@@ -49,6 +50,11 @@ export type QuotationDraft = {
   createdAt: string;
   createdByUserId?: string | null;
 };
+
+export type QuotationDraftSummary = Pick<QuotationDraft,
+  "quoteNo" | "quoteDate" | "orderCode" | "customerName" | "customerPhone" |
+  "customerWhatsapp" | "fabricName" | "deposit" | "status"
+> & { id: string };
 
 type QuotationDraftDbRow = {
   id: string;
@@ -226,6 +232,34 @@ async function getCurrentUserProfile() {
   }
 
   return null;
+}
+
+// The list only needs search and table fields; leave item details for the form.
+export async function getQuotationDraftSummaries(): Promise<QuotationDraftSummary[]> {
+  type SummaryDbRow = Pick<QuotationDraftDbRow,
+    "id" | "quote_no" | "quote_date" | "order_code" | "customer_name" |
+    "customer_phone" | "customer_whatsapp" | "fabric_name" | "deposit" | "status"
+  >;
+  const { data, error } = await fetchAllReportRows<SummaryDbRow>((from, to) =>
+    supabase.from("quotation_drafts")
+      .select("id,quote_no,quote_date,order_code,customer_name,customer_phone,customer_whatsapp,fabric_name,deposit,status")
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to)
+  );
+  if (error) throw new Error(workflowErrorMessage(error));
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    quoteNo: row.quote_no || "",
+    quoteDate: row.quote_date || "",
+    orderCode: row.order_code || "",
+    customerName: row.customer_name || "",
+    customerPhone: row.customer_phone || "",
+    customerWhatsapp: row.customer_whatsapp || "",
+    fabricName: row.fabric_name || "",
+    deposit: Number(row.deposit) || 0,
+    status: row.status || "draft",
+  }));
 }
 
 export async function getQuotationDrafts(): Promise<QuotationDraft[]> {
