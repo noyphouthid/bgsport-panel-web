@@ -2,6 +2,29 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## BG SPORT STORE publishing
 
+### Storefront tracking and collar styles (2026-10-19)
+
+The customer tracking screen now lives at
+`https://bg-sport-store.famousmaple1.chatgpt.site/track/`. Deploy this panel to
+redirect `/track` (including an optional `?q=`), the root page and the login-page
+tracking link. Set `NEXT_PUBLIC_STOREFRONT_URL` before building to use a different
+HTTPS storefront origin. Keep `/api/public/order-tracking` and its design-image
+API running here: the shop Worker uses these existing APIs without panel login.
+Production currently uses `https://bgsportaccounting.com` as the ERP API origin.
+
+Apply **only** `supabase/migrations/20261019_create_storefront_collars.sql` in the
+existing Supabase SQL Editor after `20261016_create_storefront_posts.sql`.
+Then deploy the panel to enable `/shirt-catalog/collars`: upload photos, choose
+normal collars or extra-charge collars, enter a positive surcharge in LAK/shirt,
+and publish. The storefront `/collars/` page filters both groups. Existing
+review/fabric posts, permissions and media protections remain in place. This
+catalog does not change order-entry collar pricing. Tracking needs no migration.
+
+Verify the migration with `node scripts/verify-storefront-collars.mjs /path/to/pglite/dist/index.js`
+and admin/public flows with `node scripts/verify-browser-storefront-posts.mjs /path/to/playwright/test.mjs`.
+
+### Existing catalog setup
+
 The independent storefront lives in `../bgsport-store-web` and shares this project's
 Supabase database and media. Apply `supabase/migrations/20261012_create_shirt_catalog.sql`
 once in the existing database, then manage posts at `/shirt-catalog`.

@@ -29,6 +29,7 @@ import {
   HandCoins,
   Palette,
   Images,
+  Globe,
   ScanLine,
   CheckCheck,
   PackageCheck,
@@ -70,10 +71,18 @@ const nav: NavItem[] = [
   { type: "link", href: "/orders", label: "ລາຍການອໍເດີ", icon: ClipboardList },
   { type: "link", href: "/order-alerts", label: "ແຈ້ງເຕືອນອໍເດີ", icon: BellRing },
   { type: "link", href: "/design-queue", label: "ຄິວອອກແບບ", icon: Palette },
-  { type: "link", href: "/design-queue/assets", label: "ຄັງຮູບເສື້ອ", icon: Images },
-  { type: "link", href: "/shirt-catalog", label: "ເຜີຍແຜ່ແບບເສື້ອ", icon: Images },
-  { type: "link", href: "/shirt-catalog/reviews", label: "ລີວິວສິນຄ້າຈິງ", icon: Images },
-  { type: "link", href: "/shirt-catalog/fabrics", label: "ລາຍການຜ້າໜ້າຮ້ານ", icon: Images },
+  {
+    type: "group",
+    label: "ຈັດການໜ້າເວັບໄຊ໌",
+    icon: Globe,
+    items: [
+      { type: "link", href: "/design-queue/assets", label: "ຄັງຮູບເສື້ອ", icon: Images },
+      { type: "link", href: "/shirt-catalog", label: "ເຜີຍແຜ່ແບບເສື້ອ", icon: Images },
+      { type: "link", href: "/shirt-catalog/reviews", label: "ລີວິວສິນຄ້າຈິງ", icon: Images },
+      { type: "link", href: "/shirt-catalog/fabrics", label: "ລາຍການຜ້າໜ້າຮ້ານ", icon: Images },
+      { type: "link", href: "/shirt-catalog/collars", label: "ປະເພດຄໍເສື້ອ", icon: Images },
+    ],
+  },
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
   { type: "link", href: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", icon: Factory },
@@ -141,6 +150,10 @@ function isNavBadgeRouteActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function isNavLinkActive(pathname: string, href: string) {
+  return pathname === href || (href !== "/shirt-catalog" && pathname.startsWith(`${href}/`));
+}
+
 function getSeenNavBadgeStorageKey(userId: string) {
   return `bgsport:seen-nav-badges:${userId}`;
 }
@@ -175,10 +188,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [navBadgeCounts, setNavBadgeCounts] = useState<NavBadgeCounts>({});
   const [seenNavBadgeSignatures, setSeenNavBadgeSignatures] = useState<Partial<Record<NavBadgePath, string>>>({});
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    Reports: false,
-    Setting: false,
-  });
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let active = true;
@@ -479,7 +489,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <nav className="flex-1 overflow-y-auto px-3 py-6 space-y-1 text-sm font-medium">
           {availableNav.map((item) => {
             if (item.type === "link") {
-              const active = pathname === item.href || (item.href !== "/shirt-catalog" && pathname.startsWith(item.href + "/"));
+              const active = isNavLinkActive(pathname, item.href);
               const Icon = item.icon;
               const badgeCount = getNavBadgeCount(item.href);
 
@@ -517,20 +527,22 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             }
 
             const Icon = item.icon;
-            const groupActive = item.items.some((subItem) => pathname === subItem.href || pathname.startsWith(subItem.href + "/"));
-            const isOpen = sidebarCollapsed ? false : groupActive || openGroups[item.label] === true;
+            const groupActive = item.items.some((subItem) => isNavLinkActive(pathname, subItem.href));
+            const isOpen = sidebarCollapsed ? false : (openGroups[item.label] ?? groupActive);
 
             return (
               <div key={item.label} className="space-y-1">
                 <button
                   type="button"
+                  aria-label={item.label}
+                  aria-expanded={isOpen}
                   onClick={() => {
                     if (sidebarCollapsed) {
                       setSidebarCollapsed(false);
                       setOpenGroups((prev) => ({ ...prev, [item.label]: true }));
                       return;
                     }
-                    setOpenGroups((prev) => ({ ...prev, [item.label]: !prev[item.label] }));
+                    setOpenGroups((prev) => ({ ...prev, [item.label]: !isOpen }));
                   }}
                   className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left transition-all duration-200 ${
                     groupActive ? "text-white shadow-lg" : "hover:text-white"
@@ -559,13 +571,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 {!sidebarCollapsed && isOpen ? (
                   <div className="space-y-1 pl-4">
                     {item.items.map((subItem) => {
-                      const subActive = pathname === subItem.href || pathname.startsWith(subItem.href + "/");
+                      const subActive = isNavLinkActive(pathname, subItem.href);
                       const SubIcon = subItem.icon;
 
                       return (
                         <Link
                           key={subItem.href}
                           href={subItem.href}
+                          aria-current={subActive ? "page" : undefined}
                           onClick={() => setSidebarOpen(false)}
                           className={`flex items-center gap-3 rounded-lg px-4 py-2.5 transition-all duration-200 ${
                             subActive ? "text-white" : "hover:text-white"

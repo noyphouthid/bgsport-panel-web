@@ -31,10 +31,10 @@ try {
       const input=request.postDataJSON();feedRequests.push(input);
       if(failFeed){await route.fulfill({status:503,contentType:'application/json',body:'{}'});return;}
       if(missing){await route.fulfill({status:404,contentType:'application/json',body:'{"code":"PGRST202"}'});return;}
-      const found=rows.filter(row=>row.kind===input.p_kind&&row.is_published&&`${row.title_lo} ${row.title_en} ${row.description_lo} ${row.description_en}`.toLowerCase().includes(input.p_query.toLowerCase())).sort((a,b)=>a.sort_order-b.sort_order||a.id.localeCompare(b.id));
-      data=found.slice(input.p_offset,input.p_offset+input.p_limit).map(({id,kind,title_lo,title_en,description_lo,description_en,images})=>({id,kind,title_lo,title_en,description_lo,description_en,images:images.map(image=>({url:image.url}))}));
+      const found=rows.filter(row=>row.kind===input.p_kind&&row.is_published&&(input.p_kind!=='collar'||input.p_pricing==='all'||row.collar_pricing===input.p_pricing)&&`${row.title_lo} ${row.title_en} ${row.description_lo} ${row.description_en}`.toLowerCase().includes(input.p_query.toLowerCase())).sort((a,b)=>a.sort_order-b.sort_order||a.id.localeCompare(b.id));
+      data=found.slice(input.p_offset,input.p_offset+input.p_limit).map(({id,kind,title_lo,title_en,description_lo,description_en,images,collar_pricing,surcharge_lak})=>({id,kind,title_lo,title_en,description_lo,description_en,collar_pricing,surcharge_lak,images:images.map(image=>({url:image.url}))}));
     }else if(url.pathname==='/rest/v1/storefront_posts'){
-      if(missing){await route.fulfill({status:404,contentType:'application/json',body:'{"code":"PGRST205","message":"Missing table"}'});return;}
+      if(missing){const collar=url.searchParams.get('kind')==='eq.collar';if(collar)assert.ok(url.searchParams.get('select').includes('surcharge_lak'),'Collar load detects missing migration columns');await route.fulfill({status:404,json:{code:collar?'42703':'PGRST205',message:'Missing schema'}});return;}
       const kind=url.searchParams.get('kind')?.slice(3),id=url.searchParams.get('id')?.slice(3);
       if(request.method()==='POST'){
         const body=request.postDataJSON();writes.push(body);const row={...body,id:uid(500+writes.length),created_at:new Date().toISOString()};rows.push(row);data=[{id:row.id}];
@@ -99,6 +99,24 @@ try {
   assert.equal(writes.at(-1).kind,'fabric');assert.ok(uploads.at(-1).includes('/posts/fabric/'));
   await page.getByLabel('ຄົ້ນຫາໂພສ',{exact:true}).fill('Mesh');await expect(page.locator('article')).toHaveCount(1);await expect(page.locator('article')).toContainText('Mesh fabric');
   await page.getByLabel('ຄົ້ນຫາໂພສ',{exact:true}).fill('');await expect(page.locator('article')).toHaveCount(2);
+  await page.goto(panel+'/shirt-catalog/collars',{waitUntil:'networkidle'});
+  await page.getByRole('button',{name:'ເພີ່ມໂພສ',exact:true}).click();dialog=page.getByRole('dialog');
+  await dialog.getByLabel('ຫົວຂໍ້ (ລາວ) *',{exact:true}).fill('Premium collar');
+  await dialog.getByLabel('ຫົວຂໍ້ (English)',{exact:true}).fill('Premium collar');
+  await dialog.getByLabel('ປະເພດລາຄາ',{exact:true}).selectOption('extra');
+  const collarWrites=writes.length;
+  await dialog.getByRole('button',{name:'ບັນທຶກ',exact:true}).click();assert.equal(writes.length,collarWrites,'Missing surcharge is rejected');
+  await dialog.getByLabel('ຄ່າບວກເພີ່ມ (ກີບ/ໂຕ)',{exact:true}).fill('-1');
+  await dialog.getByRole('button',{name:'ບັນທຶກ',exact:true}).click();assert.equal(writes.length,collarWrites,'Negative surcharge is rejected');
+  await dialog.getByLabel('ຄ່າບວກເພີ່ມ (ກີບ/ໂຕ)',{exact:true}).fill('20000');
+  await dialog.getByLabel('ອັບໂຫຼດຮູບ',{exact:true}).setInputFiles({name:'collar.jpg',mimeType:'image/jpeg',buffer:jpeg});
+  await expect(dialog.getByText('ຮູບພາບ (1/12)',{exact:true})).toBeVisible();
+  await dialog.getByLabel('ເຜີຍແຜ່ໃຫ້ລູກຄ້າເຫັນ',{exact:true}).check();
+  await dialog.getByRole('button',{name:'ບັນທຶກ',exact:true}).click();await expect(dialog).toHaveCount(0);
+  assert.equal(writes.at(-1).kind,'collar');assert.equal(writes.at(-1).surcharge_lak,20000);assert.equal(writes.at(-1).collar_pricing,'extra');assert.ok(uploads.at(-1).includes('/posts/collar/'));
+  rows.push({...record(80,'collar'),title_lo:'Normal collar',title_en:'Normal collar',collar_pricing:'standard',surcharge_lak:0});
+  missing=true;await page.reload({waitUntil:'networkidle'});await expect(page.getByRole('alert').filter({hasText:'20261019_create_storefront_collars.sql'})).toBeVisible();missing=false;
+  await page.goto(panel+'/shirt-catalog/fabrics',{waitUntil:'networkidle'});
   permission=false;await page.reload({waitUntil:'networkidle'});await expect(page.getByRole('button',{name:'ເພີ່ມໂພສ',exact:true})).toBeDisabled();await expect(page.locator('article').first().getByRole('button',{name:'ແກ້ໄຂ',exact:true})).toBeDisabled();
   permission=true;missing=true;await page.reload({waitUntil:'networkidle'});await expect(page.getByRole('alert').filter({hasText:'20261016_create_storefront_posts.sql'})).toBeVisible();await expect(page.getByRole('button',{name:'ເພີ່ມໂພສ',exact:true})).toBeDisabled();missing=false;
   for(let n=60;n<65;n++)rows.push(record(n));
@@ -115,6 +133,13 @@ try {
   await page.locator('#language').click();await expect(page.locator('#posts-title')).toHaveText('Customer photos');await expect(page.locator('#posts-grid h2')).toHaveText('Unsafe text test');
   await page.goto(store+'/fabrics/',{waitUntil:'networkidle'});await expect(page.locator('#posts-grid .post-card')).toHaveCount(2);assert.equal(feedRequests.at(-1).p_kind,'fabric');await expect(page.locator('#posts-title')).toHaveText('Fabrics');
   await page.locator('#posts-search').fill('nothing found');await expect(page.locator('#posts-status')).toHaveText('No matching posts found.');await page.locator('#posts-clear-search').click();await expect(page.locator('#posts-grid .post-card')).toHaveCount(2);
+  await page.goto(store+'/collars/',{waitUntil:'networkidle'});await expect(page.locator('#posts-grid .post-card')).toHaveCount(2);
+  await expect(page.locator('#posts-grid')).toContainText('+20,000');
+  await page.locator('#collar-filters button').nth(2).click();await expect(page.locator('#posts-grid .post-card')).toHaveCount(1);await expect(page.locator('#posts-grid h2')).toHaveText('Premium collar');assert.equal(feedRequests.at(-1).p_pricing,'extra');
+  await page.locator('#posts-grid .post-card-button').click();await expect(page.locator('#post-detail-price')).toContainText('+20,000');await page.keyboard.press('Escape');
+  await page.locator('#collar-filters button').nth(1).click();await expect(page.locator('#posts-grid h2')).toHaveText('Normal collar');await expect(page.locator('#posts-grid .collar-price')).not.toContainText('+');
+  await page.locator('#collar-filters button').first().click();await expect(page.locator('#posts-grid .post-card')).toHaveCount(2);
+  await page.screenshot({path:'/tmp/bg-store-collars-desktop.png',fullPage:false});
   for(const width of [1440,1280,1050,800,600,390,320]){
     await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`Menu and cards fit ${width}px`);
   }
@@ -123,5 +148,5 @@ try {
   failFeed=true;await page.reload({waitUntil:'networkidle'});await expect(page.locator('#posts-status')).toContainText('We could not load these posts');failFeed=false;await page.locator('#posts-status button').click();await expect(page.locator('#posts-grid .post-card')).toHaveCount(24);
   missing=true;await page.reload({waitUntil:'networkidle'});await expect(page.locator('#posts-status')).toHaveText('No published posts yet.');await expect(page.locator('#posts-grid .post-card')).toHaveCount(0);
   assert.deepEqual(errors,[]);
-  console.log('Review/fabric browser checks passed: upload, edit, reorder, publish/hide, drafts, delete/page clamping, search, permissions, migration error, public feeds, galleries, language, XSS, pagination, failures and 320–1440px navigation.');
+  console.log('Review/fabric/collar browser checks passed: upload, edit, reorder, publish/hide, drafts, delete/page clamping, search, permissions, migration error, public feeds, galleries, language, XSS, pagination, failures and 320–1440px navigation.');
 }finally{await browser.close();}

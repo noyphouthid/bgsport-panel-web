@@ -149,17 +149,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "missing_query" }, { status: 400 });
   }
 
+  if (search.length > 120) return NextResponse.json({ error: "invalid_query" }, { status: 400 });
+
   const digits = normalizeDigits(search);
   if (search.length < 3 && digits.length < 3) {
     return NextResponse.json({ error: "query_too_short" }, { status: 400 });
   }
 
-  const escapedText = search.replace(/%/g, "\\%").replace(/_/g, "\\_");
-  const escapedDigits = digits.replace(/%/g, "\\%").replace(/_/g, "\\_");
-  const clauses = [`order_code.ilike.%${escapedText}%`];
+  const escapedText = search.replace(/[\\%_]/g, "\\$&");
+  const escapedDigits = digits;
+  const clauses = [`order_code.ilike.${JSON.stringify(`%${escapedText}%`)}`];
   if (escapedDigits.length >= 4) {
-    clauses.push(`customer_phone.ilike.%${escapedDigits}%`);
-    clauses.push(`customer_whatsapp.ilike.%${escapedDigits}%`);
+    clauses.push(`customer_phone.ilike.${JSON.stringify(`%${escapedDigits}%`)}`);
+    clauses.push(`customer_whatsapp.ilike.${JSON.stringify(`%${escapedDigits}%`)}`);
   }
 
   const { data, error } = await supabaseAdmin

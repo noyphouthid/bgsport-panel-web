@@ -9,14 +9,14 @@ import { supabase } from "@/lib/supabase";
 import { resizeImageFileToFit } from "@/lib/client-image";
 import { buildSafeStorageFileName } from "@/lib/order-media";
 import type { CatalogImage } from "@/lib/shirt-catalog";
-import { STOREFRONT_POST_SECTIONS, STOREFRONT_POSTS_MIGRATION, type StorefrontPost, type StorefrontPostKind } from "@/lib/storefront-posts";
+import { STOREFRONT_POST_SECTIONS, STOREFRONT_POSTS_MIGRATION, STOREFRONT_COLLARS_MIGRATION, type StorefrontPost, type StorefrontPostKind } from "@/lib/storefront-posts";
 import { CatalogDialog } from "./catalog-dialog";
 
 const control = "w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-surface)] px-3 py-2.5 text-sm text-[var(--theme-foreground)]";
 const pageSize = 24;
-const migrationError = (code: string, message: string) => ["PGRST205", "PGRST204", "42P01", "42703"].includes(code)
-  ? `ກະລຸນາລັນ ${STOREFRONT_POSTS_MIGRATION} ໃນ Supabase SQL Editor ກ່ອນ` : message;
-const fresh = (kind: StorefrontPostKind): StorefrontPost => ({id:"",kind,title_lo:"",title_en:"",description_lo:"",description_en:"",images:[],sort_order:0,is_published:false});
+const migrationError = (code: string, message: string, migration = STOREFRONT_POSTS_MIGRATION) => ["PGRST205", "PGRST204", "42P01", "42703"].includes(code)
+  ? `ກະລຸນາລັນ ${migration} ໃນ Supabase SQL Editor ກ່ອນ` : message;
+const fresh = (kind: StorefrontPostKind): StorefrontPost => ({id:"",kind,title_lo:"",title_en:"",description_lo:"",description_en:"",images:[],sort_order:0,is_published:false,collar_pricing:"standard",surcharge_lak:0});
 
 export function StorefrontPostsManager({ kind }: { kind: StorefrontPostKind }) {
   const section = STOREFRONT_POST_SECTIONS[kind];
@@ -36,7 +36,8 @@ export function StorefrontPostsManager({ kind }: { kind: StorefrontPostKind }) {
   const load = useCallback(async () => {
     const id = ++requestId.current;
     setLoading(true); setError("");
-    let request = supabase.from("storefront_posts").select("*", {count:"exact"}).eq("kind",kind)
+    const columns: string = kind === "collar" ? "id,kind,title_lo,title_en,description_lo,description_en,images,sort_order,is_published,collar_pricing,surcharge_lak" : "*";
+    let request = supabase.from("storefront_posts").select(columns, {count:"exact"}).eq("kind",kind)
       .order("sort_order").order("created_at",{ascending:false}).order("id");
     if (status !== "all") request = request.eq("is_published",status === "published");
     if (query.trim()) {
@@ -44,13 +45,13 @@ export function StorefrontPostsManager({ kind }: { kind: StorefrontPostKind }) {
       const pattern = `%${query.trim().replace(/[\\%_]/g, "\\$&")}%`;
       request = request.or(["title_lo","title_en"].map(column => `${column}.ilike.${JSON.stringify(pattern)}`).join(","));
     }
-    const result = await request.range(page * pageSize,(page + 1) * pageSize - 1);
+    const result = await request.range(page * pageSize,(page + 1) * pageSize - 1).returns<StorefrontPost[]>();
     if (id !== requestId.current) return;
-    if (result.error) setError(migrationError(result.error.code,result.error.message));
+    if (result.error) setError(migrationError(result.error.code,result.error.message,kind === "collar" ? STOREFRONT_COLLARS_MIGRATION : STOREFRONT_POSTS_MIGRATION));
     else {
       const count = result.count ?? result.data.length;
       if (page > 0 && count <= page * pageSize) { setPage(Math.max(0,Math.ceil(count/pageSize)-1)); return; }
-      setRows(result.data as StorefrontPost[]); setTotal(count);
+      setRows(result.data); setTotal(count);
     }
     setLoading(false);
   },[kind,status,query,page]);
@@ -72,13 +73,14 @@ export function StorefrontPostsManager({ kind }: { kind: StorefrontPostKind }) {
     if (!draft.title_lo.trim()) return toast.error("ກະລຸນາໃສ່ຫົວຂໍ້ (ລາວ)");
     if (draft.is_published && !draft.images.length) return toast.error("ເພີ່ມຮູບກ່ອນເຜີຍແຜ່");
     if (!Number.isInteger(draft.sort_order) || draft.sort_order < -2147483648 || draft.sort_order > 2147483647) return toast.error("ລຳດັບຕ້ອງເປັນຈຳນວນເຕັມທີ່ຖືກຕ້ອງ");
+    if (kind === "collar" && draft.collar_pricing === "extra" && (!Number.isFinite(draft.surcharge_lak) || Number(draft.surcharge_lak) <= 0 || Number(draft.surcharge_lak) > 999999999999.99)) return toast.error("ກະລຸນາໃສ່ຄ່າບວກເພີ່ມທີ່ຫຼາຍກວ່າ 0");
     setSaving(true);
-    const payload = {kind,title_lo:draft.title_lo.trim(),title_en:draft.title_en.trim(),description_lo:draft.description_lo.trim(),description_en:draft.description_en.trim(),images:draft.images,sort_order:draft.sort_order,is_published:draft.is_published};
+    const payload = {kind,title_lo:draft.title_lo.trim(),title_en:draft.title_en.trim(),description_lo:draft.description_lo.trim(),description_en:draft.description_en.trim(),images:draft.images,sort_order:draft.sort_order,is_published:draft.is_published,...(kind === "collar" ? {collar_pricing:draft.collar_pricing || "standard",surcharge_lak:draft.collar_pricing === "extra" ? Number(draft.surcharge_lak) : 0} : {})};
     const result = draft.id
       ? await supabase.from("storefront_posts").update(payload).eq("id",draft.id).eq("kind",kind).select("id").single()
       : await supabase.from("storefront_posts").insert(payload).select("id").single();
     setSaving(false);
-    if (result.error) return toast.error(migrationError(result.error.code,result.error.message));
+    if (result.error) return toast.error(migrationError(result.error.code,result.error.message,kind === "collar" ? STOREFRONT_COLLARS_MIGRATION : STOREFRONT_POSTS_MIGRATION));
     toast.success(draft.is_published ? "ເຜີຍແຜ່ແລ້ວ" : "ບັນທຶກແບບຮ່າງແລ້ວ");
     setDraft(null); await load();
   }
@@ -131,7 +133,7 @@ export function StorefrontPostsManager({ kind }: { kind: StorefrontPostKind }) {
     {loading ? <p role="status">ກຳລັງໂຫຼດ…</p> : !error && <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{rows.map(row => <article key={row.id} className="overflow-hidden rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)]">
         {row.images[0] ? <img src={row.images[0].url} alt={row.title_lo} loading="lazy" className="aspect-[4/3] w-full bg-[var(--theme-surface-muted)] object-contain"/> : <div className="grid aspect-[4/3] place-items-center bg-[var(--theme-surface-muted)] text-sm">ຍັງບໍ່ມີຮູບ</div>}
-        <div className="space-y-3 p-4"><span className={`inline-block rounded-lg px-2 py-1 text-xs ${row.is_published ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"}`}>{row.is_published ? "ເຜີຍແຜ່ແລ້ວ" : "ແບບຮ່າງ"}</span><h2 className="break-words font-bold">{row.title_lo}</h2><p className="line-clamp-2 break-words text-sm text-[var(--theme-muted)]">{row.description_lo}</p><p className="text-xs text-[var(--theme-muted)]">{row.images.length} ຮູບ · ລຳດັບ {row.sort_order}</p><div className="flex gap-2"><button disabled={!canEdit || busy} onClick={() => setDraft(row)} className="flex-1 rounded-lg border px-3 py-2 text-sm disabled:opacity-40">ແກ້ໄຂ</button><button disabled={!canEdit || busy} aria-label={row.is_published ? "ຊ່ອນໂພສ" : "ເຜີຍແຜ່ໂພສ"} onClick={() => void publish(row)} className="rounded-lg border p-2 disabled:opacity-40">{row.is_published ? <EyeOff size={18}/> : <Eye size={18}/>}</button><button disabled={!canEdit || busy} aria-label={`ລົບ ${row.title_lo}`} onClick={() => void remove(row)} className="rounded-lg border p-2 text-red-500 disabled:opacity-40"><Trash2 size={18}/></button></div></div>
+        <div className="space-y-3 p-4"><span className={`inline-block rounded-lg px-2 py-1 text-xs ${row.is_published ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"}`}>{row.is_published ? "ເຜີຍແຜ່ແລ້ວ" : "ແບບຮ່າງ"}</span><h2 className="break-words font-bold">{row.title_lo}</h2>{kind === "collar" && <p className="font-bold text-amber-600">{row.collar_pricing === "extra" ? `+${Number(row.surcharge_lak || 0).toLocaleString()} ກີບ/ໂຕ` : "ຄໍທຳມະດາ · ບໍ່ບວກເພີ່ມ"}</p>}<p className="line-clamp-2 break-words text-sm text-[var(--theme-muted)]">{row.description_lo}</p><p className="text-xs text-[var(--theme-muted)]">{row.images.length} ຮູບ · ລຳດັບ {row.sort_order}</p><div className="flex gap-2"><button disabled={!canEdit || busy} onClick={() => setDraft(row)} className="flex-1 rounded-lg border px-3 py-2 text-sm disabled:opacity-40">ແກ້ໄຂ</button><button disabled={!canEdit || busy} aria-label={row.is_published ? "ຊ່ອນໂພສ" : "ເຜີຍແຜ່ໂພສ"} onClick={() => void publish(row)} className="rounded-lg border p-2 disabled:opacity-40">{row.is_published ? <EyeOff size={18}/> : <Eye size={18}/>}</button><button disabled={!canEdit || busy} aria-label={`ລົບ ${row.title_lo}`} onClick={() => void remove(row)} className="rounded-lg border p-2 text-red-500 disabled:opacity-40"><Trash2 size={18}/></button></div></div>
       </article>)}</div>
       {!rows.length && <p className="rounded-xl border border-dashed p-8 text-center">{query || status !== "all" ? "ບໍ່ພົບໂພສທີ່ຄົ້ນຫາ" : "ຍັງບໍ່ມີໂພສ. ກົດເພີ່ມໂພສເພື່ອອັບໂຫຼດຮູບ."}</p>}
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm"><p role="status">{total} ໂພສ · ໜ້າ {page+1}/{Math.max(1,Math.ceil(total/pageSize))}</p><div className="flex gap-2"><button disabled={page === 0} className="rounded-lg border px-3 py-2 disabled:opacity-40" onClick={() => setPage(current => current-1)}>ໜ້າກ່ອນ</button><button disabled={(page+1)*pageSize >= total} className="rounded-lg border px-3 py-2 disabled:opacity-40" onClick={() => setPage(current => current+1)}>ໜ້າຖັດໄປ</button></div></div>
@@ -140,6 +142,7 @@ export function StorefrontPostsManager({ kind }: { kind: StorefrontPostKind }) {
       <div className="space-y-5 overflow-y-auto p-5"><fieldset disabled={!canEdit || busy} className="grid gap-4 md:grid-cols-2">
         {([['title_lo','ຫົວຂໍ້ (ລາວ) *'],['title_en','ຫົວຂໍ້ (English)']] as const).map(([key,label]) => <label key={key} className="space-y-1 text-sm">{label}<input aria-label={label} className={control} maxLength={200} value={draft[key]} onChange={event => patch({[key]:event.target.value})}/></label>)}
         {([['description_lo','ລາຍລະອຽດ (ລາວ)'],['description_en','ລາຍລະອຽດ (English)']] as const).map(([key,label]) => <label key={key} className="space-y-1 text-sm">{label}<textarea aria-label={label} className={control} rows={5} maxLength={5000} value={draft[key]} onChange={event => patch({[key]:event.target.value})}/></label>)}
+        {kind === "collar" && <><label className="space-y-1 text-sm">ປະເພດລາຄາ<select aria-label="ປະເພດລາຄາ" className={control} value={draft.collar_pricing || "standard"} onChange={event => patch({collar_pricing:event.target.value as "standard" | "extra",surcharge_lak:event.target.value === "standard" ? 0 : null})}><option value="standard">ຄໍທຳມະດາ — ບໍ່ບວກເພີ່ມ</option><option value="extra">ຄໍບວກເພີ່ມເງິນ</option></select></label>{draft.collar_pricing === "extra" && <label className="space-y-1 text-sm">ຄ່າບວກເພີ່ມ (ກີບ/ໂຕ)<input aria-label="ຄ່າບວກເພີ່ມ (ກີບ/ໂຕ)" className={control} type="number" min="0.01" max="999999999999.99" step="0.01" value={draft.surcharge_lak ?? ""} onChange={event => patch({surcharge_lak:event.target.value === "" ? null : Number(event.target.value)})}/></label>}</>}
         <label className="space-y-1 text-sm">ລຳດັບ<input className={control} type="number" step="1" min={-2147483648} max={2147483647} value={draft.sort_order} onChange={event => patch({sort_order:Number(event.target.value)})}/><span className="text-xs text-[var(--theme-muted)]">ລຳດັບນ້ອຍສະແດງກ່ອນ</span></label>
       </fieldset>
       <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-bold">ຮູບພາບ ({draft.images.length}/12)</h3><label className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${busy || !canEdit ? "pointer-events-none opacity-40" : ""}`}><Upload size={16}/>{uploading ? "ກຳລັງອັບໂຫຼດ…" : "ອັບໂຫຼດຮູບ"}<input aria-label="ອັບໂຫຼດຮູບ" disabled={busy || !canEdit} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={event => {void upload(event.target.files);event.target.value="";}}/></label></div>
