@@ -14,6 +14,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { buildFactoryDesignFallbackUrl, extractProductionMockupUrls, toDisplayMediaUrl } from "@/lib/order-media";
+import { getTotalShirtQty } from "@/lib/order-quantities";
 import { supabase } from "@/lib/supabase";
 import { FACTORY_DEPOSIT_ORDER_STATUS_LABELS, FACTORY_DEPOSIT_ORDER_STATUS_STYLES, type FactoryDepositOrderStatus } from "@/lib/factory-deposit-orders";
 import { fetchOrderAlertOrdersWithClient, getOrderAlertErrorMessage, getOrderAlertToday, getOverdueOrderTiming, type OrderAlertOrderRow } from "@/lib/order-alerts";
@@ -195,6 +196,12 @@ function NotificationSection({
                           {FACTORY_DEPOSIT_ORDER_STATUS_LABELS[item.status]}
                         </span>
                         <span className={`rounded-md border px-2 py-0.5 text-[11px] font-bold ${palette.alert}`}>{dueText(item.dueInDays)}</span>
+                        <span
+                          title="ລວມເສື້ອແຖມ"
+                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-bold text-sky-700"
+                        >
+                          ຈຳນວນເສື້ອ <span className="font-mono tabular-nums">{getTotalShirtQty(item.orderState).toLocaleString()}</span> ຕົວ
+                        </span>
                         {item.production_priority === "urgent" ? (
                           <span className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700">ດ່ວນ</span>
                         ) : null}

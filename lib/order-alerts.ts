@@ -17,6 +17,9 @@ export type OrderAlertOrderState = {
 export type OrderAlertOrderRow = OrderAlertOrderState & {
   order_image_url: string | null;
   factory_bill_code: string | null;
+  short_qty: number | null;
+  long_qty: number | null;
+  free_qty: number | null;
 };
 
 export async function fetchOrderAlertOrdersWithClient(client: SupabaseClient, orderIds: string[]) {
@@ -31,7 +34,7 @@ export async function fetchOrderAlertOrdersWithClient(client: SupabaseClient, or
       const [{ data: orderData, error: orderError }, { data: receiptData, error: receiptError }] = await Promise.all([
         client
           .from("orders")
-          .select("id,status,closed_at,production_completed_at,shipment_status,shipment_completed_at,order_image_url,factory_bill_code")
+          .select("id,status,closed_at,production_completed_at,shipment_status,shipment_completed_at,order_image_url,factory_bill_code,short_qty,long_qty,free_qty")
           .in("id", ids),
         client.from("factory_receipt_items").select("order_id").in("order_id", ids),
       ]);
