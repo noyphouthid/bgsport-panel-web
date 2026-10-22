@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { ArrowLeft, CheckCheck, Download, Printer, RefreshCw, UserRound } from "lucide-react";
+import { ArrowLeft, CheckCheck, Download, Printer, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { isProductionRole } from "@/lib/role-groups";
 import { PatternMockupViewer } from "./pattern-mockup-viewer";
@@ -484,11 +484,6 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
   const [err, setErr] = useState<string | null>(null);
   const [showSendPreview, setShowSendPreview] = useState(false);
   const [sendPreviewInitialAction, setSendPreviewInitialAction] = useState<"download" | "print" | null>(null);
-  const [actorDraft, setActorDraft] = useState({
-    patternLaidByUserId: "",
-    readyForPrintByUserId: "",
-    sentToFactoryByUserId: "",
-  });
 
   const canEditQueue = Boolean(viewerRole && (viewerRole === "superadmin" || isProductionRole(viewerRole)));
 
@@ -509,7 +504,7 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
       }>(`/api/factory-production/queue/${queueId}`);
 
       const profile = payload.profile ?? null;
-      const normalizedViewerRole = isProductionRole(profile?.role) ? "production" : ((profile?.role as AppRole | null) ?? null);
+      const normalizedViewerRole = profile?.role === "superadmin" ? "superadmin" : isProductionRole(profile?.role) ? "production" : null;
       setViewerRole(normalizedViewerRole);
       setViewerUserId(profile?.id ?? null);
       setViewerResolved(true);
@@ -535,10 +530,6 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
 
   const userNameMap = useMemo(() => new Map(users.map((user) => [user.id, user.full_name])), [users]);
   const userRoleMap = useMemo(() => new Map(users.map((user) => [user.id, user.role])), [users]);
-  const productionAssignableUsers = useMemo(
-    () => users.filter((user) => isProductionRole(user.role) && (user.is_active ?? true)),
-    [users]
-  );
   const deposit = normalizeDeposit(row);
   const effectivePlannerUserId = row ? resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap) : null;
   const normalizedStatus = row ? normalizeFactoryProductionQueueStatus(row.status) : "queued";
@@ -560,67 +551,14 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
   const previewUrls = deposit ? extractProductionMockupUrls(deposit.production_items) : [];
   const fallbackPreviewUrl = deposit ? buildFactoryDesignFallbackUrl(deposit.factory_bill_code) : null;
   const allPreviewUrls = previewUrls.length > 0 ? previewUrls : fallbackPreviewUrl ? [fallbackPreviewUrl] : [];
-  const canEditCurrentRow = Boolean(
-    canEditQueue &&
-      !(
-        normalizedStatus === "queued" &&
-        effectivePlannerUserId &&
-        viewerUserId &&
-        effectivePlannerUserId !== viewerUserId &&
-        isProductionRole(viewerRole)
-      )
-  );
+  const canEditCurrentRow = Boolean(canEditQueue && effectivePlannerUserId &&
+    (viewerRole === "superadmin" || effectivePlannerUserId === viewerUserId));
   const uniqueHemLabels = Array.from(new Set(productionItems.map((item) => getHemLabel(item.hemType)).filter((label) => label !== "-")));
   const signatureFields = [
-    {
-      label: "ຜູ້ອອກໃບສັ່ງຜະລິດ",
-      name: getUserDisplayName(deposit?.created_by_user_id || row?.assigned_by_user_id || deposit?.admin_user_id || null, userNameMap),
-    },
-    {
-      label: "ຜູ້ວາງ Pattern",
-      name: getUserDisplayName(
-        row?.pattern_laid_by_user_id ||
-          (row && normalizeFactoryProductionQueueStatus(row.status) !== "queued" ? effectivePlannerUserId : null)
-        ,
-        userNameMap
-      ),
-    },
-    {
-      label: "ຜູ້ວາງພ້ອມພິມ",
-      name: getUserDisplayName(
-        row?.ready_for_print_by_user_id ||
-          (row &&
-          (normalizeFactoryProductionQueueStatus(row.status) === "ready_for_print" ||
-            normalizeFactoryProductionQueueStatus(row.status) === "sent_to_factory")
-            ? effectivePlannerUserId
-            : null)
-        ,
-        userNameMap
-      ),
-    },
-    {
-      label: "ຜູ້ສົ່ງໂຮງງານ",
-      name: getUserDisplayName(
-        row?.sent_to_factory_by_user_id ||
-          (row && normalizeFactoryProductionQueueStatus(row.status) === "sent_to_factory" ? effectivePlannerUserId : null)
-        ,
-        userNameMap
-      ),
-    },
+    { label: "ຜູ້ອອກໃບສັ່ງຜະລິດ", name: getUserDisplayName(deposit?.created_by_user_id || null, userNameMap) },
+    ...["ຜູ້ວາງ Pattern", "ຜູ້ວາງພ້ອມພິມ", "ຜູ້ສົ່ງໂຮງງານ"].map(label =>
+      ({ label, name: getUserDisplayName(effectivePlannerUserId, userNameMap) })),
   ];
-  const actorAssignmentsChanged =
-    actorDraft.patternLaidByUserId !== (row?.pattern_laid_by_user_id || "") ||
-    actorDraft.readyForPrintByUserId !== (row?.ready_for_print_by_user_id || "") ||
-    actorDraft.sentToFactoryByUserId !== (row?.sent_to_factory_by_user_id || "");
-
-  useEffect(() => {
-    if (!row) return;
-    setActorDraft({
-      patternLaidByUserId: row.pattern_laid_by_user_id || "",
-      readyForPrintByUserId: row.ready_for_print_by_user_id || "",
-      sentToFactoryByUserId: row.sent_to_factory_by_user_id || "",
-    });
-  }, [row]);
 
   useEffect(() => {
     if (!row) return;
@@ -633,33 +571,6 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
       router.replace(canonicalHref);
     }
   }, [detailMode, row, router]);
-
-  const handleClaim = async () => {
-    if (!row || !viewerUserId) {
-      toast.error("ບໍ່ພົບ user ທີ່ login");
-      return;
-    }
-
-    if (normalizedStatus === "queued" && effectivePlannerUserId && effectivePlannerUserId !== viewerUserId) {
-      toast.error("ລາຍການນີ້ຖືກຮັບໄປແລ້ວ");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      await callQueueApi("/api/factory-production/queue", {
-        method: "PATCH",
-        body: JSON.stringify({ action: "claim", id: row.id }),
-      });
-
-      toast.success("ຮັບອໍເດີ້ສຳເລັດແລ້ວ");
-      await load();
-    } catch (error) {
-      toast.error(getErrorMessage(error, "ຮັບອໍເດີ້ບໍ່ສຳເລັດ"));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleAdvanceStatus = async () => {
     if (!row || !viewerUserId || !nextStatus) {
@@ -738,30 +649,6 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
     }
   };
 
-  const handleSaveActorAssignments = async () => {
-    if (!row) return;
-
-    setSaving(true);
-    try {
-      await callQueueApi("/api/factory-production/queue", {
-        method: "PATCH",
-        body: JSON.stringify({
-          action: "update_actor_assignments",
-          id: row.id,
-          patternLaidByUserId: actorDraft.patternLaidByUserId || null,
-          readyForPrintByUserId: actorDraft.readyForPrintByUserId || null,
-          sentToFactoryByUserId: actorDraft.sentToFactoryByUserId || null,
-        }),
-      });
-
-      toast.success("ບັນທຶກຜູ້ຮັບຜິດຊອບສຳເລັດແລ້ວ");
-      await load();
-    } catch (error) {
-      toast.error(getErrorMessage(error, "ບັນທຶກຜູ້ຮັບຜິດຊອບບໍ່ສຳເລັດ"));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -811,17 +698,6 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
                 Print
               </button>
             </>
-          ) : null}
-          {row && !effectivePlannerUserId ? (
-            <button
-              type="button"
-              onClick={() => void handleClaim()}
-              disabled={!canEditCurrentRow || saving}
-              className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-black text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
-            >
-              <UserRound size={16} />
-              ກົດຮັບງານ
-            </button>
           ) : null}
           {row && nextStatus ? (
             <button
@@ -1173,76 +1049,10 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
                   </div>
                 ) : null}
 
-                <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <div className="text-sm font-black text-slate-900">ແກ້ໄຂຊື່ຜູ້ຮັບຜິດຊອບ</div>
-                      <div className="mt-1 text-xs font-bold text-slate-500">
-                        ບັນທຶກຊື່ 3 ຂັ້ນຕອນ: ຜູ້ວາງ Pattern, ຜູ້ວາງພ້ອມພິມ ແລະ ຜູ້ສົ່ງໂຮງງານ ເພື່ອໃຫ້ສະແດງໃນໃບສັ່ງຜະລິດ.
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleSaveActorAssignments()}
-                      disabled={!canEditCurrentRow || saving || !actorAssignmentsChanged}
-                      className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {saving ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກການແກ້ໄຂ"}
-                    </button>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                    <label className="block">
-                      <div className="mb-2 text-sm font-black text-slate-700">ຜູ້ວາງ Pattern</div>
-                      <select
-                        value={actorDraft.patternLaidByUserId}
-                        onChange={(event) => setActorDraft((current) => ({ ...current, patternLaidByUserId: event.target.value }))}
-                        disabled={!canEditCurrentRow || saving}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:opacity-50"
-                      >
-                        <option value="">- ບໍ່ກຳນົດ -</option>
-                        {productionAssignableUsers.map((user) => (
-                          <option key={`pattern-${user.id}`} value={user.id}>
-                            {user.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="block">
-                      <div className="mb-2 text-sm font-black text-slate-700">ຜູ້ວາງພ້ອມພິມ</div>
-                      <select
-                        value={actorDraft.readyForPrintByUserId}
-                        onChange={(event) => setActorDraft((current) => ({ ...current, readyForPrintByUserId: event.target.value }))}
-                        disabled={!canEditCurrentRow || saving}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:opacity-50"
-                      >
-                        <option value="">- ບໍ່ກຳນົດ -</option>
-                        {productionAssignableUsers.map((user) => (
-                          <option key={`ready-${user.id}`} value={user.id}>
-                            {user.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="block">
-                      <div className="mb-2 text-sm font-black text-slate-700">ຜູ້ສົ່ງໂຮງງານ</div>
-                      <select
-                        value={actorDraft.sentToFactoryByUserId}
-                        onChange={(event) => setActorDraft((current) => ({ ...current, sentToFactoryByUserId: event.target.value }))}
-                        disabled={!canEditCurrentRow || saving}
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 disabled:opacity-50"
-                      >
-                        <option value="">- ບໍ່ກຳນົດ -</option>
-                        {productionAssignableUsers.map((user) => (
-                          <option key={`sent-${user.id}`} value={user.id}>
-                            {user.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
+                <div className="mt-4 rounded-2xl border border-sky-100 bg-sky-50 p-4">
+                  <div className="text-sm font-black text-slate-700">ຜູ້ວາງຜະລິດ</div>
+                  <div className="mt-2 text-lg font-black text-sky-800">{getUserDisplayName(effectivePlannerUserId, userNameMap)}</div>
+                  <div className="mt-1 text-xs font-bold text-slate-500">ລະບົບມອບໝາຍຕາມຍອດຜືນສະສົມໃນເດືອນ. ຊື່ຜູ້ວາງໃນທຸກຂັ້ນຕອນຈະດຶງຈາກໄອດີນີ້.</div>
                 </div>
               </div>
 
@@ -1361,7 +1171,6 @@ export function QueueDetailPage({ queueId, detailMode = "pattern" }: QueueDetail
         <SendToFactoryPreviewModal
           row={row}
           userNameMap={userNameMap}
-          viewerUserId={viewerUserId}
           confirming={saving}
           initialAction={sendPreviewInitialAction}
           onClose={() => {

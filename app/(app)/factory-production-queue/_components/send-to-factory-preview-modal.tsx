@@ -77,7 +77,6 @@ type ParsedPantsItem = {
 type SendToFactoryPreviewModalProps = {
   row: QueueEntryRow;
   userNameMap: Map<string, string>;
-  viewerUserId: string | null;
   confirming?: boolean;
   initialAction?: "download" | "print" | null;
   onClose: () => void;
@@ -324,7 +323,6 @@ async function waitForImages(container: HTMLElement) {
 export function SendToFactoryPreviewModal({
   row,
   userNameMap,
-  viewerUserId,
   confirming = false,
   initialAction = null,
   onClose,
@@ -355,15 +353,15 @@ export function SendToFactoryPreviewModal({
     },
     {
       label: "ຜູ້ວາງ Pattern",
-      value: getUserDisplayName(row.pattern_laid_by_user_id || row.planner_user_id, userNameMap),
+      value: getUserDisplayName(row.planner_user_id, userNameMap),
     },
     {
       label: "ຜູ້ວາງພ້ອມພິມ",
-      value: getUserDisplayName(row.ready_for_print_by_user_id || row.planner_user_id, userNameMap),
+      value: getUserDisplayName(row.planner_user_id, userNameMap),
     },
     {
       label: "ຜູ້ສົ່ງໂຮງງານ",
-      value: getUserDisplayName(row.sent_to_factory_by_user_id || viewerUserId, userNameMap),
+      value: getUserDisplayName(row.planner_user_id, userNameMap),
     },
   ];
 

@@ -369,6 +369,46 @@ for code round trips and database inheritance/reselection checks. The browser
 workflow script also exercises editable linked codes, quotation printing and
 deposit save/reopen with numeric and alphabetic suffixes.
 
+## Automatic production queue
+
+Apply `supabase/migrations/20261023_automate_production_queue.sql` before deploying
+these queue changes. This migration requires the existing deposit, pants-item,
+production queue and queue actor migrations. It adds automatic enqueueing on
+submitted deposits, piece-based monthly assignment, owner-only RLS and the
+atomic server status RPC. The public/anon queue-management RPC grants are removed.
+The API needs the existing `SUPABASE_SERVICE_ROLE_KEY` server configuration.
+
+Whole orders go to the active production account with the lowest assigned piece
+total in the queue's production month, then the lowest order count and stable
+user ID. Completed orders count toward that month's total. Shirts, free pieces,
+extra sizes and pants are included. Superadmins oversee the queue and are excluded
+from automatic assignment. Exact equality depends on order sizes because orders
+are kept together. Existing valid owners remain assigned; unassigned work and
+queued work belonging to unavailable accounts are allocated during sync. When no
+production account is active, work waits unassigned and is visible to superadmins.
+
+Production users can read and update only their own jobs at every stage. Status
+reverts preserve ownership. The queue displays one planner at a time; superadmins
+can switch active planners and review their combined monthly summaries at
+`/factory-production-queue/activity`. Status-stage totals in that summary are
+cumulative within the selected queue month. Disabled accounts are hidden from
+planner selection and summaries, including their summary totals. Historical jobs
+remain stored. The queue month remains fixed when
+editing source details so historical workload is not silently moved between months.
+
+Verification uses isolated SQL and mocked API/browser data:
+
+```bash
+node scripts/verify-production-queue.mjs /path/to/@electric-sql/pglite/dist/index.js
+node scripts/verify-production-queue-api.mjs
+node scripts/verify-browser-production-queue.mjs /path/to/playwright/test.mjs
+npm run build
+```
+
+The browser check uses the local development server and Chrome; set
+`TEST_BASE_URL` or `CHROME_PATH` when needed. No live database writes are performed
+by these checks.
+
 ## Getting Started
 
 First, run the development server:

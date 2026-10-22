@@ -9,6 +9,7 @@ type RouteRule = {
 
 const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant"];
 const ROLE_LOCKED_PATHS = [
+  "/factory-production-queue",
   "/reports/admin-sales",
   "/reports/design-phone-status",
   "/reports/data-export",

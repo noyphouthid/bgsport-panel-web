@@ -77,6 +77,7 @@ type QueueEntryRow = FactoryProductionQueueActorFields & {
   queue_year: number;
   queue_month: number;
   queue_sequence: number;
+  workload_piece_qty: number;
   queue_number: string;
   order_sequence: number;
   order_no: string;
@@ -103,9 +104,9 @@ function buildEmptyStateMessage(
 ) {
   if (statusView === "queued") {
     if (summary.patternLaid > 0 || summary.readyForPrint > 0 || summary.sentToFactory > 0) {
-      return "ຕອນນີ້ບໍ່ມີຄິວລໍຖ້າຮັບເພີ່ມແລ້ວ. ລາຍການຖືກຍ້າຍໄປຢູ່ໃນ tab ຂັ້ນຕອນອື່ນໆດ້ານເທິງ.";
+      return "ຕອນນີ້ບໍ່ມີຄິວລໍຖ້າວາງເພີ່ມແລ້ວ. ລາຍການຖືກຍ້າຍໄປຢູ່ໃນ tab ຂັ້ນຕອນອື່ນໆດ້ານເທິງ.";
     }
-    return "ຕອນນີ້ຍັງບໍ່ມີຄິວລໍຖ້າຮັບ.";
+    return "ຕອນນີ້ຍັງບໍ່ມີຄິວລໍຖ້າວາງ.";
   }
 
   if (statusView === "pattern_laid") return "ຕອນນີ້ຍັງບໍ່ມີລາຍການວາງ Pattern ແລ້ວ.";
@@ -339,19 +340,8 @@ function getStageFilterLabel(view: PageView) {
   return FACTORY_PRODUCTION_QUEUE_VISIBLE_STATUS_LABELS[view];
 }
 
-function getPrimaryActionLabel(
-  row: QueueEntryRow,
-  statusView: PageView,
-  viewerUserId: string | null,
-  userNameMap: Map<string, string>,
-  userRoleMap: Map<string, string>
-) {
-  const effectivePlannerUserId = resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap);
-  if (statusView === "queued") {
-    if (!effectivePlannerUserId) return "ກົດຮັບງານ";
-    if (effectivePlannerUserId === viewerUserId) return "ກົດຮັບງານ";
-    return `ຖືກຮັບແລ້ວໂດຍ ${getUserDisplayName(effectivePlannerUserId, userNameMap)}`;
-  }
+function getPrimaryActionLabel(statusView: PageView) {
+  if (statusView === "queued") return "ເລີ່ມວາງ Pattern";
   if (statusView === "pattern_laid") return "ຢືນຢັນການວາງພ້ອມພິມ";
   if (statusView === "ready_for_print") return "ຢືນຢັນການສົ່ງໂຮງງານ";
   return "ເບິ່ງລາຍລະອຽດ";
@@ -401,15 +391,16 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
   const [previewRow, setPreviewRow] = useState<QueueEntryRow | null>(null);
   const [confirmingSendRowId, setConfirmingSendRowId] = useState<string | null>(null);
 
-  const [monthFilter, setMonthFilter] = useState<MonthFilter>("ALL");
+  const [monthFilter, setMonthFilter] = useState<MonthFilter>(statusView === "activity" ? today.getMonth() + 1 : "ALL");
   const [yearFilter, setYearFilter] = useState(today.getFullYear());
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
   const [query, setQuery] = useState("");
+  const [plannerFilter, setPlannerFilter] = useState("");
 
   const canEditQueue = Boolean(viewerRole && (viewerRole === "superadmin" || isProductionRole(viewerRole)));
-  const isProductionViewer = isProductionRole(viewerRole);
+  const isProductionViewer = viewerRole === "production";
 
   const load = async (options?: { syncFirst?: boolean }) => {
     setLoading(true);
@@ -425,7 +416,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
       }>(`/api/factory-production/queue${query}`);
 
       const profile = payload.profile ?? null;
-      const normalizedViewerRole = isProductionRole(profile?.role) ? "production" : ((profile?.role as AppRole | null) ?? null);
+      const normalizedViewerRole = profile?.role === "superadmin" ? "superadmin" : isProductionRole(profile?.role) ? "production" : null;
       setViewerRole(normalizedViewerRole);
       setViewerUserId(profile?.id ?? null);
       setViewerResolved(true);
@@ -437,34 +428,53 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
 
       setRows(normalizedRows);
       setUsers(payload.users ?? []);
+      if (normalizedViewerRole === "superadmin" && profile) {
+        try {
+          const savedPlanner = localStorage.getItem(`production-planner:${profile.id}:${statusView === "activity" ? "summary" : "queue"}`);
+          if (savedPlanner === "UNASSIGNED" || (savedPlanner === "ALL" && statusView === "activity") ||
+            payload.users.some(user => user.id === savedPlanner && user.is_active && user.role !== "superadmin" && isProductionRole(user.role))) {
+            setPlannerFilter(savedPlanner || "");
+          } else {
+            setPlannerFilter("");
+          }
+        } catch { /* Selection still works when browser storage is unavailable. */ }
+      }
     } catch (error) {
       setErr(error instanceof Error ? error.message : "ໂຫຼດຄິວວາງຜະລິດບໍ່ສຳເລັດ");
       setRows([]);
       setUsers([]);
       setViewerResolved(true);
+      throw error;
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    void load();
+    void load({ syncFirst: true }).catch(() => {});
   }, []);
 
   const productionUsers = useMemo(
-    () => users.filter((user) => user.is_active && isProductionRole(user.role)),
+    () => users.filter((user) => user.is_active && user.role !== "superadmin" && isProductionRole(user.role)),
     [users]
   );
   const userNameMap = useMemo(() => new Map(users.map((user) => [user.id, user.full_name])), [users]);
   const userRoleMap = useMemo(() => new Map(users.map((user) => [user.id, user.role])), [users]);
 
+  const validPlannerFilter = plannerFilter === "UNASSIGNED" ||
+    (plannerFilter === "ALL" && statusView === "activity") || productionUsers.some(user => user.id === plannerFilter);
+  const activePlannerId = isProductionViewer ? viewerUserId || "" : (validPlannerFilter ? plannerFilter : "") ||
+    (statusView === "activity" ? "ALL" : productionUsers[0]?.id || "UNASSIGNED");
   const viewerScopedRows = useMemo(() => {
-    if (!isProductionViewer) return rows;
-    // Production users should see the whole department queue.
-    return rows;
-  }, [isProductionViewer, rows]);
+    if (!viewerResolved) return [];
+    if (viewerRole === "superadmin" && activePlannerId === "ALL" && statusView === "activity") {
+      const activePlannerIds = new Set(productionUsers.map(user => user.id));
+      return rows.filter(row => row.planner_user_id && activePlannerIds.has(row.planner_user_id));
+    }
+    return rows.filter(row => activePlannerId === "UNASSIGNED" ? !row.planner_user_id : row.planner_user_id === activePlannerId);
+  }, [activePlannerId, productionUsers, rows, statusView, viewerResolved, viewerRole]);
 
-  const filteredRows = useMemo(() => {
+  const periodRows = useMemo(() => {
     const search = query.trim().toLowerCase();
 
     return viewerScopedRows
@@ -478,14 +488,12 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
         if (dateFromFilter && row.queue_date < dateFromFilter) return false;
         if (dateToFilter && row.queue_date > dateToFilter) return false;
 
-        const normalizedStatus = normalizeFactoryProductionQueueStatus(row.status);
-        if (statusView !== "activity" && normalizedStatus !== statusView) return false;
-
         if (!search) return true;
 
         const effectivePlannerUserId = resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap);
 
         const haystack = [
+          row.queue_number,
           row.order_no,
           deposit.deposit_no,
           deposit.order_code || "",
@@ -521,12 +529,14 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
     monthFilter,
     priorityFilter,
     query,
-    statusView,
     userNameMap,
     userRoleMap,
     viewerScopedRows,
     yearFilter,
   ]);
+
+  const filteredRows = useMemo(() => statusView === "activity" ? periodRows :
+    periodRows.filter(row => normalizeFactoryProductionQueueStatus(row.status) === statusView), [periodRows, statusView]);
 
   const selectableRowIds = useMemo(() => filteredRows.map((row) => row.id), [filteredRows]);
   const selectedRows = useMemo(
@@ -541,7 +551,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
   }, [selectableRowIds]);
 
   const summary = useMemo(() => {
-    return viewerScopedRows.reduce(
+    return periodRows.reduce(
       (acc, row) => {
         const deposit = normalizeDeposit(row);
         const normalizedStatus = normalizeFactoryProductionQueueStatus(row.status);
@@ -555,56 +565,25 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
       },
       { total: 0, queued: 0, patternLaid: 0, readyForPrint: 0, sentToFactory: 0, urgent: 0 }
     );
-  }, [viewerScopedRows]);
+  }, [periodRows]);
 
-  const activityRows = useMemo(() => {
-    return productionUsers
-      .map((user) => {
-        const stats = viewerScopedRows.reduce(
-          (acc, row) => {
-            const normalizedStatus = normalizeFactoryProductionQueueStatus(row.status);
-            const effectivePlannerUserId = resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap);
-            const deposit = normalizeDeposit(row);
+  const activityRows = useMemo(() => productionUsers
+    .filter(user => activePlannerId === "ALL" || user.id === activePlannerId)
+    .map(user => {
+      const assigned = periodRows.filter(row => row.planner_user_id === user.id);
+      const stageRows = (index: number) => assigned.filter(row => getFactoryProductionQueueStatusIndex(row.status) >= index);
+      return { user, totalCount: assigned.length,
+        acceptedCount: assigned.filter(row => normalizeFactoryProductionQueueStatus(row.status) === "queued").length,
+        patternLaidCount: stageRows(1).length,
+        patternSizeTotal: stageRows(1).reduce((sum, row) => sum + getOrderPatternSizeCount(normalizeDeposit(row)), 0),
+        readyForPrintCount: stageRows(2).length,
+        readyForPrintShirtTotal: stageRows(2).reduce((sum, row) => sum + Number(row.workload_piece_qty), 0),
+        sentToFactoryCount: stageRows(3).length,
+        totalPieces: assigned.reduce((sum, row) => sum + Number(row.workload_piece_qty), 0),
+      };
+    }), [activePlannerId, periodRows, productionUsers]);
 
-            if (normalizedStatus === "queued" && effectivePlannerUserId === user.id) {
-              acc.acceptedCount += 1;
-            }
-
-            if (normalizedStatus === "pattern_laid" && getStageOwnerUserId(row, "pattern_laid", effectivePlannerUserId) === user.id) {
-              acc.patternLaidCount += 1;
-              acc.patternSizeTotal += getOrderPatternSizeCount(deposit);
-            }
-
-            if (normalizedStatus === "ready_for_print" && getStageOwnerUserId(row, "ready_for_print", effectivePlannerUserId) === user.id) {
-              acc.readyForPrintCount += 1;
-              acc.readyForPrintShirtTotal += getShirtTotalQty(deposit);
-            }
-
-            if (normalizedStatus === "sent_to_factory" && getStageOwnerUserId(row, "sent_to_factory", effectivePlannerUserId) === user.id) {
-              acc.sentToFactoryCount += 1;
-            }
-
-            return acc;
-          },
-          {
-            acceptedCount: 0,
-            patternLaidCount: 0,
-            patternSizeTotal: 0,
-            readyForPrintCount: 0,
-            readyForPrintShirtTotal: 0,
-            sentToFactoryCount: 0,
-          }
-        );
-
-        return {
-          user,
-          ...stats,
-          totalCount: stats.acceptedCount + stats.patternLaidCount + stats.readyForPrintCount + stats.sentToFactoryCount,
-        };
-      })
-      .filter((row) => row.totalCount > 0 || !isProductionViewer)
-      .sort((a, b) => b.totalCount - a.totalCount || a.user.full_name.localeCompare(b.user.full_name));
-  }, [isProductionViewer, productionUsers, userRoleMap, viewerScopedRows]);
+  const activityPieceTotal = activityRows.reduce((sum, activity) => sum + activity.totalPieces, 0);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -621,39 +600,9 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
     }
   };
 
-  const claimQueueEntryIfNeeded = async (row: QueueEntryRow) => {
-    if (!viewerUserId) {
-      toast.error("ບໍ່ພົບ user ທີ່ກຳລັງ login");
-      return false;
-    }
-
-    const normalizedStatus = normalizeFactoryProductionQueueStatus(row.status);
-    if (normalizedStatus !== "queued") {
-      return true;
-    }
-
-    const effectivePlannerUserId = resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap);
-    if (effectivePlannerUserId && effectivePlannerUserId !== viewerUserId && isProductionViewer) {
-      toast.error("ລາຍການນີ້ຖືກຮັບໄປແລ້ວ");
-      return false;
-    }
-
-    if (!effectivePlannerUserId) {
-      await callQueueApi("/api/factory-production/queue", {
-        method: "PATCH",
-        body: JSON.stringify({ action: "claim", id: row.id }),
-      });
-      toast.success("ຮັບອໍເດີ້ສຳເລັດແລ້ວ");
-    }
-
-    return true;
-  };
-
   const handleOpenQueueEntry = async (row: QueueEntryRow) => {
     setWorkingRowId(row.id);
     try {
-      const claimed = await claimQueueEntryIfNeeded(row);
-      if (!claimed) return;
       router.push(getQueueEntryHref(row));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ຮັບອໍເດີ້ບໍ່ສຳເລັດ");
@@ -675,8 +624,6 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
     setWorkingRowId(row.id);
     setErr(null);
     try {
-      const claimed = await claimQueueEntryIfNeeded(row);
-      if (!claimed) return;
       await callQueueApi("/api/factory-production/queue", {
         method: "PATCH",
         body: JSON.stringify({ action: "update_status", id: row.id, targetStatus }),
@@ -703,8 +650,6 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
     setConfirmingSendRowId(previewRow.id);
     setErr(null);
     try {
-      const claimed = await claimQueueEntryIfNeeded(previewRow);
-      if (!claimed) return;
       await callQueueApi("/api/factory-production/queue", {
         method: "PATCH",
         body: JSON.stringify({ action: "update_status", id: previewRow.id, targetStatus: "sent_to_factory" }),
@@ -772,7 +717,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
   };
 
   const tabs: Array<{ href: string; label: string; activeClassName: string }> = [
-    { href: "/factory-production-queue", label: "ຄິວລໍຖ້າຮັບ", activeClassName: "bg-slate-900 text-white shadow-sm" },
+    { href: "/factory-production-queue", label: "ຄິວລໍຖ້າວາງ", activeClassName: "bg-slate-900 text-white shadow-sm" },
     { href: "/factory-production-queue/pattern-laid", label: "ວາງ Pattern ແລ້ວ", activeClassName: "bg-sky-600 text-white shadow-sm" },
     { href: "/factory-production-queue/ready-for-print", label: "ວາງພ້ອມພິມແລ້ວ", activeClassName: "bg-cyan-600 text-white shadow-sm" },
     { href: "/factory-production-queue/sent-to-factory", label: "ສົ່ງໂຮງງານແລ້ວ", activeClassName: "bg-emerald-600 text-white shadow-sm" },
@@ -783,9 +728,9 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">ຄິວວາງຜະລິດ</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">{statusView === "activity" ? "ສະຫຼຸບການວາງຜະລິດ" : "ຄິວວາງຜະລິດ"}</h1>
           <div className="mt-2 max-w-4xl text-sm font-medium text-slate-500">
-            ຈັດຄິວໃບມັດຈຳສັ່ງຜະລິດຈາກ `factory-deposit-orders` ໃຫ້ຝ່າຍວາງຜະລິດຮັບງານ, ເບິ່ງລາຍລະອຽດ, ແລະ ຢືນຢັນຜ່ານ 3 ຂັ້ນຕອນໄດ້ຈາກໜ້ານີ້.
+            ມອບໝາຍຄິວອັດຕະໂນມັດຫຼັງ “ບັນທຶກ ແລະ ສົ່ງ” ໂດຍແບ່ງຕາມຈຳນວນຜືນສະສົມໃນເດືອນ. ແຕ່ລະຄົນເຫັນສະເພາະງານທີ່ຕົນຮັບຜິດຊອບ.
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -796,11 +741,11 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
             className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
           >
             <RefreshCw size={16} className={syncing ? "animate-spin" : ""} />
-            {syncing ? "ກຳລັງ sync..." : "ດຶງຄິວໃໝ່"}
+            {syncing ? "ກຳລັງຈັດຄິວ..." : "ອັບເດດຄິວອັດຕະໂນມັດ"}
           </button>
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => void load().catch(() => {})}
             disabled={loading}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
           >
@@ -835,9 +780,10 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <div className="text-xs font-black uppercase text-slate-500">ຄິວທັງໝົດ</div>
           <div className="mt-2 text-3xl font-black text-slate-900">{summary.total.toLocaleString()}</div>
+          <div className="mt-1 text-xs font-bold text-sky-700">{periodRows.reduce((sum, row) => sum + Number(row.workload_piece_qty), 0).toLocaleString()} ຜືນ</div>
         </div>
         <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 shadow-sm">
-          <div className="text-xs font-black uppercase text-amber-700">ລໍຖ້າຮັບ</div>
+          <div className="text-xs font-black uppercase text-amber-700">ລໍຖ້າວາງ</div>
           <div className="mt-2 text-3xl font-black text-amber-700">{summary.queued.toLocaleString()}</div>
         </div>
         <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4 shadow-sm">
@@ -860,7 +806,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
             type="text"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="ຄົ້ນຫາເລກອໍເດີ້ / ລູກຄ້າ / ຜູ້ມອບໝາຍ"
+            placeholder="ຄົ້ນຫາເລກຄິວ / ອໍເດີ້ / ລູກຄ້າ / ຜູ້ວາງຜະລິດ"
             className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400 lg:col-span-2"
           />
           <select
@@ -887,10 +833,21 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
           </select>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-5">
+        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-6">
           <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-black text-slate-700">
             {getStageFilterLabel(statusView)}
           </div>
+          <select aria-label="ຜູ້ວາງຜະລິດ" value={activePlannerId} onChange={event => {
+              setPlannerFilter(event.target.value);
+              try { localStorage.setItem(`production-planner:${viewerUserId}:${statusView === "activity" ? "summary" : "queue"}`, event.target.value); } catch {}
+            }}
+            disabled={viewerRole !== "superadmin"}
+            className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 disabled:bg-slate-50">
+            {statusView === "activity" && viewerRole === "superadmin" && <option value="ALL">ທຸກຜູ້ວາງຜະລິດ</option>}
+            {productionUsers.filter(user => viewerRole === "superadmin" || user.id === viewerUserId).map(user =>
+              <option key={user.id} value={user.id}>{user.full_name} ({user.id.slice(0, 8)})</option>)}
+            {viewerRole === "superadmin" && <option value="UNASSIGNED">ລໍຖ້າມີພະນັກງານວາງຜະລິດ</option>}
+          </select>
           <select
             value={priorityFilter}
             onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
@@ -921,6 +878,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
         <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
           <div className="border-b border-slate-100 bg-slate-50 px-5 py-4 text-sm font-black text-slate-700">
             ສະຫຼຸບຜູ້ຮັບຜິດຊອບ ({activityRows.length})
+            <div className="mt-1 text-xs font-medium text-slate-500">ຍອດແຕ່ລະຂັ້ນຕອນນັບລວມງານທີ່ຜ່ານຂັ້ນຕອນນັ້ນແລ້ວ ຕາມເດືອນຂອງຄິວທີ່ເລືອກ.</div>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -928,13 +886,13 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                 <tr className="text-left text-xs uppercase text-slate-500">
                   <th className="px-4 py-3 font-black">ຝ່າຍວາງຜະລິດ</th>
                   <th className="px-4 py-3 font-black">ຕຳແໜ່ງ</th>
-                  <th className="px-4 py-3 font-black">ຮັບອໍເດີ້ໄວ້</th>
+                  <th className="px-4 py-3 font-black">ລໍຖ້າວາງ</th>
                   <th className="px-4 py-3 font-black">ວາງ Pattern ແລ້ວ</th>
                   <th className="px-4 py-3 font-black">ລວມໄຊທ໌ Pattern</th>
                   <th className="px-4 py-3 font-black">ວາງພ້ອມພິມແລ້ວ</th>
-                  <th className="px-4 py-3 font-black">ລວມຈຳນວນເສື້ອພ້ອມພິມ</th>
+                  <th className="px-4 py-3 font-black">ລວມຜືນພ້ອມພິມ</th>
                   <th className="px-4 py-3 font-black">ສົ່ງໂຮງງານແລ້ວ</th>
-                  <th className="px-4 py-3 font-black">ລວມ</th>
+                  <th className="px-4 py-3 font-black">ລວມອໍເດີ້ / ຜືນ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -977,7 +935,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                       </td>
                       <td className="px-4 py-4">
                         <span className="inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-black text-indigo-700">
-                          {activity.readyForPrintShirtTotal.toLocaleString()} ເສື້ອ
+                          {activity.readyForPrintShirtTotal.toLocaleString()} ຜືນ
                         </span>
                       </td>
                       <td className="px-4 py-4">
@@ -985,7 +943,10 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                           {activity.sentToFactoryCount.toLocaleString()} ອໍເດີ້
                         </span>
                       </td>
-                      <td className="px-4 py-4 text-lg font-black text-slate-900">{activity.totalCount.toLocaleString()}</td>
+                      <td className="px-4 py-4 text-lg font-black text-slate-900">{activity.totalCount.toLocaleString()} ອໍເດີ້<div className="mt-1 text-sky-700">{activity.totalPieces.toLocaleString()} ຜືນ</div>
+                        {viewerRole === "superadmin" && activePlannerId === "ALL" && activityPieceTotal > 0 &&
+                          <div className="mt-1 text-xs font-bold text-slate-500">{(activity.totalPieces / activityPieceTotal * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%</div>}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -1003,7 +964,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="text-sm font-bold text-slate-600">
                 ເລືອກໄວ້ {selectedRows.length.toLocaleString()} ລາຍການ
-                <span className="ml-2 text-slate-400">ໃຊ້ສຳລັບປັບສະຖານະອໍເດີ້ເກົ່າທີ່ຍັງຄ້າງ</span>
+                <span className="ml-2 text-slate-400">ປັບສະຖານະລາຍການທີ່ເລືອກ</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {BULK_STATUS_ACTIONS.map((action) => (
@@ -1041,11 +1002,11 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                   <th className="px-4 py-3 font-black">ເລກອໍເດີ້</th>
                   <th className="px-4 py-3 font-black">ຮູບອໍເດີ້</th>
                   <th className="px-4 py-3 font-black">ປະເພດງານ</th>
-                  <th className="px-4 py-3 font-black">ຜູ້ມອບໝາຍ</th>
+                  <th className="px-4 py-3 font-black">ຜູ້ວາງຜະລິດ</th>
                   <th className="px-4 py-3 font-black">ຈຳນວນ</th>
                   <th className="px-4 py-3 font-black">ກຳນົດສົ່ງ</th>
                   <th className="px-4 py-3 font-black">ສະຖານະ</th>
-                  <th className="px-4 py-3 font-black">ຈັດການ</th>
+                  <th className="bg-white px-4 py-3 font-black lg:sticky lg:right-0">ຈັດການ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1108,8 +1069,8 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                     const effectivePlannerUserId = resolveEffectivePlannerUserId(row.planner_user_id, userRoleMap);
                     const stageOwnerUserId = getStageOwnerUserId(row, normalizedStatus, effectivePlannerUserId);
                     const isUrgent = deposit.production_priority === "urgent";
-                    const actionLabel = getPrimaryActionLabel(row, statusView, viewerUserId, userNameMap, userRoleMap);
-                    const assignerName = getUserDisplayName(row.assigned_by_user_id || deposit.admin_user_id, userNameMap);
+                    const actionLabel = getPrimaryActionLabel(statusView);
+                    const plannerName = getUserDisplayName(row.planner_user_id, userNameMap);
                     const isClaimedByOther = Boolean(
                       normalizedStatus === "queued" && effectivePlannerUserId && effectivePlannerUserId !== viewerUserId
                     );
@@ -1134,6 +1095,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                         </td>
                         <td className="px-4 py-4 align-top">
                           <div className="space-y-2">
+                            <div className="text-xs font-bold text-sky-700">#{row.queue_number}</div>
                             <div className="font-black text-slate-900">{row.order_no || "-"}</div>
                             <div className="text-sm font-bold text-slate-600">{deposit.order_code || deposit.deposit_no}</div>
                             <div className="text-xs font-bold text-slate-500">{deposit.team_name || deposit.customer_name || "-"}</div>
@@ -1170,8 +1132,8 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                         </td>
                         <td className="px-4 py-4 align-top">
                           <div className="space-y-2">
-                            <div className="font-black text-slate-900">{assignerName}</div>
-                            <div className="text-xs font-bold text-slate-500">ຜູ້ສ້າງບິນມັດຈຳ</div>
+                            <div className="font-black text-slate-900">{plannerName}</div>
+                            <div className="text-xs font-bold text-slate-500">ຈັດຄິວອັດຕະໂນມັດ</div>
                           </div>
                         </td>
                         <td className="px-4 py-4 align-top">
@@ -1215,8 +1177,8 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                           </div>
                         </td>
 
-                        <td className="px-4 py-4 align-top">
-                          <div className="w-[240px] space-y-3">
+                        <td className="border-l border-slate-100 bg-white px-4 py-4 align-top lg:sticky lg:right-0">
+                          <div className="w-[180px] space-y-3">
                             {canUsePrimaryAction ? (
                               <button
                                 type="button"
@@ -1234,7 +1196,7 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
                                   }
                                 }}
                                 disabled={
-                                  !canEditQueue ||
+                                  !canEditQueue || !row.planner_user_id ||
                                   workingRowId === row.id ||
                                   confirmingSendRowId === row.id ||
                                   Boolean(isClaimedByOther && isProductionViewer)
@@ -1266,14 +1228,13 @@ export function FactoryProductionQueuePageContent({ statusView = "queued" }: Fac
       )}
 
       <div className="rounded-3xl border border-slate-100 bg-slate-50 px-5 py-4 text-sm font-medium text-slate-500">
-        ຫນ້າຫຼັກ `factory-production-queue` ຈະສະແດງສະເພາະລາຍການທີ່ກຳລັງລໍຖ້າວາງຜະລິດ. ຫຼັງຈາກຢືນຢັນ “ວາງ Pattern ແລ້ວ” ລາຍການນັ້ນຈະຍ້າຍໄປຢູ່ຫນ້າຂັ້ນຕອນຖັດໄປທັນທີ.
+        ຄິວຈະສະແດງແຍກຕາມຜູ້ວາງຜະລິດທີ່ເລືອກ. ຫຼັງຈາກຢືນຢັນ “ວາງ Pattern ແລ້ວ” ລາຍການນັ້ນຈະຍ້າຍໄປຢູ່ຫນ້າຂັ້ນຕອນຖັດໄປທັນທີ.
       </div>
 
       {previewRow ? (
         <SendToFactoryPreviewModal
           row={previewRow}
           userNameMap={userNameMap}
-          viewerUserId={viewerUserId}
           confirming={confirmingSendRowId === previewRow.id}
           onClose={() => {
             if (confirmingSendRowId) return;

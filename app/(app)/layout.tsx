@@ -86,6 +86,7 @@ const nav: NavItem[] = [
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
   { type: "link", href: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", icon: Factory },
+  { type: "link", href: "/factory-production-queue/activity", label: "ສະຫຼຸບການວາງຜະລິດ", icon: FileSpreadsheet },
   {
     type: "group",
     label: "ໜ້າລາຍງານ",

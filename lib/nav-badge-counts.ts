@@ -216,11 +216,12 @@ async function fetchDesignQueueBadgeCountWithClient(client: SupabaseClient, prof
   };
 }
 
-async function fetchFactoryProductionQueueBadgeCountWithClient(client: SupabaseClient) {
-  const query = client
+async function fetchFactoryProductionQueueBadgeCountWithClient(client: SupabaseClient, profile: NavBadgeProfile) {
+  let query = client
     .from("factory_production_queue_entries")
     .select("id,updated_at,status,planner_user_id,pattern_laid_by_user_id,ready_for_print_by_user_id,sent_to_factory_by_user_id")
     .neq("status", "sent_to_factory");
+  if (profile.role !== "superadmin") query = query.eq("planner_user_id", profile.id);
 
   const { data, error } = await query;
   if (error) throw error;
@@ -246,7 +247,7 @@ export async function fetchNavBadgeCountsWithClient(client: SupabaseClient, prof
     designQueue,
   ] = await Promise.all([
     fetchFactoryDepositOrderBadgeCountWithClient(client, profile),
-    fetchFactoryProductionQueueBadgeCountWithClient(client),
+    fetchFactoryProductionQueueBadgeCountWithClient(client, profile),
     fetchOrderAlertsBadgeCountWithClient(client),
     fetchFactoryReceiptOrdersBadgeCountWithClient(client),
     fetchShipmentNotesBadgeCountWithClient(client, profile),

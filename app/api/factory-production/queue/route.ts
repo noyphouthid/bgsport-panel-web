@@ -1,293 +1,66 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActorFromAuthHeader } from "@/lib/admin-api-auth";
-import {
-  buildFactoryProductionQueueStatusUpdate,
-  normalizeFactoryProductionQueueStatus,
-  type FactoryProductionQueueVisibleStatus,
-} from "@/lib/factory-production-queue";
-import { isProductionRole } from "@/lib/role-groups";
-import {
-  FACTORY_PRODUCTION_QUEUE_FULL_SELECT,
-  FACTORY_PRODUCTION_QUEUE_UPDATE_SELECT,
-  FACTORY_PRODUCTION_VISIBLE_STATUS_SET,
-  resolveEffectivePlannerMap,
-  type QueueUpdateRow,
-} from "@/lib/factory-production-queue-server";
+import { FACTORY_PRODUCTION_QUEUE_FULL_SELECT, FACTORY_PRODUCTION_VISIBLE_STATUS_SET } from "@/lib/factory-production-queue-server";
+import type { FactoryProductionQueueVisibleStatus } from "@/lib/factory-production-queue";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 const ALLOWED_ROLES = ["superadmin", "production"] as const;
 
-function getUnauthorizedResponse() {
-  return NextResponse.json({ error: "forbidden" }, { status: 403 });
-}
-
-function getMissingEnvResponse() {
-  return NextResponse.json(
-    { error: "missing_server_env", message: "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" },
-    { status: 500 }
-  );
-}
-
-function normalizeQueueRows<T extends { deposit?: { status?: string | null } | Array<{ status?: string | null }> | null }>(rows: T[]) {
-  return rows.filter((row) => {
-    const deposit = Array.isArray(row.deposit) ? row.deposit[0] ?? null : row.deposit ?? null;
-    const depositStatus = String(deposit?.status || "").trim().toLowerCase();
-    return depositStatus !== "draft" && depositStatus !== "cancelled";
-  });
-}
-
-function resolvePlannerUserIdForTargetStatus(
-  targetStatus: FactoryProductionQueueVisibleStatus,
-  effectivePlannerUserId: string | null,
-  actorProfileId: string
-) {
-  if (targetStatus === "queued") return null;
-  return effectivePlannerUserId || actorProfileId;
-}
-
 export async function GET(req: NextRequest) {
-  const supabaseAdmin = getSupabaseAdmin();
-  if (!supabaseAdmin) return getMissingEnvResponse();
-
+  const client = getSupabaseAdmin();
+  if (!client) return NextResponse.json({ error: "missing_server_env" }, { status: 500 });
   const actor = await getActorFromAuthHeader(req.headers.get("authorization"), [...ALLOWED_ROLES]);
-  if (!actor) return getUnauthorizedResponse();
-
-  const shouldSync = req.nextUrl.searchParams.get("sync") === "1";
-
+  if (!actor) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   try {
-    if (shouldSync) {
-      await supabaseAdmin.rpc("sync_factory_production_queue_entries", {
-        p_actor_user_id: actor.profileId,
-      });
+    if (req.nextUrl.searchParams.get("sync") === "1") {
+      const { error } = await client.rpc("sync_factory_production_queue_entries", { p_actor_user_id: actor.profileId });
+      if (error) throw error;
     }
-
-    const [{ data: queueData, error: queueError }, { data: userData, error: userError }, { data: profileData, error: profileError }] =
-      await Promise.all([
-        supabaseAdmin
-          .from("factory_production_queue_entries")
-          .select(FACTORY_PRODUCTION_QUEUE_FULL_SELECT)
-          .order("queue_date", { ascending: false })
-          .order("queue_sequence", { ascending: true }),
-        supabaseAdmin.from("users").select("id,full_name,role,is_active").order("full_name", { ascending: true }),
-        supabaseAdmin.from("users").select("id,role,permission_settings").eq("id", actor.profileId).maybeSingle(),
-      ]);
-
-    if (queueError) return NextResponse.json({ error: queueError.message }, { status: 400 });
-    if (userError) return NextResponse.json({ error: userError.message }, { status: 400 });
-    if (profileError) return NextResponse.json({ error: profileError.message }, { status: 400 });
-
-    return NextResponse.json({
-      ok: true,
-      rows: normalizeQueueRows((queueData ?? []) as Array<Record<string, unknown>>),
-      users: (userData ?? []) as Array<Record<string, unknown>>,
-      profile: profileData ?? { id: actor.profileId, role: actor.role, permission_settings: null },
-    });
+    const [usersResult, profileResult] = await Promise.all([
+      client.from("users").select("id,full_name,role,is_active").order("full_name"),
+      client.from("users").select("id,role,permission_settings").eq("id", actor.profileId).single(),
+    ]);
+    if (usersResult.error) throw usersResult.error;
+    if (profileResult.error) throw profileResult.error;
+    const rows: Record<string, unknown>[] = [];
+    for (let offset = 0; ; offset += 500) {
+      let query = client.from("factory_production_queue_entries").select(FACTORY_PRODUCTION_QUEUE_FULL_SELECT)
+        .in("deposit.status", ["submitted", "approved", "converted"])
+        .order("queue_date", { ascending: false }).order("queue_sequence").range(offset, offset + 499);
+      if (actor.role !== "superadmin") query = query.eq("planner_user_id", actor.profileId);
+      const { data, error } = await query;
+      if (error) throw error;
+      rows.push(...(data ?? []) as unknown as Record<string, unknown>[]);
+      if (!data || data.length < 500) break;
+    }
+    return NextResponse.json({ ok: true, rows, users: usersResult.data, profile: { ...profileResult.data, role: actor.role } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "load_factory_production_queue_failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : (error as { message?: string })?.message || "load_factory_production_queue_failed" }, { status: 500 });
   }
 }
 
 export async function PATCH(req: NextRequest) {
-  const supabaseAdmin = getSupabaseAdmin();
-  if (!supabaseAdmin) return getMissingEnvResponse();
-
+  const client = getSupabaseAdmin();
+  if (!client) return NextResponse.json({ error: "missing_server_env" }, { status: 500 });
   const actor = await getActorFromAuthHeader(req.headers.get("authorization"), [...ALLOWED_ROLES]);
-  if (!actor) return getUnauthorizedResponse();
-
-  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  const action = String(body.action || "").trim();
-
-  try {
-    if (action === "claim") {
-      const id = String(body.id || "").trim();
-      if (!id) return NextResponse.json({ error: "missing_queue_id" }, { status: 400 });
-
-      const { data, error } = await supabaseAdmin
-        .from("factory_production_queue_entries")
-        .select(FACTORY_PRODUCTION_QUEUE_UPDATE_SELECT)
-        .eq("id", id)
-        .maybeSingle();
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      if (!data) return NextResponse.json({ error: "queue_not_found" }, { status: 404 });
-
-      const row = data as QueueUpdateRow;
-      const plannerMap = await resolveEffectivePlannerMap(supabaseAdmin, [row.planner_user_id]);
-      const effectivePlannerUserId = row.planner_user_id ? plannerMap.get(row.planner_user_id) ?? null : null;
-      if (effectivePlannerUserId && effectivePlannerUserId !== actor.profileId) {
-        return NextResponse.json({ error: "queue_already_claimed" }, { status: 409 });
-      }
-
-      if (!effectivePlannerUserId) {
-        const { error: updateError } = await supabaseAdmin
-          .from("factory_production_queue_entries")
-          .update({
-            planner_user_id: actor.profileId,
-            updated_by_user_id: actor.profileId,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", id);
-        if (updateError) return NextResponse.json({ error: updateError.message }, { status: 400 });
-      }
-
-      return NextResponse.json({ ok: true });
-    }
-
-    if (action === "update_status") {
-      const id = String(body.id || "").trim();
-      const targetStatus = String(body.targetStatus || "").trim() as FactoryProductionQueueVisibleStatus;
-      if (!id) return NextResponse.json({ error: "missing_queue_id" }, { status: 400 });
-      if (!FACTORY_PRODUCTION_VISIBLE_STATUS_SET.has(targetStatus)) {
-        return NextResponse.json({ error: "invalid_target_status" }, { status: 400 });
-      }
-
-      const { data, error } = await supabaseAdmin
-        .from("factory_production_queue_entries")
-        .select(FACTORY_PRODUCTION_QUEUE_UPDATE_SELECT)
-        .eq("id", id)
-        .maybeSingle();
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      if (!data) return NextResponse.json({ error: "queue_not_found" }, { status: 404 });
-
-      const row = data as QueueUpdateRow;
-      const plannerMap = await resolveEffectivePlannerMap(supabaseAdmin, [row.planner_user_id]);
-      const effectivePlannerUserId = row.planner_user_id ? plannerMap.get(row.planner_user_id) ?? null : null;
-      const currentVisibleStatus = normalizeFactoryProductionQueueStatus(row.status);
-      if (currentVisibleStatus === "queued" && effectivePlannerUserId && effectivePlannerUserId !== actor.profileId && actor.role === "production") {
-        return NextResponse.json({ error: "queue_already_claimed" }, { status: 409 });
-      }
-
-      const now = new Date().toISOString();
-      const nextPlannerUserId = resolvePlannerUserIdForTargetStatus(targetStatus, effectivePlannerUserId, actor.profileId);
-      const { error: updateError } = await supabaseAdmin
-        .from("factory_production_queue_entries")
-        .update({
-          ...buildFactoryProductionQueueStatusUpdate(targetStatus, row, actor.profileId, now),
-          planner_user_id: nextPlannerUserId,
-          updated_by_user_id: actor.profileId,
-        })
-        .eq("id", id);
-      if (updateError) return NextResponse.json({ error: updateError.message }, { status: 400 });
-
-      return NextResponse.json({ ok: true });
-    }
-
-    if (action === "bulk_status") {
-      const rawIds = Array.isArray(body.ids) ? body.ids : [];
-      const ids = Array.from(new Set(rawIds.map((item) => String(item || "").trim()).filter(Boolean)));
-      const targetStatus = String(body.targetStatus || "").trim() as FactoryProductionQueueVisibleStatus;
-
-      if (ids.length === 0) return NextResponse.json({ error: "missing_queue_ids" }, { status: 400 });
-      if (!FACTORY_PRODUCTION_VISIBLE_STATUS_SET.has(targetStatus)) {
-        return NextResponse.json({ error: "invalid_target_status" }, { status: 400 });
-      }
-
-      const { data, error } = await supabaseAdmin
-        .from("factory_production_queue_entries")
-        .select(FACTORY_PRODUCTION_QUEUE_UPDATE_SELECT)
-        .in("id", ids);
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
-      const rows = (data ?? []) as QueueUpdateRow[];
-      if (rows.length !== ids.length) return NextResponse.json({ error: "queue_not_found" }, { status: 404 });
-
-      const plannerMap = await resolveEffectivePlannerMap(
-        supabaseAdmin,
-        rows.map((row) => row.planner_user_id)
-      );
-      const now = new Date().toISOString();
-
-      for (const row of rows) {
-        const effectivePlannerUserId = row.planner_user_id ? plannerMap.get(row.planner_user_id) ?? null : null;
-        const currentVisibleStatus = normalizeFactoryProductionQueueStatus(row.status);
-        if (currentVisibleStatus === "queued" && effectivePlannerUserId && effectivePlannerUserId !== actor.profileId && actor.role === "production") {
-          return NextResponse.json({ error: "queue_already_claimed" }, { status: 409 });
-        }
-      }
-
-      for (const row of rows) {
-        const effectivePlannerUserId = row.planner_user_id ? plannerMap.get(row.planner_user_id) ?? null : null;
-        const nextPlannerUserId = resolvePlannerUserIdForTargetStatus(targetStatus, effectivePlannerUserId, actor.profileId);
-        const { error: updateError } = await supabaseAdmin
-          .from("factory_production_queue_entries")
-          .update({
-            ...buildFactoryProductionQueueStatusUpdate(targetStatus, row, actor.profileId, now),
-            planner_user_id: nextPlannerUserId,
-            updated_by_user_id: actor.profileId,
-          })
-          .eq("id", row.id);
-        if (updateError) return NextResponse.json({ error: updateError.message }, { status: 400 });
-      }
-
-      return NextResponse.json({ ok: true, updatedCount: rows.length });
-    }
-
-    if (action === "update_actor_assignments") {
-      const id = String(body.id || "").trim();
-      if (!id) return NextResponse.json({ error: "missing_queue_id" }, { status: 400 });
-
-      const hasPlannerUserId = Object.prototype.hasOwnProperty.call(body, "plannerUserId");
-      const plannerUserId = hasPlannerUserId ? String(body.plannerUserId || "").trim() || null : null;
-      const patternLaidByUserId = String(body.patternLaidByUserId || "").trim() || null;
-      const readyForPrintByUserId = String(body.readyForPrintByUserId || "").trim() || null;
-      const sentToFactoryByUserId = String(body.sentToFactoryByUserId || "").trim() || null;
-
-      const chosenUserIds = [
-        hasPlannerUserId ? plannerUserId : null,
-        patternLaidByUserId,
-        readyForPrintByUserId,
-        sentToFactoryByUserId,
-      ].filter(Boolean) as string[];
-      if (chosenUserIds.length > 0) {
-        const { data: chosenUsers, error: chosenUsersError } = await supabaseAdmin
-          .from("users")
-          .select("id,role,is_active")
-          .in("id", chosenUserIds);
-        if (chosenUsersError) return NextResponse.json({ error: chosenUsersError.message }, { status: 400 });
-
-        const chosenUserMap = new Map(
-          ((chosenUsers ?? []) as Array<{ id: string; role: string | null; is_active: boolean | null }>).map((user) => [user.id, user])
-        );
-
-        for (const userId of chosenUserIds) {
-          const chosenUser = chosenUserMap.get(userId);
-          if (!chosenUser || !chosenUser.is_active || !isProductionRole(chosenUser.role)) {
-            return NextResponse.json({ error: "invalid_actor_user" }, { status: 400 });
-          }
-        }
-      }
-
-      const updatePayload: {
-        planner_user_id?: string | null;
-        pattern_laid_by_user_id: string | null;
-        ready_for_print_by_user_id: string | null;
-        sent_to_factory_by_user_id: string | null;
-        updated_by_user_id: string;
-        updated_at: string;
-      } = {
-        pattern_laid_by_user_id: patternLaidByUserId,
-        ready_for_print_by_user_id: readyForPrintByUserId,
-        sent_to_factory_by_user_id: sentToFactoryByUserId,
-        updated_by_user_id: actor.profileId,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (hasPlannerUserId) {
-        updatePayload.planner_user_id = plannerUserId;
-      }
-
-      const { error: updateError } = await supabaseAdmin
-        .from("factory_production_queue_entries")
-        .update(updatePayload)
-        .eq("id", id);
-
-      if (updateError) return NextResponse.json({ error: updateError.message }, { status: 400 });
-      return NextResponse.json({ ok: true });
-    }
-
+  if (!actor) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+  if (body.action !== "update_status" && body.action !== "bulk_status") {
     return NextResponse.json({ error: "unsupported_action" }, { status: 400 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "update_factory_production_queue_failed";
-    return NextResponse.json({ error: message }, { status: 500 });
   }
+  const ids = Array.from(new Set((body.action === "bulk_status" && Array.isArray(body.ids) ? body.ids : [body.id])
+    .map(value => typeof value === "string" ? value.trim() : "").filter(Boolean)));
+  if (!ids.length || ids.length > 500 || ids.some(id => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+    return NextResponse.json({ error: "invalid_queue_ids" }, { status: 400 });
+  }
+  const status = String(body.targetStatus || "") as FactoryProductionQueueVisibleStatus;
+  if (!FACTORY_PRODUCTION_VISIBLE_STATUS_SET.has(status)) return NextResponse.json({ error: "invalid_target_status" }, { status: 400 });
+  const { data, error } = await client.rpc("update_factory_production_queue_statuses", {
+    p_ids: ids, p_target_status: status, p_actor_user_id: actor.profileId,
+  });
+  if (error) {
+    const statusCode = error.message === "forbidden" ? 403 : error.message === "queue_not_found" ? 404 : 400;
+    return NextResponse.json({ error: error.message }, { status: statusCode });
+  }
+  return NextResponse.json({ ok: true, updatedCount: data });
 }

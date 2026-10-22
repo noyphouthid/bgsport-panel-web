@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActorFromAuthHeader } from "@/lib/admin-api-auth";
-import { normalizeFactoryProductionQueueStatus } from "@/lib/factory-production-queue";
-import { FACTORY_PRODUCTION_QUEUE_FULL_SELECT, resolveEffectivePlannerMap } from "@/lib/factory-production-queue-server";
+import { FACTORY_PRODUCTION_QUEUE_FULL_SELECT } from "@/lib/factory-production-queue-server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 const ALLOWED_ROLES = ["superadmin", "production"] as const;
@@ -27,9 +26,12 @@ export async function GET(req: NextRequest, context: RouteContext) {
   const { id } = await context.params;
 
   try {
+    let rowQuery = supabaseAdmin.from("factory_production_queue_entries").select(FACTORY_PRODUCTION_QUEUE_FULL_SELECT)
+      .eq("id", id).in("deposit.status", ["submitted", "approved", "converted"]);
+    if (actor.role !== "superadmin") rowQuery = rowQuery.eq("planner_user_id", actor.profileId);
     const [{ data: rowData, error: rowError }, { data: userData, error: userError }, { data: profileData, error: profileError }] =
       await Promise.all([
-        supabaseAdmin.from("factory_production_queue_entries").select(FACTORY_PRODUCTION_QUEUE_FULL_SELECT).eq("id", id).maybeSingle(),
+        rowQuery.maybeSingle(),
         supabaseAdmin.from("users").select("id,full_name,role,is_active").order("full_name", { ascending: true }),
         supabaseAdmin.from("users").select("id,role,permission_settings").eq("id", actor.profileId).maybeSingle(),
       ]);
@@ -39,23 +41,11 @@ export async function GET(req: NextRequest, context: RouteContext) {
     if (profileError) return NextResponse.json({ error: profileError.message }, { status: 400 });
     if (!rowData) return NextResponse.json({ error: "queue_not_found" }, { status: 404 });
 
-    const row = rowData as { planner_user_id: string | null; status: "queued" | "pattern_laid" | "all_sizes_laid" | "ready_for_print" | "sent_to_factory" };
-    const plannerMap = await resolveEffectivePlannerMap(supabaseAdmin, [row.planner_user_id]);
-    const effectivePlannerUserId = row.planner_user_id ? plannerMap.get(row.planner_user_id) ?? null : null;
-    if (
-      actor.role === "production" &&
-      normalizeFactoryProductionQueueStatus(row.status) === "queued" &&
-      effectivePlannerUserId &&
-      effectivePlannerUserId !== actor.profileId
-    ) {
-      return NextResponse.json({ error: "queue_already_claimed" }, { status: 409 });
-    }
-
     return NextResponse.json({
       ok: true,
       row: rowData,
       users: (userData ?? []) as Array<Record<string, unknown>>,
-      profile: profileData ?? { id: actor.profileId, role: actor.role, permission_settings: null },
+      profile: { ...profileData, id: actor.profileId, role: actor.role },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "load_factory_production_queue_detail_failed";
