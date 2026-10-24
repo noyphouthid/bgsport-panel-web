@@ -219,9 +219,11 @@ async function fetchDesignQueueBadgeCountWithClient(client: SupabaseClient, prof
 async function fetchFactoryProductionQueueBadgeCountWithClient(client: SupabaseClient, profile: NavBadgeProfile) {
   let query = client
     .from("factory_production_queue_entries")
-    .select("id,updated_at,status,planner_user_id,pattern_laid_by_user_id,ready_for_print_by_user_id,sent_to_factory_by_user_id")
+    .select("id,updated_at,status,planner_user_id,deposit:factory_deposit_orders!factory_production_queue_entries_factory_deposit_order_id_fkey!inner(production_queue_legacy,production_queue_entered_at,status)")
+    .eq("deposit.production_queue_legacy", false).not("deposit.production_queue_entered_at", "is", null)
+    .in("deposit.status", ["submitted", "approved", "converted"])
     .neq("status", "sent_to_factory");
-  if (profile.role !== "superadmin") query = query.eq("planner_user_id", profile.id);
+  if (profile.role !== "superadmin") query = query.or(["pattern_user_id", "print_user_id", "dispatch_user_id"].map(field => `${field}.eq.${profile.id}`).join(","));
 
   const { data, error } = await query;
   if (error) throw error;

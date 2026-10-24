@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActorFromAuthHeader } from "@/lib/admin-api-auth";
-import { FACTORY_PRODUCTION_QUEUE_FULL_SELECT } from "@/lib/factory-production-queue-server";
+import { FACTORY_PRODUCTION_QUEUE_FULL_SELECT, FACTORY_PRODUCTION_QUEUE_RECORD_SELECT, productionParticipantFilter } from "@/lib/factory-production-queue-server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 const ALLOWED_ROLES = ["superadmin", "production"] as const;
@@ -26,9 +26,10 @@ export async function GET(req: NextRequest, context: RouteContext) {
   const { id } = await context.params;
 
   try {
-    let rowQuery = supabaseAdmin.from("factory_production_queue_entries").select(FACTORY_PRODUCTION_QUEUE_FULL_SELECT)
-      .eq("id", id).in("deposit.status", ["submitted", "approved", "converted"]);
-    if (actor.role !== "superadmin") rowQuery = rowQuery.eq("planner_user_id", actor.profileId);
+    let rowQuery = supabaseAdmin.from("factory_production_queue_entries").select(req.nextUrl.searchParams.get("view") === "record" ? FACTORY_PRODUCTION_QUEUE_RECORD_SELECT : FACTORY_PRODUCTION_QUEUE_FULL_SELECT)
+      .eq("id", id).in("deposit.status", ["submitted", "approved", "converted"])
+        .eq("deposit.production_queue_legacy", false).not("deposit.production_queue_entered_at", "is", null);
+    if (actor.role !== "superadmin") rowQuery = rowQuery.or(productionParticipantFilter(actor.profileId));
     const [{ data: rowData, error: rowError }, { data: userData, error: userError }, { data: profileData, error: profileError }] =
       await Promise.all([
         rowQuery.maybeSingle(),

@@ -1,5 +1,2 @@
-import { FactoryProductionQueuePageContent } from "../_components/queue-page-content";
-
-export default function FactoryProductionQueuePatternLaidPage() {
-  return <FactoryProductionQueuePageContent statusView="pattern_laid" />;
-}
+import { redirect } from "next/navigation";
+export default function Page() { redirect("/factory-production-queue/in-production"); }

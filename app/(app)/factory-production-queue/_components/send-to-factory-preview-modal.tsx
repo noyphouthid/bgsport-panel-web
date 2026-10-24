@@ -38,6 +38,7 @@ type QueueEntryRow = {
   order_no: string;
   assigned_by_user_id: string | null;
   planner_user_id: string | null;
+  pattern_user_id?: string | null; print_user_id?: string | null; dispatch_user_id?: string | null;
   pattern_laid_by_user_id: string | null;
   ready_for_print_by_user_id: string | null;
   sent_to_factory_by_user_id: string | null;
@@ -353,15 +354,15 @@ export function SendToFactoryPreviewModal({
     },
     {
       label: "ຜູ້ວາງ Pattern",
-      value: getUserDisplayName(row.planner_user_id, userNameMap),
+      value: getUserDisplayName(row.pattern_user_id ?? row.planner_user_id, userNameMap),
     },
     {
       label: "ຜູ້ວາງພ້ອມພິມ",
-      value: getUserDisplayName(row.planner_user_id, userNameMap),
+      value: getUserDisplayName(row.print_user_id ?? row.planner_user_id, userNameMap),
     },
     {
       label: "ຜູ້ສົ່ງໂຮງງານ",
-      value: getUserDisplayName(row.planner_user_id, userNameMap),
+      value: getUserDisplayName(row.dispatch_user_id ?? row.planner_user_id, userNameMap),
     },
   ];
 

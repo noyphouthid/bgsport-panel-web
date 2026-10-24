@@ -1,14 +1,5 @@
-import { QueueDetailPage } from "../../_components/queue-detail-page";
-
-type FactoryProductionQueueReadyForPrintPageProps = {
-  params: Promise<{
-    id: string;
-  }>;
-};
-
-export default async function FactoryProductionQueueReadyForPrintPage({
-  params,
-}: FactoryProductionQueueReadyForPrintPageProps) {
+import { redirect } from "next/navigation";
+export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return <QueueDetailPage queueId={id} detailMode="ready_for_print" />;
+  redirect(`/factory-production-queue/records/${id}`);
 }

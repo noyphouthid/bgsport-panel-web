@@ -371,8 +371,14 @@ deposit save/reopen with numeric and alphabetic suffixes.
 
 ## Automatic production queue
 
-Apply `supabase/migrations/20261023_automate_production_queue.sql` before deploying
-these queue changes. This migration requires the existing deposit, pants-item,
+Apply `supabase/migrations/20261023_automate_production_queue.sql`, then
+`supabase/migrations/20261024_production_queue_start_and_overrides.sql`, then
+`supabase/migrations/20261025_simplify_production_queue_workflow.sql`, then
+`supabase/migrations/20261026_prioritize_urgent_production_queue.sql`, then
+`supabase/migrations/20261027_shared_production_responsibilities.sql`, then
+`supabase/migrations/20261028_repair_production_queue_priority_helper.sql`, then
+`supabase/migrations/20261029_exclude_dispatch_from_production_credit.sql`, then
+`supabase/migrations/20261030_allow_superadmin_production_assignments.sql` before deploying these queue changes. This migration requires the existing deposit, pants-item,
 production queue and queue actor migrations. It adds automatic enqueueing on
 submitted deposits, piece-based monthly assignment, owner-only RLS and the
 atomic server status RPC. The public/anon queue-management RPC grants are removed.
@@ -387,14 +393,89 @@ are kept together. Existing valid owners remain assigned; unassigned work and
 queued work belonging to unavailable accounts are allocated during sync. When no
 production account is active, work waits unassigned and is visible to superadmins.
 
-Production users can read and update only their own jobs at every stage. Status
-reverts preserve ownership. The queue displays one planner at a time; superadmins
-can switch active planners and review their combined monthly summaries at
-`/factory-production-queue/activity`. Status-stage totals in that summary are
-cumulative within the selected queue month. Disabled accounts are hidden from
-planner selection and summaries, including their summary totals. Historical jobs
-remain stored. The queue month remains fixed when
-editing source details so historical workload is not silently moved between months.
+Activation records a persistent `factory_production_queue_settings.started_at`.
+Deposits already submitted/approved/converted or cancelled at activation are
+marked as legacy. Their queue records remain stored but are excluded from queue
+lists, detail access, badges, summaries and automatic workload balancing. Editing
+or resubmitting them cannot re-enroll them. Existing drafts first submitted after
+activation are eligible, as are new submissions, even with backdated business
+dates. Database triggers own these enrollment fields; sync and migration replay
+cannot reset the boundary or enroll legacy orders.
+
+Each order has three assignees: Pattern, print layout and factory dispatch.
+Existing and automatically assigned solo orders use the same worker for all
+three roles. Active superadmin accounts can also be manually selected for any
+stage and appear in the worker queue and summary selectors. Their Pattern/print
+work receives the same fractional credit as production staff; dispatch-only work
+receives none. Deposit edits and sync preserve these manual assignments.
+Only superadmins can edit these dropdowns; inactive accounts cannot
+be selected. The API and service-only assignment RPC enforce this independently.
+The responsive native dialog contains long names within its viewport and previews
+the number of distinct workers and each person's piece credit. Stale edits are
+rejected across all three fields, and status actors/timestamps remain historical
+facts when responsibility changes. After saving in a queue table, the superadmin
+view follows the new assignee of the current task. Worker queues, records lists,
+completed lists and summaries refresh when the tab regains focus and every 30
+seconds while visible, without interrupting an open assignment dialog. Fully
+transferred orders leave the former worker's table; shared orders remain visible
+to each worker who still has an assigned role.
+
+Credit is the order's total garment quantity divided by the distinct Pattern
+and print-layout assignee IDs. Dispatch-only workers receive no production credit,
+while retaining queue access and dispatch responsibility. A worker assigned to
+both layout roles counts once: 10 pieces assigned to Pattern A / print B / dispatch C
+credit A=5, B=5 and C=0; Pattern A / print A / dispatch B credits A=10 and B=0.
+Calculations retain fractions and round only for display, after summing.
+Automatic monthly allocation uses the same Pattern/print assigned quantities as
+its load; dispatch-only work does not affect future production distribution. Completed summary credit starts when
+print layout is finished (`awaiting_factory` or `sent_to_factory`), and a status
+reversal removes the order from completed totals until it is finished again.
+
+Production users can read orders they participate in, and can change only their
+assigned current task. The private summary API refuses requests for another
+worker or ALL, returns only the caller's summary/completed credits, and omits
+other workers' totals. Superadmins can switch active workers or view all.
+`/factory-production-queue/activity/completed` lists completed orders per worker,
+including raw order quantity, participant count and that worker's fractional
+credit, with a link to order details. Both completed lists and summary totals use
+the actual `production_completed_at` month/year in Laos (UTC+7). A queue entered
+in October but completed in November contributes to November; a December queue
+completed in January contributes to the new year. Queries use inclusive local
+period starts and exclusive period ends, and never fall back to the queue date
+when completion timestamps are absent. The queue's assignment period and order
+identifiers remain separate from this completed-work reporting period.
+Disabled accounts remain hidden from selectors and summary rows; their historical
+participation is still included in the divisor so other shares do not inflate.
+
+The working queue keeps `queued → in_production → awaiting_factory →
+sent_to_factory`. Within in-production, Pattern completion hands off the job to
+the print assignee, who starts and completes print layout. Each worker can work
+on one active task; completing Pattern frees that worker for their next job even
+while another worker handles printing. A print task becomes eligible only after
+Pattern is complete. Urgent tasks lead that worker's ready queue, with original
+queue sequence breaking ties. These ownership, dependency and priority checks
+are transactional. Superadmins can reverse a main step. Final sending still
+opens the original production sheet for review and explicit confirmation, with
+signatures drawn from the three assigned roles.
+
+`/factory-production-queue/records` is a separate, itemized list of production
+jobs, with metadata-only details at `/records/[id]`: order information, status
+actors/timestamps and the three-step workflow. The summary stays separate.
+Queue/records/summary APIs omit production JSON and images, normal page loads do
+not run a global sync, tables render 20 rows per page, and the full sheet/image
+module loads only when factory review is opened. Original order URLs redirect to
+the new record details; both old stage URLs redirect to the combined in-production
+page. Migration 20261025 combines old pattern/all-sizes/ready-for-print jobs into
+in-production without resetting ownership or the activation cutoff. Existing
+sent jobs stay sent. New status actors remain historical facts after reassignment.
+
+If a status change reports `function public.factory_production_queue_priority_rank(uuid)
+does not exist`, run only `20261028_repair_production_queue_priority_helper.sql`
+in Supabase SQL Editor or the migration runner. It installs the missing helper,
+retains restricted execution privileges and refreshes the schema cache, without
+replacing the current shared-stage status RPC or touching queue data. It is safe
+to run again. Migration 20261027 now also installs its helper dependency for
+future direct upgrades. Application API keys cannot execute this schema repair.
 
 Verification uses isolated SQL and mocked API/browser data:
 

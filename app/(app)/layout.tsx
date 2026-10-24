@@ -86,6 +86,7 @@ const nav: NavItem[] = [
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: ReceiptText },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: ReceiptText },
   { type: "link", href: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", icon: Factory },
+  { type: "link", href: "/factory-production-queue/records", label: "ລາຍການວາງຜະລິດ", icon: ClipboardList },
   { type: "link", href: "/factory-production-queue/activity", label: "ສະຫຼຸບການວາງຜະລິດ", icon: FileSpreadsheet },
   {
     type: "group",
@@ -152,6 +153,7 @@ function isNavBadgeRouteActive(pathname: string, href: string) {
 }
 
 function isNavLinkActive(pathname: string, href: string) {
+  if (href === "/factory-production-queue" && (pathname.startsWith("/factory-production-queue/records") || pathname.startsWith("/factory-production-queue/activity"))) return false;
   return pathname === href || (href !== "/shirt-catalog" && pathname.startsWith(`${href}/`));
 }
 
