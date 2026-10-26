@@ -3,7 +3,7 @@ import type { AppRole } from "@/lib/access-control";
 import { canManageAllFactoryDepositOrders, type FactoryDepositOrderStatus } from "@/lib/factory-deposit-orders";
 import { supabase } from "@/lib/supabase";
 import { canManageAllTransportNotes } from "@/lib/transport-notes";
-import { fetchOrderAlertOrdersWithClient, getOrderAlertToday, getOverdueOrderTiming } from "@/lib/order-alerts";
+import { fetchOrderAlertOrdersWithClient, getOrderAlertEndDate, getOrderAlertToday, getOrderAlertTiming } from "@/lib/order-alerts";
 
 export const NAV_BADGE_PATHS = [
   "/factory-deposit-orders",
@@ -111,7 +111,7 @@ async function fetchOrderAlertsBadgeCountWithClient(client: SupabaseClient) {
     .not("production_sent_date", "is", null)
     .not("delivery_date", "is", null)
     .lte("production_sent_date", today)
-    .lt("delivery_date", today);
+    .lte("delivery_date", getOrderAlertEndDate(today));
 
   if (depositError) throw depositError;
 
@@ -124,7 +124,7 @@ async function fetchOrderAlertsBadgeCountWithClient(client: SupabaseClient) {
   const ordersById = new Map(orderData.map((row) => [row.id, row]));
 
   const rows = deposits.filter((row) =>
-    getOverdueOrderTiming(row, row.order_id ? ordersById.get(row.order_id) || null : null, today)
+    getOrderAlertTiming(row, row.order_id ? ordersById.get(row.order_id) || null : null, today)
   );
 
   return {

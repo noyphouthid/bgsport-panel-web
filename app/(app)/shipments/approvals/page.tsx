@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase";
 import { authenticatedFetch } from "@/lib/authenticated-fetch";
 import type { AppRole } from "@/lib/access-control";
 import {
+  getShipmentAttachments,
   SHIPMENT_DELIVERY_METHOD_LABELS,
   SHIPMENT_DELIVERY_STATUS_LABELS,
   SHIPMENT_DELIVERY_STATUS_STYLES,
@@ -709,11 +710,18 @@ export default function ShipmentApprovalsPage() {
                               : "ຍັງບໍ່ຢືນຢັນຝາກຂົນສົ່ງ"}
                           </div>
                         ) : null}
-                        {row.transfer_slip_url ? (
-                          <a href={row.transfer_slip_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-bold text-sky-700 underline">
-                            ເບິ່ງສະລິບ
-                          </a>
-                        ) : null}
+                        <div className="mt-2 flex flex-wrap gap-3">
+                          {getShipmentAttachments(row, "transfer_slips").map((item, index) => (
+                            <a key={item.url} href={item.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-sky-700 underline">
+                              ເບິ່ງສະລິບ {index + 1}
+                            </a>
+                          ))}
+                          {getShipmentAttachments(row, "handoff_photos").map((item, index) => (
+                            <a key={item.url} href={item.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-sky-700 underline">
+                              ເບິ່ງຮູບສິນຄ້າ {index + 1}
+                            </a>
+                          ))}
+                        </div>
                         {row.note ? <div className="mt-2 text-xs font-medium text-slate-500">ໝາຍເຫດ: {row.note}</div> : null}
                         {row.rejection_note ? <div className="mt-2 text-xs font-bold text-rose-600">ປະຕິເສດ: {row.rejection_note}</div> : null}
                         {approver ? <div className="mt-2 text-xs font-medium text-slate-400">ຜູ້ຕັດສິນ: {approver.full_name}</div> : null}

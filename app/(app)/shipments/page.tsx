@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { Banknote, Camera, FileUp, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react";
+import { Banknote, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react";
+import { ShipmentMediaPicker } from "./_components/shipment-media-picker";
 import { TransportBranchPicker } from "./_components/transport-branch-picker";
 import { isPassengerBusTransport } from "@/lib/transport-notes";
 import { ensureTransportBranchCodeStorage } from "@/lib/transport-branch-code";
@@ -21,12 +22,15 @@ import {
   type QrLabelRow,
 } from "@/lib/inventory-qr";
 import {
+  getShipmentAttachments,
+  type ShipmentAttachment,
+  type ShipmentAttachmentDraft,
   SHIPMENT_DELIVERY_METHOD_LABELS,
   SHIPMENT_DELIVERY_STATUS_LABELS,
   type ShipmentDeliveryMethod,
   type ShipmentDeliveryRequestRow,
 } from "@/lib/shipment-delivery-requests";
-import { buildFactoryDesignFallbackUrl, extractProductionMockupUrls, isImageFileName, toDisplayMediaUrl } from "@/lib/order-media";
+import { buildFactoryDesignFallbackUrl, extractProductionMockupUrls, buildSafeStorageFileName, isImageFileName, toDisplayMediaUrl } from "@/lib/order-media";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import { MobileQrScanner } from "../_components/mobile-qr-scanner";
 
@@ -61,8 +65,6 @@ type ShipmentVisualState = {
   designImageUrls: string[];
   depositTransferSlipUrl: string | null;
   scheduledAt: string | null;
-  requestTransferSlipUrl: string | null;
-  handoffPhotoUrl: string | null;
 };
 
 const EMPTY_SHIPMENT_VISUALS: ShipmentVisualState = {
@@ -70,8 +72,6 @@ const EMPTY_SHIPMENT_VISUALS: ShipmentVisualState = {
   designImageUrls: [],
   depositTransferSlipUrl: null,
   scheduledAt: null,
-  requestTransferSlipUrl: null,
-  handoffPhotoUrl: null,
 };
 
 function buildShipmentRequestNo() {
@@ -122,10 +122,8 @@ export default function ShipmentsPage() {
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [deliveryMethod, setDeliveryMethod] = useState<ShipmentDeliveryMethod>("pickup");
   const [activeRequest, setActiveRequest] = useState<ShipmentDeliveryRequestRow | null>(null);
-  const [transferSlipFile, setTransferSlipFile] = useState<File | null>(null);
-  const [transferSlipPreviewUrl, setTransferSlipPreviewUrl] = useState<string | null>(null);
-  const [handoffPhotoFile, setHandoffPhotoFile] = useState<File | null>(null);
-  const [handoffPhotoPreviewUrl, setHandoffPhotoPreviewUrl] = useState<string | null>(null);
+  const [transferSlips, setTransferSlips] = useState<ShipmentAttachmentDraft[]>([]);
+  const [handoffPhotos, setHandoffPhotos] = useState<ShipmentAttachmentDraft[]>([]);
   const [transportReceiverName, setTransportReceiverName] = useState("");
   const [transportReceiverPhone, setTransportReceiverPhone] = useState("");
   const [transportBranch, setTransportBranch] = useState("");
@@ -135,18 +133,7 @@ export default function ShipmentsPage() {
   const [transportProviders, setTransportProviders] = useState<string[]>([]);
   const [transportChargeMode, setTransportChargeMode] = useState<TransportChargeMode>("destination");
   const [shipmentVisuals, setShipmentVisuals] = useState<ShipmentVisualState>(EMPTY_SHIPMENT_VISUALS);
-  const transferSlipFileInputRef = useRef<HTMLInputElement | null>(null);
-  const transferSlipCameraInputRef = useRef<HTMLInputElement | null>(null);
-  const handoffPhotoFileInputRef = useRef<HTMLInputElement | null>(null);
-  const handoffPhotoCameraInputRef = useRef<HTMLInputElement | null>(null);
   const { confirmIfDirty, markClean, setDirty } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: Boolean(active) });
-
-  useEffect(() => {
-    return () => {
-      if (transferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(transferSlipPreviewUrl);
-      if (handoffPhotoPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(handoffPhotoPreviewUrl);
-    };
-  }, [handoffPhotoPreviewUrl, transferSlipPreviewUrl]);
 
   const safeInsertAction = async (orderId: string, action: string, detail: string) => {
     const { error } = await supabase.from("order_status_history").insert({
@@ -213,16 +200,8 @@ export default function ShipmentsPage() {
   const resetDeliveryDraftState = () => {
     setActiveRequest(null);
     setDeliveryMethod("pickup");
-    setTransferSlipFile(null);
-    if (transferSlipPreviewUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(transferSlipPreviewUrl);
-    }
-    setTransferSlipPreviewUrl(null);
-    setHandoffPhotoFile(null);
-    if (handoffPhotoPreviewUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(handoffPhotoPreviewUrl);
-    }
-    setHandoffPhotoPreviewUrl(null);
+    setTransferSlips([]);
+    setHandoffPhotos([]);
     setTransportReceiverName("");
     setTransportReceiverPhone("");
     setTransportBranch("");
@@ -250,60 +229,26 @@ export default function ShipmentsPage() {
     setTransportProvince(request.transport_province || "");
     setTransportProviders(Array.isArray(request.transport_providers) ? request.transport_providers : []);
     setTransportChargeMode(request.transport_charge_mode === "origin" ? "origin" : "destination");
-    setTransferSlipFile(null);
-    if (transferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(transferSlipPreviewUrl);
-    setTransferSlipPreviewUrl(toDisplayMediaUrl(request.transfer_slip_url) || null);
-    setHandoffPhotoFile(null);
-    if (handoffPhotoPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(handoffPhotoPreviewUrl);
-    setHandoffPhotoPreviewUrl(toDisplayMediaUrl(request.handoff_photo_url) || null);
+    setTransferSlips(getShipmentAttachments(request, "transfer_slips"));
+    setHandoffPhotos(getShipmentAttachments(request, "handoff_photos"));
   };
 
-  const uploadTransferSlipIfNeeded = async (orderId: string, qrLabelId: string) => {
-    if (!transferSlipFile) {
-      return {
-        path: activeRequest?.transfer_slip_path || null,
-        url: activeRequest?.transfer_slip_url || null,
-      };
+  const uploadAttachmentsIfNeeded = async (
+    items: ShipmentAttachmentDraft[], orderId: string, qrLabelId: string, kind: "transfer-slip" | "handoff",
+  ): Promise<ShipmentAttachment[]> => {
+    const uploaded: ShipmentAttachment[] = [];
+    for (const item of items) {
+      if (!item.file) {
+        uploaded.push({ path: item.path, url: item.url, file_name: item.file_name });
+        continue;
+      }
+      const path = `${orderId}/${qrLabelId}/${buildSafeStorageFileName(item.file.name, kind)}`;
+      const { error } = await supabase.storage.from("shipment-delivery-slips").upload(path, item.file);
+      if (error) throw error;
+      const { data } = supabase.storage.from("shipment-delivery-slips").getPublicUrl(path);
+      uploaded.push({ path, url: data.publicUrl, file_name: item.file.name });
     }
-
-    const safeName = transferSlipFile.name.replace(/\s+/g, "-");
-    const path = `${orderId}/${qrLabelId}/${Date.now()}-${safeName}`;
-    const { error: uploadError } = await supabase.storage
-      .from("shipment-delivery-slips")
-      .upload(path, transferSlipFile, { upsert: true });
-
-    if (uploadError) throw uploadError;
-
-    const { data } = supabase.storage.from("shipment-delivery-slips").getPublicUrl(path);
-    return {
-      path,
-      url: data.publicUrl,
-    };
-  };
-
-  const uploadHandoffPhotoIfNeeded = async (orderId: string, qrLabelId: string) => {
-    if (!handoffPhotoFile) {
-      return {
-        path: activeRequest?.handoff_photo_path || null,
-        url: activeRequest?.handoff_photo_url || null,
-        fileName: activeRequest?.handoff_photo_file_name || null,
-      };
-    }
-
-    const safeName = handoffPhotoFile.name.replace(/\s+/g, "-");
-    const path = `${orderId}/${qrLabelId}/handoff-${Date.now()}-${safeName}`;
-    const { error: uploadError } = await supabase.storage
-      .from("shipment-delivery-slips")
-      .upload(path, handoffPhotoFile, { upsert: true });
-
-    if (uploadError) throw uploadError;
-
-    const { data } = supabase.storage.from("shipment-delivery-slips").getPublicUrl(path);
-    return {
-      path,
-      url: data.publicUrl,
-      fileName: handoffPhotoFile.name,
-    };
+    return uploaded;
   };
 
   useEffect(() => {
@@ -467,38 +412,12 @@ export default function ShipmentsPage() {
         designImageUrls,
         depositTransferSlipUrl: toDisplayMediaUrl(depositRow?.transfer_slip_url) || null,
         scheduledAt: latestRequest?.delivery_scheduled_at || null,
-        requestTransferSlipUrl: toDisplayMediaUrl(latestRequest?.transfer_slip_url) || null,
-        handoffPhotoUrl: toDisplayMediaUrl(latestRequest?.handoff_photo_url) || null,
       });
 
       toast.success(`ໂຫຼດ ${resolved.order.order_code} ສຳເລັດ`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ກວດສອບຂໍ້ມູນບໍ່ສຳເລັດ");
     }
-  };
-
-  const handleTransferSlipSelected = (file: File | null) => {
-    setTransferSlipFile(file);
-    if (transferSlipPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(transferSlipPreviewUrl);
-
-    if (file && file.type.startsWith("image/")) {
-      setTransferSlipPreviewUrl(URL.createObjectURL(file));
-      return;
-    }
-
-    setTransferSlipPreviewUrl(toDisplayMediaUrl(activeRequest?.transfer_slip_url) || shipmentVisuals.requestTransferSlipUrl || null);
-  };
-
-  const handleHandoffPhotoSelected = (file: File | null) => {
-    setHandoffPhotoFile(file);
-    if (handoffPhotoPreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(handoffPhotoPreviewUrl);
-
-    if (file && file.type.startsWith("image/")) {
-      setHandoffPhotoPreviewUrl(URL.createObjectURL(file));
-      return;
-    }
-
-    setHandoffPhotoPreviewUrl(toDisplayMediaUrl(activeRequest?.handoff_photo_url) || shipmentVisuals.handoffPhotoUrl || null);
   };
 
   const renderClickableImage = (url: string, alt: string, className: string) => (
@@ -516,6 +435,7 @@ export default function ShipmentsPage() {
   const saveWillSubmit = deliveryMethod === "pickup";
 
   const saveDeliveryRequest = async () => {
+    if (saving) return;
     const passengerBus = isPassengerBusTransport(transportProviders);
     const branchCode = passengerBus ? "" : transportBranchCode.trim();
     if (!active) {
@@ -547,7 +467,7 @@ export default function ShipmentsPage() {
       toast.error("ຈຳນວນເງິນເກີນຍອດຄ້າງຊຳລະ");
       return;
     }
-    if (paymentAmount > 0 && paymentMethod === "transfer" && !transferSlipFile && !activeRequest?.transfer_slip_url) {
+    if (paymentAmount > 0 && paymentMethod === "transfer" && transferSlips.length === 0) {
       toast.error("ກະລຸນາແນບສະລິບການໂອນເງິນ");
       return;
     }
@@ -579,8 +499,20 @@ export default function ShipmentsPage() {
       if (deliveryMethod === "transport" && branchCode) await ensureTransportBranchCodeStorage(supabase, true);
       const scheduledAtIso = new Date(shippedAt).toISOString();
       const paymentAtIso = paymentAmount > 0 ? new Date(paymentDate).toISOString() : null;
-      const uploadedSlip = await uploadTransferSlipIfNeeded(active.order.id, active.label.id);
-      const uploadedHandoff = await uploadHandoffPhotoIfNeeded(active.order.id, active.label.id);
+      // Fail before uploading files if this database has not been migrated yet.
+      const { error: mediaSchemaError } = await supabase.from("shipment_delivery_requests").select("transfer_slips,handoff_photos").limit(0);
+      if (mediaSchemaError) {
+        if (["42703", "PGRST204"].includes(mediaSchemaError.code)) {
+          throw new Error("ກະລຸນາອັບເດດຖານຂໍ້ມູນກ່ອນ (20261031_add_shipment_attachment_galleries.sql)");
+        }
+        throw mediaSchemaError;
+      }
+      const uploadedSlips = await uploadAttachmentsIfNeeded(transferSlips, active.order.id, active.label.id, "transfer-slip");
+      setTransferSlips(uploadedSlips);
+      const uploadedPhotos = await uploadAttachmentsIfNeeded(handoffPhotos, active.order.id, active.label.id, "handoff");
+      setHandoffPhotos(uploadedPhotos);
+      const primarySlip = uploadedSlips[0];
+      const primaryPhoto = uploadedPhotos[0];
 
       const nextStatus: ShipmentDeliveryRequestRow["status"] = deliveryMethod === "pickup" ? "submitted" : "draft";
 
@@ -598,15 +530,17 @@ export default function ShipmentsPage() {
         payment_amount: paymentAmount,
         payment_method: paymentAmount > 0 ? paymentMethod : null,
         payment_paid_at: paymentAmount > 0 ? paymentAtIso : null,
-        transfer_slip_path: paymentAmount > 0 ? uploadedSlip.path : null,
-        transfer_slip_url: paymentAmount > 0 ? uploadedSlip.url : null,
-        transfer_slip_uploaded_at: paymentAmount > 0 && uploadedSlip.path ? new Date().toISOString() : null,
-        transfer_slip_uploaded_by_user_id: paymentAmount > 0 && uploadedSlip.path ? viewerUserId : null,
-        handoff_photo_path: uploadedHandoff.path,
-        handoff_photo_url: uploadedHandoff.url,
-        handoff_photo_file_name: uploadedHandoff.fileName,
-        handoff_photo_uploaded_at: uploadedHandoff.path ? new Date().toISOString() : null,
-        handoff_photo_uploaded_by_user_id: uploadedHandoff.path ? viewerUserId : null,
+        transfer_slips: uploadedSlips,
+        handoff_photos: uploadedPhotos,
+        transfer_slip_path: primarySlip?.path || null,
+        transfer_slip_url: primarySlip?.url || null,
+        transfer_slip_uploaded_at: primarySlip ? new Date().toISOString() : null,
+        transfer_slip_uploaded_by_user_id: primarySlip ? viewerUserId : null,
+        handoff_photo_path: primaryPhoto?.path || null,
+        handoff_photo_url: primaryPhoto?.url || null,
+        handoff_photo_file_name: primaryPhoto?.file_name || null,
+        handoff_photo_uploaded_at: primaryPhoto ? new Date().toISOString() : null,
+        handoff_photo_uploaded_by_user_id: primaryPhoto ? viewerUserId : null,
         transport_receiver_name: deliveryMethod === "transport" ? transportReceiverName.trim() : null,
         transport_receiver_phone: deliveryMethod === "transport" ? transportReceiverPhone.trim() : null,
         transport_branch: deliveryMethod === "transport" ? transportBranch.trim() : null,
@@ -650,8 +584,6 @@ export default function ShipmentsPage() {
         setShipmentVisuals((prev) => ({
           ...prev,
           scheduledAt: savedRequest?.delivery_scheduled_at || prev.scheduledAt,
-          requestTransferSlipUrl: savedRequest?.transfer_slip_url || prev.requestTransferSlipUrl,
-          handoffPhotoUrl: savedRequest?.handoff_photo_url || prev.handoffPhotoUrl,
         }));
 
         if (deliveryMethod === "transport") {
@@ -1196,64 +1128,29 @@ export default function ShipmentsPage() {
                         className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </label>
-
-                    <label className="mt-4 block text-sm font-bold text-slate-700">
-                      ແນບສະລິບການໂອນເງິນ
-                      <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" disabled={requestSubmitted} onClick={() => transferSlipFileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white disabled:opacity-50">
-                            <FileUp size={16} />
-                            ເລືອກໄຟລ໌
-                          </button>
-                          <button type="button" disabled={requestSubmitted} onClick={() => transferSlipCameraInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 disabled:opacity-50">
-                            <Camera size={16} />
-                            ຖ່າຍຮູບ
-                          </button>
-                          <input
-                            ref={transferSlipFileInputRef}
-                            type="file"
-                            accept="image/*,.pdf"
-                            className="sr-only"
-                            disabled={requestSubmitted}
-                            onChange={(e) => handleTransferSlipSelected(e.target.files?.[0] || null)}
-                          />
-                          <input
-                            ref={transferSlipCameraInputRef}
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            className="sr-only"
-                            disabled={requestSubmitted}
-                            onChange={(e) => handleTransferSlipSelected(e.target.files?.[0] || null)}
-                          />
-                        </div>
-                        <div className="mt-3 text-xs font-semibold text-slate-500">
-                          {transferSlipFile?.name || activeRequest?.transfer_slip_path || shipmentVisuals.depositTransferSlipUrl || "ຍັງບໍ່ໄດ້ແນບໄຟລ໌"}
-                        </div>
-                        {transferSlipPreviewUrl ? (
-                          renderClickableImage(transferSlipPreviewUrl, "transfer slip", "mt-3 h-48 w-full rounded-2xl border border-slate-200 object-cover")
-                        ) : shipmentVisuals.depositTransferSlipUrl ? (
-                          isImageFileName(shipmentVisuals.depositTransferSlipUrl) ? (
-                            renderClickableImage(shipmentVisuals.depositTransferSlipUrl, "deposit transfer slip", "mt-3 h-48 w-full rounded-2xl border border-slate-200 object-cover")
-                          ) : (
-                            <a
-                              href={shipmentVisuals.depositTransferSlipUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mt-3 inline-flex rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-black text-slate-700"
-                            >
-                              ເປີດສະລິບຈາກໃບສັ່ງຜະລິດ
-                            </a>
-                          )
-                        ) : null}
-                      </div>
-                    </label>
                   </>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
                     ອໍເດີນີ້ບໍ່ມີຍອດຄ້າງຊຳລະແລ້ວ ສາມາດບັນທຶກຄຳຂໍຈັດສົ່ງໄດ້ເລີຍ.
                   </div>
                 )}
+
+                <ShipmentMediaPicker
+                  title="ແນບສະລິບການໂອນເງິນ"
+                  items={transferSlips}
+                  allowPdf
+                  disabled={requestSubmitted || saving || shipmentLocked}
+                  onChange={(items) => { setTransferSlips(items); setDirty(true); }}
+                />
+                {transferSlips.length === 0 && shipmentVisuals.depositTransferSlipUrl ? (
+                  isImageFileName(shipmentVisuals.depositTransferSlipUrl) ? (
+                    renderClickableImage(shipmentVisuals.depositTransferSlipUrl, "deposit transfer slip", "mt-3 h-48 w-full rounded-2xl border border-slate-200 object-contain")
+                  ) : (
+                    <a href={shipmentVisuals.depositTransferSlipUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-bold text-sky-700 underline">
+                      ເປີດສະລິບຈາກໃບສັ່ງຜະລິດ
+                    </a>
+                  )
+                ) : null}
 
                 {deliveryMethod === "transport" ? (
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1304,46 +1201,12 @@ export default function ShipmentsPage() {
                   </div>
                 ) : null}
 
-                <label className="mt-4 block text-sm font-bold text-slate-700">
-                  ຮູບພາບການຮັບເຄື່ອງ
-                  <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4">
-                    <div className="flex flex-wrap gap-2">
-                      <button type="button" disabled={requestSubmitted} onClick={() => handoffPhotoFileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white disabled:opacity-50">
-                        <FileUp size={16} />
-                        ເລືອກຮູບ
-                      </button>
-                      <button type="button" disabled={requestSubmitted} onClick={() => handoffPhotoCameraInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 disabled:opacity-50">
-                        <Camera size={16} />
-                        ຖ່າຍຮູບ
-                      </button>
-                      <input
-                        ref={handoffPhotoFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        disabled={requestSubmitted}
-                        onChange={(e) => handleHandoffPhotoSelected(e.target.files?.[0] || null)}
-                      />
-                      <input
-                        ref={handoffPhotoCameraInputRef}
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        className="sr-only"
-                        disabled={requestSubmitted}
-                        onChange={(e) => handleHandoffPhotoSelected(e.target.files?.[0] || null)}
-                      />
-                    </div>
-                    <div className="mt-3 text-xs font-semibold text-slate-500">
-                      {handoffPhotoFile?.name || activeRequest?.handoff_photo_file_name || "ຍັງບໍ່ມີຮູບ"}
-                    </div>
-                    {handoffPhotoPreviewUrl ? (
-                      renderClickableImage(handoffPhotoPreviewUrl, "handoff", "mt-3 h-48 w-full rounded-2xl border border-slate-200 object-cover")
-                    ) : shipmentVisuals.handoffPhotoUrl ? (
-                      renderClickableImage(shipmentVisuals.handoffPhotoUrl, "handoff", "mt-3 h-48 w-full rounded-2xl border border-slate-200 object-cover")
-                    ) : null}
-                  </div>
-                </label>
+                <ShipmentMediaPicker
+                  title="ຮູບສິນຄ້າ / ຮູບພາບການຮັບເຄື່ອງ"
+                  items={handoffPhotos}
+                  disabled={requestSubmitted || saving || shipmentLocked}
+                  onChange={(items) => { setHandoffPhotos(items); setDirty(true); }}
+                />
 
                 <label className="mt-4 block text-sm font-bold text-slate-700">
                   ໝາຍເຫດ

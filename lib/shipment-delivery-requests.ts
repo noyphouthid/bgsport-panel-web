@@ -2,6 +2,33 @@ export type ShipmentDeliveryMethod = "pickup" | "transport";
 
 export type ShipmentDeliveryStatus = "draft" | "submitted" | "approved" | "rejected" | "delivered" | "cancelled";
 
+export type ShipmentAttachment = {
+  path: string | null;
+  url: string;
+  file_name: string;
+};
+
+export type ShipmentAttachmentDraft = ShipmentAttachment & { file?: File };
+
+type ShipmentAttachmentSource = Partial<Pick<ShipmentDeliveryRequestRow,
+  "transfer_slips" | "handoff_photos" | "transfer_slip_url" | "handoff_photo_url" |
+  "transfer_slip_path" | "handoff_photo_path" | "handoff_photo_file_name"
+>>;
+
+// Old requests keep their original attachment until they are next saved.
+export function getShipmentAttachments(
+  request: ShipmentAttachmentSource | null | undefined,
+  kind: "transfer_slips" | "handoff_photos",
+): ShipmentAttachment[] {
+  if (!request) return [];
+  if (Array.isArray(request[kind])) return request[kind];
+  const isSlip = kind === "transfer_slips";
+  const url = isSlip ? request.transfer_slip_url : request.handoff_photo_url;
+  const path = (isSlip ? request.transfer_slip_path : request.handoff_photo_path) || null;
+  if (!url) return [];
+  return [{ path, url, file_name: (!isSlip && request.handoff_photo_file_name) || path?.split("/").pop() || (isSlip ? "transfer-slip" : "handoff-photo") }];
+}
+
 export const SHIPMENT_DELIVERY_METHOD_LABELS: Record<ShipmentDeliveryMethod, string> = {
   pickup: "ລູກຄ້າເຂົ້າມາຮັບເອງ",
   transport: "ຝາກຂົນສົ່ງ",
@@ -44,11 +71,13 @@ export type ShipmentDeliveryRequestRow = {
   transfer_slip_url: string | null;
   transfer_slip_uploaded_at: string | null;
   transfer_slip_uploaded_by_user_id?: string | null;
+  transfer_slips?: ShipmentAttachment[];
   handoff_photo_path: string | null;
   handoff_photo_url: string | null;
   handoff_photo_file_name: string | null;
   handoff_photo_uploaded_at: string | null;
   handoff_photo_uploaded_by_user_id: string | null;
+  handoff_photos?: ShipmentAttachment[];
   transport_receiver_name: string | null;
   transport_receiver_phone: string | null;
   transport_branch: string | null;

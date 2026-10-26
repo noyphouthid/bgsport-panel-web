@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { ArrowLeft, CheckCheck, RefreshCcw, Save, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, CheckCheck, Save, Trash2, Undo2 } from "lucide-react";
 import { OrderActivityPanel, type OrderHistoryEntry } from "../../_components/order-activity-panel";
 import { OrderSummaryPanel } from "../../_components/order-summary-panel";
 import { WorkCategoryField } from "../../_components/work-category-field";
 import { getOrderWorkCategoryLabel, normalizeOrderWorkCategory, type OrderWorkCategory } from "@/lib/order-work-category";
 import { supabase } from "@/lib/supabase";
+import { ORDER_AUDIT_FIELD_LABELS } from "@/lib/order-activity";
+import { getShipmentAttachments, type ShipmentAttachment } from "@/lib/shipment-delivery-requests";
 import {
   buildEmptyPantsOrderItem,
   buildPantsOrderItemPayload,
@@ -159,6 +161,8 @@ type ImportReceiptInfo = {
 };
 
 type ShipmentMediaInfo = {
+  transfer_slips?: ShipmentAttachment[];
+  handoff_photos?: ShipmentAttachment[];
   delivery_scheduled_at: string | null;
   transfer_slip_url: string | null;
   handoff_photo_url: string | null;
@@ -210,37 +214,6 @@ function formatDateTime(value: string | null) {
   return date.toLocaleString("en-US");
 }
 
-const ORDER_AUDIT_FIELD_LABELS: Record<string, string> = {
-  order_code: "ລະຫັດອໍເດີ",
-  order_date: "ວັນທີອໍເດີ",
-  work_category: "ປະເພດງານ",
-  customer_phone: "ເບີລູກຄ້າ",
-  customer_whatsapp: "WhatsApp",
-  factory_bill_code: "ບິນໂຮງງານ",
-  admin_user_id: "Admin",
-  graphic_user_id: "Graphic",
-  fabric_id: "ຜ້າ",
-  short_qty: "ແຂນສັ້ນ",
-  long_qty: "ແຂນຍາວ",
-  free_qty: "ຈຳນວນແຖມ",
-  qty_3xl: "3XL",
-  qty_4xl: "4XL",
-  qty_5xl: "5XL",
-  qty_6xl: "6XL",
-  collar_type: "ຄໍເສື້ອ",
-  collar_qty: "ຈຳນວນຄໍ",
-  sleeve_charge_qty: "ຈຳນວນບວກແຂນ",
-  extra_charge: "ບວກເພີ່ມ",
-  design_deposit: "ຫັກຄ່າແບບ",
-  discount: "ສ່ວນຫຼຸດ",
-  initial_deposit: "ເງິນມັດຈຳ",
-  factory_cost: "ຕົ້ນທຶນໂຮງງານ",
-  gross_total: "ຍອດລວມ",
-  net_total: "ຍອດສຸດທິ",
-  balance: "ຍອດຄ້າງ",
-  order_transfer_slip_count: "ຈຳນວນສະລິບອໍເດີ",
-  order_image_count: "ຈຳນວນຮູບອໍເດີ",
-};
 
 function normalizeAuditValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "-";
@@ -321,7 +294,6 @@ export default function EditOrderPage() {
   const [factoryPayNote, setFactoryPayNote] = useState("");
   const [factoryPayDate, setFactoryPayDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [cancelingImport, setCancelingImport] = useState(false);
-  const [syncingFactory, setSyncingFactory] = useState(false);
   const orderImageFileInputRef = useRef<HTMLInputElement | null>(null);
   const orderImageCameraInputRef = useRef<HTMLInputElement | null>(null);
   const orderTransferSlipFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -543,9 +515,9 @@ export default function EditOrderPage() {
     if (data) {
       const row = data as {
         receipt_id: string;
-        factory_receipts: Array<{ received_at: string; received_by: string; note: string | null }>;
+        factory_receipts: Omit<ImportReceiptInfo, "receipt_id"> | Array<Omit<ImportReceiptInfo, "receipt_id">> | null;
       };
-      const receipt = row.factory_receipts?.[0];
+      const receipt = Array.isArray(row.factory_receipts) ? row.factory_receipts[0] : row.factory_receipts;
       if (!receipt) {
         setImportReceipt(null);
         return;
@@ -589,7 +561,7 @@ export default function EditOrderPage() {
   const loadShipmentMedia = async () => {
     const { data, error } = await supabase
       .from("shipment_delivery_requests")
-      .select("delivery_scheduled_at,transfer_slip_url,handoff_photo_url,status")
+      .select("*")
       .eq("order_id", orderId)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -1392,55 +1364,6 @@ export default function EditOrderPage() {
     await reloadAll();
   };
 
-  const handleSyncFactoryStatus = async () => {
-    if (!order) return;
-    const savedFactoryBillCode = String(order.factory_bill_code || "").trim();
-    const currentFactoryBillCode = String(factoryBillCode || "").trim();
-
-    if (!currentFactoryBillCode) {
-      toast.error("ກະລຸນາໃສ່ບິນໂຮງງານກ່ອນ");
-      return;
-    }
-
-    if (savedFactoryBillCode !== currentFactoryBillCode) {
-      toast.error("ກະລຸນາກົດບັນທຶກກ່ອນ sync ສະຖານະໂຮງງານ");
-      return;
-    }
-
-    setSyncingFactory(true);
-    setErr(null);
-
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) {
-        throw new Error("no_session");
-      }
-
-      const response = await fetch(`/api/orders/${orderId}/factory-production`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error || "factory_sync_failed");
-      }
-
-      await reloadAll();
-      toast.success("ດຶງສະຖານະຈາກໂຮງງານແລ້ວ");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "factory_sync_failed";
-      setErr(message);
-      toast.error(message);
-    } finally {
-      setSyncingFactory(false);
-    }
-  };
-
   const handleCloseOrder = async () => {
     if (isReadOnlyAdmin) return;
     if (customerOutstanding > 0) return alert("ລູກຄ້າຍັງຄ້າງຊຳລະ");
@@ -1643,14 +1566,6 @@ export default function EditOrderPage() {
           <div className="text-sm text-slate-800 font-medium">ສ້າງເມື່ອ: {new Date(order.created_at).toLocaleString("en-US")}</div>
         </div>
         <div className="flex flex-wrap gap-2.5">
-          <button
-            onClick={handleSyncFactoryStatus}
-            disabled={syncingFactory || !factoryBillCode.trim()}
-            className={`${actionButtonClassName} border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100`}
-          >
-            <RefreshCcw size={16} className={syncingFactory ? "animate-spin" : ""} />
-            {syncingFactory ? "ກຳລັງດຶງສະຖານະ..." : "Sync ສະຖານະໂຮງງານ"}
-          </button>
           {!isReadOnlyAdmin ? (
             <button
               onClick={handleCancelImport}
@@ -2299,12 +2214,24 @@ export default function EditOrderPage() {
 
               <div className="space-y-2">
                 <div className="text-xs font-black uppercase tracking-wide text-slate-700">ຮູບຝາກເຄື່ອງຈາກ shipments</div>
-                {renderMediaPreview(shipmentMedia?.handoff_photo_url || null, `${order.order_code}-handoff`, "ບໍ່ມີຮູບຝາກເຄື່ອງ")}
+                {getShipmentAttachments(shipmentMedia, "handoff_photos").length ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {getShipmentAttachments(shipmentMedia, "handoff_photos").map((item, index) => (
+                      <div key={item.url}>{renderMediaPreview(item.url, `${order.order_code}-handoff-${index + 1}`, "")}</div>
+                    ))}
+                  </div>
+                ) : renderMediaPreview(null, `${order.order_code}-handoff`, "ບໍ່ມີຮູບຝາກເຄື່ອງ")}
               </div>
 
               <div className="space-y-2">
                 <div className="text-xs font-black uppercase tracking-wide text-slate-700">ສະລິບການໂອນຕອນຈັດສົ່ງ</div>
-                {renderMediaPreview(shipmentMedia?.transfer_slip_url || null, `${order.order_code}-shipment-slip`, "ບໍ່ມີສະລິບຈາກ shipments")}
+                {getShipmentAttachments(shipmentMedia, "transfer_slips").length ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {getShipmentAttachments(shipmentMedia, "transfer_slips").map((item, index) => (
+                      <div key={item.url}>{renderMediaPreview(item.url, `${order.order_code}-shipment-slip-${index + 1}`, "")}</div>
+                    ))}
+                  </div>
+                ) : renderMediaPreview(null, `${order.order_code}-shipment-slip`, "ບໍ່ມີສະລິບຈາກ shipments")}
               </div>
 
             </div>
@@ -2331,6 +2258,7 @@ export default function EditOrderPage() {
             <div><span className="font-black">ຜູ້ນຳເຂົ້າ:</span> <span className="font-bold">{importReceipt?.received_by || "-"}</span></div>
             <div><span className="font-black">ໝາຍເຫດ:</span> <span className="font-bold">{importReceipt?.note?.trim() || "-"}</span></div>
           </div>
+          <OrderActivityPanel items={orderHistory} loading={loadingOrderHistory} />
         </div>
 
         <div className="space-y-4">
@@ -2364,7 +2292,6 @@ export default function EditOrderPage() {
             showProfitDetails={canViewProfitDetails}
             footerNote={`ລາຍການລວມ ${totalOrderQty.toLocaleString()} ໂຕ`}
           />
-          <OrderActivityPanel items={orderHistory} loading={loadingOrderHistory} />
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-900 shadow-sm space-y-1">
             <div><span className="font-black">ສະຖານະຜະລິດ:</span> <span className="font-bold">{productionStatusLabel}</span></div>
             <div><span className="font-black">ສະຖານະປິດງານ:</span> <span className="font-bold">{closeStatusLabel}</span></div>

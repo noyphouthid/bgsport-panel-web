@@ -2,6 +2,7 @@ import type { FactoryDepositOrder } from "@/lib/factory-deposit-orders";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const ORDER_ALERT_BATCH_SIZE = 100;
+export const ORDER_ALERT_UPCOMING_DAYS = 3;
 
 type OrderAlertDeposit = Pick<FactoryDepositOrder, "status" | "order_id" | "production_sent_date" | "delivery_date">;
 
@@ -74,7 +75,13 @@ function dateDayNumber(value: string | null) {
   return timestamp / 86_400_000;
 }
 
-export function getOverdueOrderTiming(
+export function getOrderAlertEndDate(today = getOrderAlertToday()) {
+  const todayDay = dateDayNumber(today);
+  if (todayDay === null) throw new Error("Invalid order alert date");
+  return new Date((todayDay + ORDER_ALERT_UPCOMING_DAYS) * 86_400_000).toISOString().slice(0, 10);
+}
+
+export function getOrderAlertTiming(
   deposit: OrderAlertDeposit,
   order: OrderAlertOrderState | null,
   today = getOrderAlertToday()
@@ -88,7 +95,7 @@ export function getOverdueOrderTiming(
   const sentDay = dateDayNumber(deposit.production_sent_date);
   const dueDay = dateDayNumber(deposit.delivery_date);
   if (todayDay === null || sentDay === null || dueDay === null) return null;
-  if (sentDay > todayDay || dueDay >= todayDay) return null;
+  if (sentDay > todayDay || dueDay - todayDay > ORDER_ALERT_UPCOMING_DAYS) return null;
 
   return {
     dueInDays: dueDay - todayDay,

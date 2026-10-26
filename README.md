@@ -1,5 +1,23 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Shipment attachment galleries
+
+Apply `supabase/migrations/20261031_add_shipment_attachment_galleries.sql` in the
+existing project's Supabase SQL Editor before deploying this panel update. The
+available application API keys cannot apply schema migrations. The migration adds
+`transfer_slips` and `handoff_photos` arrays and preserves existing attachments.
+
+`/shipments` supports multiple images, repeated selections/camera captures,
+individual removal before submission, and PDF slips. Attachments remain available
+when no new payment is collected. All saved files appear on approvals and order
+editing pages; original single-file fields mirror the first attachment for
+compatibility. Missing columns stop saving before uploads or database writes.
+
+Validation: `node scripts/verify-shipment-media.mjs /path/to/pglite/dist/index.js`
+and, with the local dev server running,
+`node scripts/verify-browser-shipment-media.mjs /path/to/playwright/index.mjs`.
+Both use isolated fixtures and make no production writes.
+
 ## BG SPORT STORE publishing
 
 ### Storefront tracking and collar styles (2026-10-19)
