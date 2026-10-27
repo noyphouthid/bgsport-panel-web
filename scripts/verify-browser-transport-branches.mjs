@@ -541,7 +541,7 @@ try {
   await page.getByRole("button", { name: /^ເປີດພິມ/ }).click();
   const busPopup = await busPopupPromise;
   await busPopup.locator(".note .details").waitFor();
-  const busPrintText = await busPopup.locator(".note .details").innerText();
+  const busPrintText = await busPopup.locator(".note").innerText();
   assert.ok(busPrintText.includes("RK26-9087"));
   assert.ok(busPrintText.includes("+856 20 98 034 103"));
   assert.ok(busPrintText.includes("ຝາກລົງ: ສະຖານີລົດ ເມືອງລອງ"));

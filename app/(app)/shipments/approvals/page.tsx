@@ -659,7 +659,7 @@ export default function ShipmentApprovalsPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
+          <table aria-busy={loading} className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-slate-700">
                 <th className="p-4 text-left text-[14px] font-bold uppercase tracking-widest">ລະຫັດອໍເດີ</th>
@@ -672,7 +672,16 @@ export default function ShipmentApprovalsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {!loading && filteredRows.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="p-12 text-center">
+                    <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 text-sm font-semibold text-slate-500">
+                      <LoaderCircle aria-hidden="true" className="h-9 w-9 animate-spin text-amber-600" />
+                      <span>ກຳລັງໂຫຼດລາຍການ...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-10 text-center font-medium text-slate-400">ບໍ່ພົບຄຳຂໍ</td>
                 </tr>

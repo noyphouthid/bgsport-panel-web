@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import JsBarcode from "jsbarcode";
-import { useEffect, useMemo, useState } from "react";
+import { getFontEmbedCSS } from "html-to-image";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { BadgeCheck, Pencil, Printer, Search, Trash2, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { transportNoteFont } from "@/lib/transport-note-font";
 import { canAccessPath, type AppRole } from "@/lib/access-control";
 import {
   buildTransportNoteBarcodeValue,
@@ -34,6 +36,18 @@ type UserRow = {
 type SourceFilter = "all" | "standalone" | "shipment_request";
 type PrintFilter = "all" | "printed" | "unprinted";
 type DepositFilter = "all" | "deposited" | "pending";
+
+async function loadPrintImage(path: string) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error("ໂຫຼດຮູບໃບບິນບໍ່ສຳເລັດ");
+  const blob = await response.blob();
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("ອ່ານຮູບໃບບິນບໍ່ສຳເລັດ"));
+    reader.readAsDataURL(blob);
+  });
+}
 
 function toLocalDateInputValue(date = new Date()) {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000;
@@ -84,6 +98,7 @@ function getDepositStatusStyles(row: Pick<TransportNoteRow, "transport_deposited
 }
 
 export default function ShipmentNotesPage() {
+  const printFontRef = useRef<HTMLSpanElement>(null);
   const today = useMemo(() => toLocalDateInputValue(), []);
   const [rows, setRows] = useState<TransportNoteRow[]>([]);
   const [ordersById, setOrdersById] = useState<Record<string, OrderRow>>({});
@@ -237,8 +252,10 @@ export default function ShipmentNotesPage() {
             height: 44,
             width: 1.35,
           });
+          barcodeSvg.setAttribute("preserveAspectRatio", "none");
           return {
             ...row,
+            created_by_name: row.created_by_user_id ? usersById[row.created_by_user_id]?.full_name : null,
             display_no: getTransportNoteDisplayNo(row, row.order_id ? ordersById[row.order_id]?.order_code : null),
             barcode_value: barcodeValue,
             barcode_svg_markup: barcodeSvg.outerHTML,
@@ -246,7 +263,15 @@ export default function ShipmentNotesPage() {
         })
       );
 
-      popup.document.write(getTransportNotePrintHtml(printableRows));
+      // Embed the existing site font and artwork so the popup is ready to print
+      // without fetching fonts or images from its about:blank document.
+      const [fontCss, headerSrc, codHeaderSrc, packageSrc] = await Promise.all([
+        getFontEmbedCSS(printFontRef.current || document.body, { preferredFontFormat: "woff2" }),
+        loadPrintImage("/bg-sport-transport-header.svg"),
+        selectedRows.some(row => row.cod_enabled) ? loadPrintImage("/bg-sport-transport-header-cod.svg") : Promise.resolve(undefined),
+        loadPrintImage("/transport-package.svg"),
+      ]);
+      popup.document.write(getTransportNotePrintHtml(printableRows, window.location.origin, { fontCss, headerSrc, codHeaderSrc, packageSrc }));
       popup.document.close();
       popup.focus();
       toast.success(`ເປີດໜ້າພິມ ${selectedRows.length} ໃບແລ້ວ, ກະລຸນາກົດຢືນຢັນການພິມຫຼັງຈາກພິມສຳເລັດ`);
@@ -323,6 +348,7 @@ export default function ShipmentNotesPage() {
 
   return (
     <div className="space-y-6 text-slate-900">
+      <span ref={printFontRef} className={`${transportNoteFont.className} hidden`} aria-hidden="true">ໃບບິນ</span>
       <section className="rounded-[2rem] bg-gradient-to-br from-sky-950 via-blue-900 to-slate-900 p-6 text-white shadow-xl">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>

@@ -298,6 +298,36 @@ province fields and requires all three before saving. Recipient name/phone and
 origin/destination shipping-charge choices use the existing fields. Bus labels
 show the drop-off instead of a branch, omit branch-code/carrier rows, and print
 the selected charge mode. Switching from a carrier clears its old code/address.
+
+Transport notes show the recipient name beside the black recipient heading,
+without a duplicate name row. Both preview and print use Noto Sans Lao at weight
+700. COD is an explicit option on `/shipments` and `/shipments/transport-note`,
+separate from origin/destination shipping charges. COD labels use shop phone
+`20 23 515 558` and show the entered amount in LAK; other labels retain
+`20 9220 1288` and omit the COD amount. Mixed print batches select the correct
+artwork for each label. The font and both header variants are embedded in print
+documents.
+
+Before saving COD, apply
+`supabase/migrations/20261102_add_transport_cod.sql` using a PostgreSQL migration
+runner or Supabase SQL Editor. It adds `cod_enabled`/`cod_amount` to
+`transport_notes` and `transport_cod_enabled`/`transport_cod_amount` to
+`shipment_delivery_requests`. Existing rows default to no COD. This migration
+has been verified locally; it is not applied to the connected database by the
+app's API keys. COD saves check the required columns before uploads or writes;
+legacy non-COD saves continue to work without this migration.
+
+Shipment COD starts with the unpaid balance after the payment entered for this
+handoff. Its amount must be positive and cannot exceed that remaining balance.
+Saving COD captures the collection instruction in the request and linked bill;
+it does not record a received payment or reduce the order balance. Turning COD
+off clears its amount on the next save. Standalone bills require an explicit
+positive COD amount. `node --test tests/transport-cod.test.mjs`,
+`node scripts/verify-transport-cod.mjs`, and
+`node scripts/verify-browser-transport-cod.mjs` cover formatting, migration
+constraints, persistence, schema failures, and mixed-batch PDF layout. The SQL
+and browser verification scripts use isolated/mock data and accept an optional
+module path when PGlite or Playwright is installed outside the project.
 The drop-off is stored in `branch`/`transport_branch`; existing reports and
 province analysis continue using the recorded district/province. No carrier API
 or new schema migration is required for this option.

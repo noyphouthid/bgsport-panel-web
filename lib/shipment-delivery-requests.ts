@@ -86,6 +86,8 @@ export type ShipmentDeliveryRequestRow = {
   transport_province: string | null;
   transport_providers: string[];
   transport_charge_mode: "origin" | "destination" | null;
+  transport_cod_enabled?: boolean;
+  transport_cod_amount?: number;
   approved_at: string | null;
   approved_by_user_id: string | null;
   delivered_at: string | null;

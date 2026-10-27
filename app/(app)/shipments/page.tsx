@@ -6,8 +6,10 @@ import toast from "react-hot-toast";
 import { Banknote, PackageCheck, RotateCcw, ScanLine, Truck } from "lucide-react";
 import { ShipmentMediaPicker } from "./_components/shipment-media-picker";
 import { TransportBranchPicker } from "./_components/transport-branch-picker";
+import { TransportCodFields } from "./_components/transport-cod-fields";
 import { isPassengerBusTransport } from "@/lib/transport-notes";
 import { ensureTransportBranchCodeStorage } from "@/lib/transport-branch-code";
+import { ensureTransportCodStorage, validateTransportCod } from "@/lib/transport-cod";
 import { supabase } from "@/lib/supabase";
 import { canAccessPath, type AppRole } from "@/lib/access-control";
 import {
@@ -132,6 +134,8 @@ export default function ShipmentsPage() {
   const [transportProvince, setTransportProvince] = useState("");
   const [transportProviders, setTransportProviders] = useState<string[]>([]);
   const [transportChargeMode, setTransportChargeMode] = useState<TransportChargeMode>("destination");
+  const [transportCodEnabled, setTransportCodEnabled] = useState(false);
+  const [transportCodAmount, setTransportCodAmount] = useState(0);
   const [shipmentVisuals, setShipmentVisuals] = useState<ShipmentVisualState>(EMPTY_SHIPMENT_VISUALS);
   const { confirmIfDirty, markClean, setDirty } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: Boolean(active) });
 
@@ -210,6 +214,8 @@ export default function ShipmentsPage() {
     setTransportProvince("");
     setTransportProviders([]);
     setTransportChargeMode("destination");
+    setTransportCodEnabled(false);
+    setTransportCodAmount(0);
     setShipmentVisuals(EMPTY_SHIPMENT_VISUALS);
   };
 
@@ -229,6 +235,8 @@ export default function ShipmentsPage() {
     setTransportProvince(request.transport_province || "");
     setTransportProviders(Array.isArray(request.transport_providers) ? request.transport_providers : []);
     setTransportChargeMode(request.transport_charge_mode === "origin" ? "origin" : "destination");
+    setTransportCodEnabled(request.transport_cod_enabled === true);
+    setTransportCodAmount(request.transport_cod_enabled === true ? Number(request.transport_cod_amount) || 0 : 0);
     setTransferSlips(getShipmentAttachments(request, "transfer_slips"));
     setHandoffPhotos(getShipmentAttachments(request, "handoff_photos"));
   };
@@ -438,6 +446,7 @@ export default function ShipmentsPage() {
     if (saving) return;
     const passengerBus = isPassengerBusTransport(transportProviders);
     const branchCode = passengerBus ? "" : transportBranchCode.trim();
+    const codEnabled = deliveryMethod === "transport" && transportCodEnabled;
     if (!active) {
       toast.error("ກະລຸນາສະແກນ QR ກ່ອນ");
       return;
@@ -472,6 +481,11 @@ export default function ShipmentsPage() {
       return;
     }
     if (deliveryMethod === "transport") {
+      const codError = validateTransportCod(codEnabled, transportCodAmount, Math.max(0, customerOutstanding - paymentAmount));
+      if (codError) {
+        toast.error(codError);
+        return;
+      }
       if (passengerBus && !transportBranch.trim()) {
         toast.error("ກະລຸນາປ້ອນບ່ອນຝາກລົງ");
         return;
@@ -496,6 +510,7 @@ export default function ShipmentsPage() {
 
     setSaving(true);
     try {
+      if (codEnabled) await ensureTransportCodStorage(supabase, true);
       if (deliveryMethod === "transport" && branchCode) await ensureTransportBranchCodeStorage(supabase, true);
       const scheduledAtIso = new Date(shippedAt).toISOString();
       const paymentAtIso = paymentAmount > 0 ? new Date(paymentDate).toISOString() : null;
@@ -549,6 +564,7 @@ export default function ShipmentsPage() {
         transport_province: deliveryMethod === "transport" ? transportProvince.trim() : null,
         transport_providers: deliveryMethod === "transport" ? transportProviders : [],
         transport_charge_mode: deliveryMethod === "transport" ? transportChargeMode : null,
+        ...(codEnabled || activeRequest?.transport_cod_enabled !== undefined ? { transport_cod_enabled: codEnabled, transport_cod_amount: codEnabled ? transportCodAmount : 0 } : {}),
         approved_at: null,
         approved_by_user_id: null,
         delivered_at: null,
@@ -606,6 +622,7 @@ export default function ShipmentsPage() {
             province: transportProvince.trim() || null,
             transporters: transportProviders,
             shipping_charge_mode: transportChargeMode,
+            ...(codEnabled || linkedTransportNote?.cod_enabled !== undefined ? { cod_enabled: codEnabled, cod_amount: codEnabled ? transportCodAmount : 0 } : {}),
             status: "saved",
             created_by_user_id: viewerUserId,
             updated_at: new Date().toISOString(),
@@ -1197,6 +1214,17 @@ export default function ShipmentsPage() {
                           ຈ່າຍຕົ້ນທາງ
                         </label>
                       </div>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <TransportCodFields
+                        enabled={transportCodEnabled}
+                        amount={transportCodAmount}
+                        disabled={requestSubmitted || saving || shipmentLocked}
+                        onChange={(enabled, amount) => {
+                          setTransportCodEnabled(enabled);
+                          setTransportCodAmount(enabled && !transportCodEnabled && !amount ? Math.max(0, customerOutstanding - paymentAmount) : amount);
+                        }}
+                      />
                     </div>
                   </div>
                 ) : null}

@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { Noto_Sans_Lao_Looped } from "next/font/google";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { ArrowLeft, Save } from "lucide-react";
 import { TransportBranchPicker } from "../_components/transport-branch-picker";
+import { TransportNotePreview } from "../_components/transport-note-preview";
+import { TransportCodFields } from "../_components/transport-cod-fields";
 import { ensureTransportBranchCodeStorage } from "@/lib/transport-branch-code";
+import { ensureTransportCodStorage, validateTransportCod } from "@/lib/transport-cod";
 import { supabase } from "@/lib/supabase";
+import { transportNoteFont } from "@/lib/transport-note-font";
 import type { AppRole } from "@/lib/access-control";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
@@ -21,19 +24,6 @@ import {
   type TransportNoteRow,
 } from "@/lib/transport-notes";
 
-const notoSansLaoLooped = Noto_Sans_Lao_Looped({
-  subsets: ["lao"],
-  weight: ["400", "700"],
-});
-
-function LogoMark() {
-  return (
-    <div className="flex h-[54px] w-[54px] items-center justify-center bg-black text-[22px] font-bold text-white">
-      BG
-    </div>
-  );
-}
-
 export default function TransportNotePage() {
   const searchParams = useSearchParams();
   const noteId = searchParams.get("id");
@@ -44,6 +34,8 @@ export default function TransportNotePage() {
   const [loading, setLoading] = useState(Boolean(noteId));
   const [currentNote, setCurrentNote] = useState<TransportNoteRow | null>(null);
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
+  const [viewerName, setViewerName] = useState("");
+  const [creatorName, setCreatorName] = useState("");
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [accessDenied, setAccessDenied] = useState(false);
   const { markClean } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading && !accessDenied });
@@ -54,8 +46,9 @@ export default function TransportNotePage() {
       const authUserId = sessionData.session?.user.id;
       if (!authUserId) return;
 
-      const { data } = await supabase.from("users").select("id,role").eq("auth_user_id", authUserId).maybeSingle();
+      const { data } = await supabase.from("users").select("id,role,full_name").eq("auth_user_id", authUserId).maybeSingle();
       if (data?.id) setViewerUserId(String(data.id));
+      if (data?.full_name) setViewerName(String(data.full_name));
       if (data?.role) setViewerRole(data.role as AppRole);
     };
 
@@ -79,6 +72,10 @@ export default function TransportNotePage() {
         return;
       }
 
+      if (row.created_by_user_id) {
+        const { data: creator } = await supabase.from("users").select("full_name").eq("id", row.created_by_user_id).maybeSingle();
+        setCreatorName(creator?.full_name || "");
+      }
       setCurrentNote(row);
       setForm(mapTransportNoteToForm(row));
       setLoading(false);
@@ -102,8 +99,6 @@ export default function TransportNotePage() {
   }, [currentNote, viewerRole, viewerUserId]);
 
   const passengerBus = isPassengerBusTransport(form.transporters);
-  const transporterText = useMemo(() => form.transporters.join(", "), [form.transporters]);
-  const shippingModeText = form.shippingChargeMode === "origin" ? "ຈ່າຍຕົ້ນທາງ" : "ຈ່າຍປາຍທາງ";
 
   const updateField = <K extends keyof TransportNoteForm>(key: K, value: TransportNoteForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -136,8 +131,14 @@ export default function TransportNotePage() {
       return;
     }
     const branchCode = passengerBus ? "" : form.branchCode.trim();
+    const codError = validateTransportCod(form.codEnabled, form.codAmount);
+    if (codError) {
+      toast.error(codError);
+      return;
+    }
     setSaving(true);
     try {
+      if (form.codEnabled) await ensureTransportCodStorage(supabase);
       if (branchCode) await ensureTransportBranchCodeStorage(supabase);
       const payload = {
         note_no: currentNote?.note_no || buildTransportNoteNo(),
@@ -152,6 +153,7 @@ export default function TransportNotePage() {
         province: form.province.trim() || null,
         transporters: form.transporters,
         shipping_charge_mode: form.shippingChargeMode,
+        ...(form.codEnabled || currentNote?.cod_enabled !== undefined ? { cod_enabled: form.codEnabled, cod_amount: form.codEnabled ? form.codAmount : 0 } : {}),
         status: "saved",
         created_by_user_id: currentNote?.created_by_user_id || viewerUserId,
         updated_at: new Date().toISOString(),
@@ -198,7 +200,7 @@ export default function TransportNotePage() {
               {currentNote?.id ? "ແກ້ໄຂໃບຝາກເຄື່ອງ" : "ອອກໃບຝາກເຄື່ອງ"}
             </h1>
             <p className="mt-2 max-w-2xl text-sm font-medium text-sky-100">
-              ໜ້ານີ້ສາມາດໃຊ້ສ້າງໃບຝາກເຄື່ອງແບບ standalone ຫຼື ເຂົ້າມາແກ້ໄຂຈາກລາຍການໃບບິນໄດ້.
+              ປ້ອນຂໍ້ມູນຜູ້ຮັບ ແລະ ບ່ອນສົ່ງ ພ້ອມເບິ່ງຕົວຢ່າງໃບບິນກ່ອນບັນທຶກ.
             </p>
           </div>
         </div>
@@ -280,6 +282,13 @@ export default function TransportNotePage() {
                 </div>
               </div>
 
+              <TransportCodFields
+                enabled={form.codEnabled}
+                amount={form.codAmount}
+                disabled={loading || saving || accessDenied}
+                onChange={(codEnabled, codAmount) => setForm(prev => ({ ...prev, codEnabled, codAmount }))}
+              />
+
               <button
                 type="button"
                 onClick={handleSave}
@@ -293,61 +302,33 @@ export default function TransportNotePage() {
           )}
         </div>
 
-        <div className="flex justify-center overflow-auto py-6">
-          <div className="origin-top scale-[1.45] transform-gpu">
-            <div
-              data-transport-note-preview
-              className={`relative flex h-[100mm] w-[80mm] flex-col overflow-hidden border-2 border-black bg-white text-black ${notoSansLaoLooped.className}`}
-            >
-            <div className="flex items-center border-b-[1.5px] border-black px-[10px] py-[8px]">
-              <LogoMark />
-              <div className="ml-[10px] text-[14px] font-bold leading-[1.2]">
-                ຮ້ານ: BG SPORT
-                <br />
-                ເບີ: 2092201288
-              </div>
-            </div>
-
-            <div className="mt-[6px] ml-[10px] w-fit bg-black px-[8px] py-[4px] text-[11px] font-bold text-white">
-              ຜູ້ຮັບ (Receiver):
-            </div>
-
-            <div className={`flex grow flex-col px-[10px] py-[6px] ${form.branch.length > 40 ? "text-[13px] leading-[1.4] [&_span]:text-[14px]" : "text-[14px] leading-[1.78]"}`}>
-              <div>
-                ຊື່ຜູ້ຮັບ: <span className="text-[15px] font-bold">{form.receiverName}</span>
-              </div>
-              <div>
-                ເບີຜູ້ຮັບ: <span className="text-[15px] font-bold">{form.receiverPhone}</span>
-              </div>
-              <div>
-                {passengerBus ? "ຝາກລົງ" : "ຝາກສາຂາ"}: <span className="text-[15px] font-bold">{form.branch}</span>
-              </div>
-              {!passengerBus ? <div>
-                ລະຫັດສາຂາ: <span className="text-[15px] font-bold">{form.branchCode || "-"}</span>
-              </div> : null}
-              <div>
-                ເມືອງ: <span className="text-[15px] font-bold">{form.city}</span>
-              </div>
-              <div>
-                ແຂວງ: <span className="text-[15px] font-bold">{form.province}</span>
-              </div>
-
-              <div className="my-[4px] border-b-[1.5px] border-black" />
-
-              {!passengerBus ? <div className="text-[14px] font-bold">
-                ຝາກຂົນສົ່ງ: <span>{transporterText}</span>
-              </div> : null}
-              <div className="text-[14px] font-bold">
-                ຄ່າຂົນສົ່ງ: <span>{shippingModeText}</span>
-              </div>
-
-              <div className="my-[4px] border-b-[1.5px] border-black" />
-
-              <div className="mt-auto text-center text-[9px] font-medium">* ກະລຸນາຖ່າຍ VDO ຕອນຮັບເຄື່ອງກ່ອນທຸກຄັ້ງ! *</div>
+        <aside className="min-w-0 self-start rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-6 xl:sticky xl:top-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-bold text-slate-800">ຕົວຢ່າງໃບບິນຂົນສົ່ງ</h2>
+            <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600">80 × 100 mm</span>
+          </div>
+          <div className="overflow-x-auto pb-2">
+            <div className="mx-auto w-fit border border-slate-200 bg-white shadow-sm">
+              <TransportNotePreview
+                className={transportNoteFont.className}
+                row={{
+                  ...currentNote,
+                  receiver_name: form.receiverName,
+                  receiver_phone: form.receiverPhone,
+                  branch: form.branch,
+                  branch_code: form.branchCode,
+                  city: form.city,
+                  province: form.province,
+                  transporters: form.transporters,
+                  shipping_charge_mode: form.shippingChargeMode,
+                  cod_enabled: form.codEnabled,
+                  cod_amount: form.codEnabled ? form.codAmount : 0,
+                  created_by_name: creatorName || (currentNote?.created_by_user_id === viewerUserId || !currentNote ? viewerName : ""),
+                }}
+              />
             </div>
           </div>
-          </div>
-        </div>
+        </aside>
       </section>
     </div>
   );
