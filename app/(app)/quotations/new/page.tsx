@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { QueueCustomerSearch } from "../../_components/queue-customer-search";
 import { WorkCategoryField } from "../../orders/_components/work-category-field";
 import { getOrderWorkCategoryLabel, type OrderWorkCategory } from "@/lib/order-work-category";
-import { documentNumberHint, queueDesignDeposit, queueOrderCode, type QueueCustomer } from "@/lib/queue-customers";
+import { documentNumberHint, queueOrderCode, type QueueCustomer } from "@/lib/queue-customers";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -172,7 +172,6 @@ export default function NewQuotationPage() {
     setCustomerPhone(row.customer_phone || "");
     setCustomerWhatsapp("");
     setCustomerFacebook("");
-    setDesignDeposit(queueDesignDeposit(row));
   }
 
   useEffect(() => {
@@ -247,7 +246,7 @@ export default function NewQuotationPage() {
 
       if (!draftId && queueId) {
         const { data, error } = await supabase.from("design_queue_entries")
-          .select("id,queue_number,type_code,order_no,customer_name,customer_phone,work_category,design_payment_type,design_deposit_amount").eq("id", queueId).single();
+          .select("id,queue_number,type_code,order_no,customer_name,customer_phone,work_category").eq("id", queueId).single();
         if (error) toast.error(`ໂຫຼດຂໍ້ມູນຄິວບໍ່ສຳເລັດ: ${error.message}`);
         else applyQueueCustomer(data as QueueCustomer);
       }
@@ -595,7 +594,7 @@ export default function NewQuotationPage() {
             <QueueCustomerSearch onSelect={applyQueueCustomer} disabled={saving || creatingDeposit || loadingFabrics} />
             {designQueueEntryId && <div className="mb-4 flex items-center justify-between gap-3 text-sm font-bold text-sky-800">
               <span>ຄິວທີ່ເລືອກ: {orderCode}</span>
-              <button type="button" onClick={() => { setDesignQueueEntryId(null); setDesignDeposit(0); setOrderCode(""); setWorkCategory(""); setCustomerName(""); setCustomerPhone(""); setCustomerWhatsapp(""); setCustomerFacebook(""); }} className="underline">ຍົກເລີກການເຊື່ອມ</button>
+              <button type="button" onClick={() => { setDesignQueueEntryId(null); setOrderCode(""); setWorkCategory(""); setCustomerName(""); setCustomerPhone(""); setCustomerWhatsapp(""); setCustomerFacebook(""); }} className="underline">ຍົກເລີກການເຊື່ອມ</button>
             </div>}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div><FieldLabel>ລະຫັດອໍເດີ</FieldLabel><input type="text" inputMode="text" value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="ຕົວຢ່າງ RK26-9124+2 ຫຼື RK26-9124+A" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold" /></div>
@@ -775,8 +774,8 @@ export default function NewQuotationPage() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <label htmlFor="quote-design-deposit" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-600">ຫັກຄ່າແບບ</label>
-                <input id="quote-design-deposit" type="number" min={0} step="0.01" value={designDeposit > 0 ? designDeposit : ""} onChange={(event) => setDesignDeposit(Number(event.target.value))} readOnly={Boolean(designQueueEntryId)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-sky-400 read-only:bg-slate-50" />
-                {designQueueEntryId && <p className="mt-1 text-xs text-slate-500">{designDeposit > 0 ? "ດຶງຈາກເງິນມັດຈຳເຂົ້າຄິວອອກແບບ" : "ບໍ່ມີເງິນມັດຈຳຄ່າແບບ"}</p>}
+                <input id="quote-design-deposit" type="number" min={0} step="0.01" value={designDeposit > 0 ? designDeposit : ""} onChange={(event) => setDesignDeposit(Number(event.target.value))} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-sky-400" />
+                <p className="mt-1 text-xs text-slate-500">ປ້ອນສະເພາະຍອດທີ່ຈະຫັກໃນບິນນີ້; ຖ້າບໍ່ຫັກ ໃຫ້ປ່ອຍວ່າງ</p>
               </div>
               <div><FieldLabel>ສ່ວນຫຼຸດ</FieldLabel><NumberField value={discount} onChange={setDiscount} /></div>
               <div><FieldLabel>ມັດຈຳກ່ອນ</FieldLabel><NumberField value={deposit} onChange={setDeposit} /></div>

@@ -309,6 +309,13 @@ export async function getQuotationDraftById(id: string) {
 }
 
 export async function saveQuotationDraft(draft: QuotationDraft) {
+  const { data: manualDesignDeposit, error: manualDesignDepositError } = await supabase.rpc("quotation_design_deposit_is_manual");
+  if (manualDesignDepositError || manualDesignDeposit !== true) {
+    if (manualDesignDepositError && manualDesignDepositError.code !== "PGRST202" && manualDesignDepositError.code !== "42883") {
+      throw new Error(workflowErrorMessage(manualDesignDepositError));
+    }
+    throw new Error("ກະລຸນາຮັນ migration 20261101_manual_quotation_design_deposits.sql ໃນ Supabase ກ່ອນບັນທຶກໃບປະເມີນ");
+  }
   const currentUser = await getCurrentUserProfile();
   if (!currentUser) throw new Error("ບໍ່ພົບຂໍ້ມູນຜູ້ໃຊ້");
 

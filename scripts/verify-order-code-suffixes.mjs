@@ -37,18 +37,19 @@ try {
   const oldDeposit = await deposit(historical);
   await migration("20261022_allow_order_code_suffixes.sql");
   await migration("20261022_allow_order_code_suffixes.sql");
+  await migration("20261101_manual_quotation_design_deposits.sql");
   assert.deepEqual(await one(`select * from quotation_drafts where id=$1`, [historical.id]), historical);
   assert.deepEqual(await one(`select * from factory_deposit_orders where id=$1`, [oldDeposit.id]), oldDeposit);
 
   for (const code of ["RK26-9124+2", "RK26-9124+A", "RK26-9124A+2"]) {
     const savedQuote = await quote(` ${code} `);
     assert.equal(savedQuote.order_code, code, "Queue linking must preserve the entered code");
-    assert.equal(savedQuote.design_deposit, "100000.50");
+    assert.equal(savedQuote.design_deposit, "0.00");
     assert.equal(savedQuote.customer_name, queue.customer_name);
     assert.equal(savedQuote.work_category, "sports");
     const savedDeposit = await deposit(savedQuote);
     assert.equal(savedDeposit.order_code, code, "Deposits inherit a quotation's suffix");
-    assert.equal(savedDeposit.design_deposit, "100000.50");
+    assert.equal(savedDeposit.design_deposit, "0.00");
     assert.equal(savedDeposit.quotation_quote_no, savedQuote.quote_no);
     assert.equal(savedDeposit.design_queue_entry_id, queue.id);
     assert.equal((await one(`insert into orders(order_code) values ($1) returning *`, [savedDeposit.order_code])).order_code, code);
@@ -70,7 +71,7 @@ try {
   const freeQueue = await one(`select * from create_design_queue_entry(p_queue_date => '2026-10-16', p_type_code => 'RK26', p_design_payment_type => 'free')`);
   const reselected = await one(`update quotation_drafts set design_queue_entry_id=$1 where id=$2 returning *`, [freeQueue.id, editedQuote.id]);
   assert.equal(reselected.order_code, `${freeQueue.type_code}-${freeQueue.order_no}`);
-  assert.equal(reselected.design_deposit, "0.00");
+  assert.equal(reselected.design_deposit, "100000.50", "Reselecting a queue does not change the historical bill amount");
   const customized = await one(`update quotation_drafts set design_queue_entry_id=$1,order_code='RK26-9124+5' where id=$2 returning *`, [queue.id, editedQuote.id]);
   assert.equal(customized.order_code, "RK26-9124+5");
   assert.equal(customized.design_deposit, "100000.50");

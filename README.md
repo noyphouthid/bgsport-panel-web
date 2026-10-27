@@ -350,19 +350,28 @@ and amount, and the list displays the recorded payment separately from notes.
 Existing queues retain an unspecified payment choice; no amount is inferred from
 notes, including notes containing numbers.
 
-Selecting a queue by customer search or its quotation link fills **ຫັກຄ່າແບບ**
-from the recorded deposit. Free or unrecorded deposits leave the input blank and
-contribute zero to calculations. Linked quotation amounts are read-only; update
-the queue and reselect it to use a revised amount. Switching to a free queue or
-unlinking clears a previously selected fee. Saved quotations retain their monetary
-snapshot on ordinary edits even if the original queue payment changes. Existing
-quotation amounts are not backfilled or rewritten. The amount continues into
-factory deposits through the existing quotation flow.
+Apply `supabase/migrations/20261101_manual_quotation_design_deposits.sql` after
+`20261022_allow_order_code_suffixes.sql` to disable automatic design deductions.
+Queue deposit choices and amounts remain available as records of received money.
+Selecting a queue by search or its quotation link fills customer/order details only.
+New quotations leave **ຫັກຄ່າແບບ** blank (zero in calculations); enter a deduction
+manually for that individual bill when appropriate. Selecting/reselecting a queue,
+changing its free/paid status or unlinking it does not set, clear or overwrite a
+manually entered quotation deduction. Saved quotations retain their existing amounts
+and can be corrected through the editable field. The migration does not rewrite
+historical bills. A manually entered quotation deduction still carries into its
+factory deposit as part of that same document flow.
+
+Quotation saves/printing check that the manual-deduction migration is installed
+before writing; an older database must not silently reintroduce an automatic fee.
+Apply the SQL through Supabase SQL Editor or a migration runner, then deploy the
+panel. Application API keys cannot apply this schema change.
 
 Run `node scripts/verify-queue-design-deposits.mjs /path/to/@electric-sql/pglite/dist/index.js`
-for payment validation, inheritance, historical preservation and RLS checks. The
-browser workflow script above also checks paid/free switching, blank free fees,
-queue editing and saved quotation amounts.
+for queue payment validation, repeated customer bills without automatic deductions,
+manual amount preservation, historical preservation and RLS checks. The browser
+workflow script above also checks manual fee entry, new bill defaults, queue editing,
+saved quotation amounts and the migration preflight.
 
 ### Repeat-order codes
 

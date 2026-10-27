@@ -56,15 +56,49 @@ await assert.rejects(db.query(`update design_queue_entries set design_payment_ty
 await db.query(`update design_queue_entries set design_payment_type='free', design_deposit_amount=null where id=$1`, [paid.id]);
 assert.equal((await quote(paid.id)).design_deposit, "0.00");
 assert.equal((await one(`select * from quotation_drafts where id=$1`, [paidQuote.id])).design_deposit, "200000.00");
+// Removing the financial link must preserve old bills while new repeat bills start at zero.
+const historicalQuote = await one(`select * from quotation_drafts where id=$1`, [paidQuote.id]);
+const historicalDeposit = await one(`select * from factory_deposit_orders where id=$1`, [deposit.id]);
+await migration("20261101_manual_quotation_design_deposits.sql");
+await migration("20261101_manual_quotation_design_deposits.sql");
+assert.deepEqual(await one(`select * from quotation_drafts where id=$1`, [paidQuote.id]), historicalQuote);
+assert.deepEqual(await one(`select * from factory_deposit_orders where id=$1`, [deposit.id]), historicalDeposit);
+const repeatQueue = await create("deposit", 100000.50);
+const manualQuote = (queueId, amount = 0, code = "") => one(`insert into quotation_drafts(created_by_user_id,quote_date,design_queue_entry_id,design_deposit,order_code) values ($1,'2026-10-27',$2,$3,$4) returning *`, [admin, queueId, amount, code]);
+for (let index = 0; index < 3; index += 1) {
+  assert.equal((await manualQuote(repeatQueue.id)).design_deposit, "0.00", "Repeat bills must never reuse the customer's old queue deposit");
+}
+const defaultQuote = await one(`insert into quotation_drafts(created_by_user_id,quote_date,design_queue_entry_id) values ($1,'2026-10-27',$2) returning *`, [admin, repeatQueue.id]);
+assert.equal(defaultQuote.design_deposit, "0.00");
+const manual = await manualQuote(repeatQueue.id, 25000.75, "RK26-9124+2");
+assert.equal(manual.design_deposit, "25000.75");
+assert.equal(manual.order_code, "RK26-9124+2", "Repeat-order suffixes remain supported");
+assert.equal((await manualQuote(free.id, 3000)).design_deposit, "3000.00", "Manual deductions are independent of a queue's payment type");
+assert.equal((await manualQuote(legacy.id, 4000)).design_deposit, "4000.00");
+await db.query(`update quotation_drafts set design_queue_entry_id=$1 where id=$2`, [free.id, manual.id]);
+assert.equal((await one(`select * from quotation_drafts where id=$1`, [manual.id])).design_deposit, "25000.75");
+await db.query(`update quotation_drafts set design_queue_entry_id=$1, order_code='RK26-9124+A' where id=$2`, [repeatQueue.id, manual.id]);
+const reselectedManual = await one(`select * from quotation_drafts where id=$1`, [manual.id]);
+assert.equal(reselectedManual.design_deposit, "25000.75");
+assert.equal(reselectedManual.order_code, "RK26-9124+A");
+await db.query(`update quotation_drafts set design_queue_entry_id=null where id=$1`, [manual.id]);
+assert.equal((await one(`select * from quotation_drafts where id=$1`, [manual.id])).design_deposit, "25000.75");
+const manualDeposit = await one(`insert into factory_deposit_orders(quotation_draft_id,deposit_no,deposit_date) values ($1,'','2026-10-27') returning *`, [manual.id]);
+assert.equal(manualDeposit.design_deposit, "25000.75", "A quotation's manual amount still carries to its own factory deposit");
+await db.query(`update quotation_drafts set design_deposit=0 where id=$1`, [paidQuote.id]);
+assert.equal((await one(`select * from quotation_drafts where id=$1`, [paidQuote.id])).design_deposit, "0.00", "An old incorrect deduction can be corrected explicitly");
+assert.equal((await one(`select quotation_design_deposit_is_manual() as ready`)).ready, true);
 // Old callers can still omit the new optional arguments without inventing a fee.
 assert.equal((await one(`select * from create_design_queue_entry()`)).design_payment_type, null);
 await db.exec(`grant usage on schema public, auth to authenticated; grant execute on function auth.uid() to authenticated; grant select on users, design_queue_entries to authenticated; set role authenticated;`);
-assert.equal((await db.query(`select * from search_design_queue_customers('QA Deposit')`)).rows.length, 2);
+assert.equal((await db.query(`select * from search_design_queue_customers('QA Deposit')`)).rows.length, 3);
 await db.exec(`select set_config('test.uid', '00000000-0000-4000-8000-000000000099', false)`);
 assert.equal((await db.query(`select * from search_design_queue_customers('QA Deposit')`)).rows.length, 0);
 await assert.rejects(db.query(`select create_design_queue_entry(p_design_payment_type => 'free')`));
+assert.equal((await one(`select quotation_design_deposit_is_manual() as ready`)).ready, true);
 await db.exec(`reset role; set role anon;`);
 await assert.rejects(db.query(`select * from search_design_queue_customers('QA Deposit')`));
+await assert.rejects(db.query(`select quotation_design_deposit_is_manual()`));
 await db.exec(`reset role;`);
 await db.close();
-console.log("Design deposits passed: free/paid validation, exact amounts, search fields, quotation/deposit inheritance, stale fee clearing, immutable history, legacy preservation, repeat migration and RLS.");
+console.log("Design deposits passed: free/paid validation, exact amounts, search fields, quotation/deposit inheritance, manual repeat-bill deductions, queue independence, financial history, legacy preservation, repeat migration and RLS.");

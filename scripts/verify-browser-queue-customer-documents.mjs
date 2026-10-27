@@ -11,6 +11,7 @@ const session = { access_token: "qa-token", refresh_token: "qa-refresh", expires
 const fabric = { id: uid(3), name: "QA Fabric", short_price: 100000, long_price: 120000, long_add: 20000, is_active: true };
 let queue = { id: uid(4), queue_number: "0001", type_code: "PK26", order_no: "10001", customer_name: "QA Team", customer_phone: "20 99 999 999", work_category: "sports", design_payment_type: null, design_deposit_amount: null, queue_date: "2026-10-15", queue_year: 2026, queue_month: 10, queue_sequence: 1, order_sequence: 1, graphic_user_id: designer.id, is_designed: false, style_name: "ງານປົກກະຕິ", created_at: "2026-10-15T00:00:00Z" };
 let quotation = null, deposit = null;
+let manualMigrationReady = true;
 const writes = [], errors = [];
 const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" });
 try {
@@ -18,6 +19,10 @@ try {
   await context.addInitScript(({key,session}) => { localStorage.setItem(key, JSON.stringify(session)); window.print = () => { window.__printed = (window.__printed || 0) + 1; }; }, { key: `sb-${backend.hostname.split(".")[0]}-auth-token`, session });
   await context.route(`${backend.origin}/**`, async route => {
     const req = route.request(), url = new URL(req.url()), table = url.pathname.split("/").pop();
+    if (table === "quotation_design_deposit_is_manual" && !manualMigrationReady) {
+      await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ code: "PGRST202", message: "Could not find the function public.quotation_design_deposit_is_manual in the schema cache" }) });
+      return;
+    }
     let data = [];
     if (url.pathname === "/auth/v1/user") data = user;
     else if (table === "users") data = url.searchParams.has("auth_user_id") || url.searchParams.has("email") ? [profile] : [profile, designer];
@@ -29,7 +34,8 @@ try {
     if (["POST", "PATCH"].includes(req.method())) {
       const body = req.postDataJSON();
       writes.push({ table, method: req.method(), body });
-      if (table === "search_design_queue_customers") data = [queue];
+      if (table === "quotation_design_deposit_is_manual") data = true;
+      else if (table === "search_design_queue_customers") data = [queue];
       else if (table === "create_design_queue_entry") { queue = { ...queue, customer_name: body.p_customer_name, customer_phone: body.p_customer_phone, work_category: body.p_work_category, design_payment_type: body.p_design_payment_type, design_deposit_amount: body.p_design_deposit_amount }; data = queue; }
       else if (table === "design_queue_entries") { queue = { ...queue, ...body }; data = queue; }
       else if (table === "quotation_drafts") { quotation = { ...quotation, ...body, id: uid(5), quote_no: quotation?.quote_no || "QT26-10-000" }; data = quotation; }
@@ -82,8 +88,19 @@ try {
   assert.equal(await field("ລະຫັດອໍເດີ").inputValue(), "PK26-10001");
   assert.equal(await page.getByLabel("ປະເພດງານ / ກຸ່ມເສື້ອ").inputValue(), "sports");
   assert.equal(await field("ເລກທີ່ໃບປະເມີນ").getAttribute("readonly"), "");
-  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "100000.5");
-  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).getAttribute("readonly"), "");
+  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "", "A paid customer queue must not auto-deduct the old payment");
+  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).getAttribute("readonly"), null);
+  // An older backend must not save or print a bill using its automatic-fee trigger.
+  manualMigrationReady = false;
+  await page.getByRole("button", { name: "ພິມ A5", exact: true }).click();
+  await page.getByText("ກະລຸນາຮັນ migration 20261101_manual_quotation_design_deposits.sql ໃນ Supabase ກ່ອນບັນທຶກໃບປະເມີນ", { exact: true }).waitFor();
+  assert.equal(writes.filter(w => w.table === "quotation_drafts").length, 0);
+  assert.equal(await page.evaluate(() => window.__printed || 0), 0);
+  manualMigrationReady = true;
+  await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).fill("25000.50");
+  await page.getByRole("searchbox").fill("2099999999");
+  await page.getByRole("button", { name: /QA Team · PK26-10001/ }).click();
+  assert.equal(Number(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue()), 25000.5, "Customer lookup cannot overwrite an explicitly entered deduction");
   // A linked quotation can carry a repeat-order suffix without losing its queue.
   await field("ລະຫັດອໍເດີ").fill("RK26-9124+2");
   await page.getByRole("button", { name: "ພິມ A5", exact: true }).click();
@@ -91,7 +108,7 @@ try {
   assert.equal(quotation.design_queue_entry_id, queue.id);
   assert.equal(quotation.order_code, "RK26-9124+2");
   assert.equal(quotation.work_category, "sports");
-  assert.equal(quotation.design_deposit, 100000.5);
+  assert.equal(quotation.design_deposit, 25000.5);
   assert.equal(await field("ເລກທີ່ໃບປະເມີນ").inputValue(), "QT26-10-000");
   await page.getByRole("button", { name: "ສ້າງໃບມັດຈຳ", exact: true }).first().click();
   await page.waitForURL(/factory-deposit-orders\/new\?draftId=/);
@@ -112,7 +129,7 @@ try {
   assert.equal(deposit.order_code, "RK26-9124+A");
   assert.equal(deposit.work_category, "sports");
   assert.equal(deposit.design_queue_entry_id, queue.id);
-  assert.equal(deposit.design_deposit, 100000.5);
+  assert.equal(deposit.design_deposit, 25000.5);
   await page.goto(`http://localhost:3000/factory-deposit-orders/new?id=${deposit.id}`, { waitUntil: "networkidle" });
   assert.equal(await field("ລະຫັດອໍເດີ").inputValue(), "RK26-9124+A");
   // Conversion must preserve the suffix in the real orders insert payload.
@@ -125,7 +142,7 @@ try {
   // Direct queue handoff also hydrates the same data, including completed queues.
   await page.goto(`http://localhost:3000/quotations/new?queueId=${queue.id}`, { waitUntil: "networkidle" });
   assert.equal(await field("ລະຫັດອໍເດີ").inputValue(), "PK26-10001");
-  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "100000.5");
+  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "", "A new bill for the same paid queue starts with no deduction");
   // Editing a paid queue to free clears its stored amount, without changing a saved quotation.
   await page.goto("http://localhost:3000/design-queue", { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "ແກ້ໄຂ", exact: true }).click();
@@ -138,10 +155,13 @@ try {
   assert.equal(queue.design_deposit_amount, null);
   assert.equal(queue.design_payment_type, "free");
   await page.goto(`http://localhost:3000/quotations/new?draftId=${uid(5)}`, { waitUntil: "networkidle" });
-  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "100000.5");
+  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "25000.5");
   await page.getByRole("searchbox").fill("2099999999");
   await page.getByRole("button", { name: /QA Team · PK26-10001/ }).click();
-  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "", "Selecting free work clears a prior paid amount");
+  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "25000.5", "Selecting a free queue also leaves the bill's manually entered deduction alone");
+  await page.getByRole("button", { name: "ຍົກເລີກການເຊື່ອມ", exact: true }).click();
+  assert.equal(await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).inputValue(), "25000.5", "Unlinking does not change a manually entered amount");
+  await page.getByLabel("ຫັກຄ່າແບບ", { exact: true }).fill("");
   await page.getByRole("button", { name: "ພິມ A5", exact: true }).click();
   await page.waitForFunction(() => window.__printed === 1);
   assert.equal(quotation.design_deposit, 0);
@@ -151,5 +171,5 @@ try {
   await page.screenshot({ path: "/tmp/bgsport-queue-quotation-mobile.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   assert.deepEqual(errors, []);
-  console.log("Browser checks passed: queue category/customer save, phone search, linked repeat-order codes, print-before-save, deposit inheritance/save/reopen, paid/free switching, blank free fees, saved financial history and mobile layout.");
+  console.log("Browser checks passed: queue category/customer save, phone search, linked repeat-order codes, print-before-save, deposit inheritance/save/reopen, manual fees, repeat bills without reused deductions, migration preflight, saved financial history and mobile layout.");
 } finally { await browser.close(); }
