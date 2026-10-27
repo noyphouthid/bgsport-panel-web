@@ -1,5 +1,23 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Employee page permissions
+
+`/users/permissions` includes the sidebar pages and the static work pages reached
+through buttons/tabs, with search by Lao name, URL or group and an access preview.
+Sidebar links live in `lib/app-navigation.ts`; adding a link there automatically
+adds its permission option. Register non-sidebar work pages in
+`ADDITIONAL_ACCESS_ITEMS` in `lib/user-permissions.ts`. Detail URLs with IDs use
+their parent page's permission; `/reports/sale-admin` redirects to `/reports/admin-sales`.
+
+An inherited child permission uses the nearest saved parent decision, then the
+role default. Explicit child decisions override the parent. Existing role locks
+still apply and appear disabled in the editor. No database migration is required.
+Run `node --test tests/user-permissions.test.mjs tests/staff-access.test.mjs` to
+check page coverage, inheritance, new menu entries and staff access.
+With the local dev server running, run
+`node scripts/verify-browser-user-permissions.mjs /path/to/playwright/index.mjs`
+to verify search, preview, mocked save/reload and mobile layout without production writes.
+
 ## Shipment attachment galleries
 
 Apply `supabase/migrations/20261031_add_shipment_attachment_galleries.sql` in the

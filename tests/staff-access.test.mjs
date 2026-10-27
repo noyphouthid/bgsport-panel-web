@@ -16,7 +16,9 @@ function loadTs(path, dependencies = {}) {
   return compiled.exports;
 }
 
-const permissions = loadTs("../lib/user-permissions.ts");
+const permissions = loadTs("../lib/user-permissions.ts", {
+  "@/lib/app-navigation": loadTs("../lib/app-navigation.ts"),
+});
 const { canAccessPath } = loadTs("../lib/access-control.ts", {
   "@/lib/user-permissions": permissions,
 });

@@ -1,31 +1,60 @@
-export type PermissionMode = "inherit" | "allow" | "deny";
+import { APP_NAVIGATION } from "@/lib/app-navigation";
 
-export const ACCESS_PERMISSION_ITEMS = [
-  { key: "/dashboard", label: "ໜ້າຫຼັກ", group: "ໜ້າທົ່ວໄປ" },
-  { key: "/orders", label: "ລາຍການອໍເດີ", group: "ອໍເດີ" },
+export type PermissionMode = "inherit" | "allow" | "deny";
+export type AccessPermissionKey = `/${string}`;
+export type AccessPermissionItem = { key: AccessPermissionKey; label: string; group: string };
+
+const ACCESS_GROUPS: Record<string, string> = {
+  "/dashboard": "ໜ້າທົ່ວໄປ",
+  "/orders": "ອໍເດີ",
+  "/quotations": "ອໍເດີ",
+  "/design-queue": "ອໍເດີ",
+  "/shirt-catalog": "ໜ້າຮ້ານ",
+  "/factory-deposit-orders": "ອໍເດີ",
+  "/factory-production-queue": "ອໍເດີ",
+  "/inventory-qr": "ຄັງ/ຂົນສົ່ງ",
+  "/factory-receipts": "ຄັງ/ຂົນສົ່ງ",
+  "/shipments": "ຄັງ/ຂົນສົ່ງ",
+  "/change-requests": "ຄັງ/ຂົນສົ່ງ",
+  "/reports": "ລາຍງານ",
+  "/payments": "ການເງິນ",
+  "/factory-payments": "ການເງິນ",
+  "/payroll": "ການເງິນ",
+  "/users": "ຕັ້ງຄ່າ",
+  "/imports": "ຕັ້ງຄ່າ",
+  "/fabric": "ຕັ້ງຄ່າ",
+  "/order-code-types": "ຕັ້ງຄ່າ",
+  "/order-alerts": "ອໍເດີ",
+};
+
+// Pages reached through buttons/tabs rather than the sidebar.
+const ADDITIONAL_ACCESS_ITEMS: AccessPermissionItem[] = [
   { key: "/orders/new", label: "ສ້າງອໍເດີໃໝ່", group: "ອໍເດີ" },
-  { key: "/quotations", label: "ໃບປະເມີນລາຄາ", group: "ອໍເດີ" },
-  { key: "/design-queue", label: "ຄິວອອກແບບ", group: "ອໍເດີ" },
-  { key: "/shirt-catalog", label: "ເຜີຍແຜ່ແບບເສື້ອ", group: "ໜ້າຮ້ານ" },
-  { key: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", group: "ອໍເດີ" },
-  { key: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", group: "ອໍເດີ" },
-  { key: "/inventory-qr", label: "ສ້າງ QR", group: "ຄັງ/ຂົນສົ່ງ" },
-  { key: "/factory-receipts", label: "ຮັບສິນຄ້າເຂົ້າ", group: "ຄັງ/ຂົນສົ່ງ" },
-  { key: "/shipments", label: "ຈັດສົ່ງສິນຄ້າ", group: "ຄັງ/ຂົນສົ່ງ" },
-  { key: "/shipments/deposits/scan", label: "ສະແກນຢືນຢັນຝາກ", group: "ຄັງ/ຂົນສົ່ງ" },
-  { key: "/change-requests", label: "ຄຳຂໍປ່ຽນແປງ", group: "ຄັງ/ຂົນສົ່ງ" },
   { key: "/reports", label: "ລາຍງານທົ່ວໄປ", group: "ລາຍງານ" },
-  { key: "/reports/data-export", label: "ລາຍງານດຶງຂໍ້ມູນ", group: "ລາຍງານ" },
-  { key: "/reports/monthly-close", label: "ປິດຍອດປະຈຳເດືອນ", group: "ລາຍງານ" },
-  { key: "/reports/order-activity", label: "Statement ການແກ້ໄຂອໍເດີ", group: "ລາຍງານ" },
-  { key: "/payments", label: "ບັນຊີການຊຳລະເງິນ", group: "ການເງິນ" },
-  { key: "/factory-payments", label: "ຊຳລະຄ່າໂຮງງານ", group: "ການເງິນ" },
-  { key: "/payroll", label: "ເງິນເດືອນ", group: "ການເງິນ" },
-  { key: "/users", label: "ຈັດການຜູ້ໃຊ້", group: "ຕັ້ງຄ່າ" },
-  { key: "/imports", label: "ນຳເຂົ້າ Excel", group: "ຕັ້ງຄ່າ" },
-  { key: "/fabric", label: "ລາຄາຜ້າ", group: "ຕັ້ງຄ່າ" },
-  { key: "/order-code-types", label: "ປະເພດລະຫັດ", group: "ຕັ້ງຄ່າ" },
-] as const;
+  { key: "/design-queue/completed", label: "ຄິວອອກແບບສຳເລັດ", group: "ອໍເດີ" },
+  { key: "/factory-deposit-orders/new", label: "ສ້າງໃບມັດຈຳສັ່ງຜະລິດ", group: "ອໍເດີ" },
+  { key: "/factory-production-queue/activity/completed", label: "ສະຫຼຸບການຜະລິດສຳເລັດ", group: "ອໍເດີ" },
+  { key: "/factory-production-queue/awaiting-factory", label: "ລໍຖ້າໂຮງງານຮັບວຽກ", group: "ອໍເດີ" },
+  { key: "/factory-production-queue/in-production", label: "ກຳລັງຜະລິດ", group: "ອໍເດີ" },
+  { key: "/factory-production-queue/pattern-laid", label: "ວາງ Pattern ແລ້ວ", group: "ອໍເດີ" },
+  { key: "/factory-production-queue/ready-for-print", label: "ພ້ອມພິມ", group: "ອໍເດີ" },
+  { key: "/factory-production-queue/sent-to-factory", label: "ສົ່ງໂຮງງານແລ້ວ", group: "ອໍເດີ" },
+  { key: "/quotations/new", label: "ສ້າງໃບປະເມີນລາຄາ", group: "ອໍເດີ" },
+  { key: "/shipments/transport-note", label: "ສ້າງໃບຝາກເຄື່ອງ", group: "ຄັງ/ຂົນສົ່ງ" },
+  { key: "/users/permissions", label: "ກຳນົດສິດພະນັກງານ", group: "ຕັ້ງຄ່າ" },
+];
+
+// A new sidebar link automatically becomes an employee access-permission option.
+export const ACCESS_PERMISSION_ITEMS: AccessPermissionItem[] = [
+  ...APP_NAVIGATION.flatMap((item) => (item.type === "group" ? item.items : [item])).map((item) => ({
+    key: item.href,
+    label: item.label,
+    group: ACCESS_GROUPS[`/${item.href.split("/")[1]}`] || "ໜ້າອື່ນໆ",
+  })),
+  ...ADDITIONAL_ACCESS_ITEMS,
+];
+
+const SORTED_ACCESS_ITEMS = [...ACCESS_PERMISSION_ITEMS].sort((a, b) => b.key.length - a.key.length);
 
 export const EDIT_PERMISSION_ITEMS = [
   { key: "orders", label: "ແກ້ໄຂອໍເດີ", description: "ບັນທຶກ, ປິດງານ, ລົບ, ແກ້ໄຂລາຍລະອຽດອໍເດີ" },
@@ -35,7 +64,6 @@ export const EDIT_PERMISSION_ITEMS = [
   { key: "factory_production_queue", label: "ແກ້ໄຂຄິວວາງຜະລິດ", description: "ມອບໝາຍຄິວ, ປ່ຽນສະຖານະວາງ Pattern, ແລະ ສົ່ງໂຮງງານ" },
 ] as const;
 
-export type AccessPermissionKey = (typeof ACCESS_PERMISSION_ITEMS)[number]["key"];
 export type EditPermissionKey = (typeof EDIT_PERMISSION_ITEMS)[number]["key"];
 
 export type UserPermissionSettings = {
@@ -72,7 +100,14 @@ export function normalizeUserPermissionSettings(value: unknown): UserPermissionS
 }
 
 export function getAccessPermissionMode(settings: UserPermissionSettings | null | undefined, key: AccessPermissionKey): PermissionMode {
-  return normalizePermissionMode(settings?.access?.[key]);
+  // Preserve saved parent permissions when a child gets its own catalog entry.
+  // Explicit child settings take precedence; inherit continues up to the role default.
+  for (const item of SORTED_ACCESS_ITEMS) {
+    if (key !== item.key && !key.startsWith(`${item.key}/`)) continue;
+    const mode = normalizePermissionMode(settings?.access?.[item.key]);
+    if (mode !== "inherit") return mode;
+  }
+  return "inherit";
 }
 
 export function getEditPermissionMode(settings: UserPermissionSettings | null | undefined, key: EditPermissionKey): PermissionMode {
@@ -95,9 +130,7 @@ export function canEditWithPermissions(
 
 export function findAccessPermissionKey(pathname: string): AccessPermissionKey | null {
   const normalizedPath = pathname === "/" ? "/" : pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
-  const matched = [...ACCESS_PERMISSION_ITEMS]
-    .sort((a, b) => b.key.length - a.key.length)
-    .find((item) => normalizedPath === item.key || normalizedPath.startsWith(`${item.key}/`));
+  const matched = SORTED_ACCESS_ITEMS.find((item) => normalizedPath === item.key || normalizedPath.startsWith(`${item.key}/`));
   return matched?.key || null;
 }
 

@@ -136,25 +136,49 @@ test("missing and revoked sessions return a readable sign-in message", async () 
   }
 });
 
-function routeFixture(actor) {
-  let queryCount = 0;
+const shipmentTypes = loadTs("../lib/shipment-delivery-requests.ts", {});
+const transportNotes = loadTs("../lib/transport-notes.ts", {});
+
+function apiRequest(status) {
+  return new Request(`http://localhost/api/shipments/approvals${status === undefined ? "" : `?status=${status}`}`);
+}
+
+function routeFixture(actor, { requests = [], notes = [], orders = [], users = [], errors = {} } = {}) {
+  const calls = [], active = {}, maxActive = {};
+  const tables = { shipment_delivery_requests: requests, transport_notes: notes, orders, users };
   const { GET } = loadTs("../app/api/shipments/approvals/route.ts", {
     "next/server": { NextResponse: { json: (body, init) => Response.json(body, init) } },
     "@/lib/admin-api-auth": { getActorFromAuthHeader: async () => actor },
-    "@/lib/supabase-admin": { getSupabaseAdmin: () => ({ from: () => {
-      queryCount += 1;
-      const result = { data: [], error: null };
-      return { select: () => ({ order: async () => result, eq: async () => result }) };
+    "@/lib/shipment-delivery-requests": shipmentTypes,
+    "@/lib/supabase-admin": { getSupabaseAdmin: () => ({ from: (table) => {
+      let data = tables[table];
+      const call = { table, filters: [] };
+      calls.push(call);
+      const query = {
+        select: () => query,
+        order: () => query,
+        eq: (key, value) => { call.filters.push([key, value]); data = data.filter(row => row[key] === value); return query; },
+        in: (key, values) => { call.ids = values; data = data.filter(row => values.includes(row[key])); return query; },
+        range: (from, to) => { call.range = [from, to]; data = data.slice(from, to + 1); return query; },
+        then: (resolve, reject) => (async () => {
+          active[table] = (active[table] || 0) + 1;
+          maxActive[table] = Math.max(maxActive[table] || 0, active[table]);
+          await new Promise(done => setImmediate(done));
+          active[table] -= 1;
+          return { data, error: errors[table] || null };
+        })().then(resolve, reject),
+      };
+      return query;
     } }) },
-    "@/lib/transport-notes": { isTransportNoteDeposited: () => true },
+    "@/lib/transport-notes": transportNotes,
   });
-  return { GET, queryCount: () => queryCount };
+  return { GET, calls, maxActive, queryCount: () => calls.length };
 }
 
 test("approvals API distinguishes authentication from role restrictions", async () => {
   for (const [actor, status, code] of [[null, 401, "no_session"], [{ role: "staff" }, 403, "forbidden"], [{ role: "admin" }, 403, "forbidden"]]) {
     const fixture = routeFixture(actor);
-    const response = await fixture.GET({ headers: new Headers() });
+    const response = await fixture.GET(apiRequest());
     assert.equal(response.status, status);
     const body = await response.json();
     assert.equal(body.error, code);
@@ -165,9 +189,96 @@ test("approvals API distinguishes authentication from role restrictions", async 
 
 test("verified superadmin can load the approvals API", async () => {
   const fixture = routeFixture({ role: "superadmin", profileId: profile.id });
-  const response = await fixture.GET({ headers: new Headers() });
+  const response = await fixture.GET(apiRequest());
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.viewerUserId, profile.id);
   assert.deepEqual(body.rows, []);
+});
+
+const adminActor = { role: "superadmin", profileId: profile.id };
+const requestRow = (id, overrides = {}) => ({
+  id, order_id: `order-${id}`, status: "submitted", delivery_method: "pickup",
+  requested_by_user_id: profile.id, ...overrides,
+});
+
+test("default pending queue skips history and hydrates only visible requests", async () => {
+  const requests = [
+    requestRow("pickup"), requestRow("deposited", { delivery_method: "transport" }),
+    requestRow("receipt", { delivery_method: "transport" }),
+    requestRow("waiting", { delivery_method: "transport" }),
+    requestRow("missing", { delivery_method: "transport" }),
+    requestRow("history", { status: "delivered" }),
+  ];
+  const fixture = routeFixture(adminActor, {
+    requests, users: [profile], orders: requests.map(row => ({ id: row.order_id })),
+    notes: [
+      { id: "n1", delivery_request_id: "deposited", transport_deposited_at: "2026-01-01" },
+      { id: "n2", delivery_request_id: "receipt", transport_deposit_receipt_id: "receipt-1" },
+      { id: "n3", delivery_request_id: "waiting" },
+    ],
+  });
+  const response = await fixture.GET(apiRequest());
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.rows.map(row => row.id), ["pickup", "deposited", "receipt"]);
+  assert.deepEqual(Object.keys(body.ordersById), ["order-pickup", "order-deposited", "order-receipt"]);
+  assert.deepEqual(Object.keys(body.usersById), [profile.id]);
+  assert.deepEqual(fixture.calls[0].filters, [["status", "submitted"]]);
+  assert.deepEqual(fixture.calls.find(call => call.table === "transport_notes").ids, ["deposited", "receipt", "waiting", "missing"]);
+});
+
+test("an empty pending queue makes no related-table queries", async () => {
+  const fixture = routeFixture(adminActor, { requests: [requestRow("done", { status: "delivered" })] });
+  const body = await (await fixture.GET(apiRequest())).json();
+  assert.deepEqual(body.rows, []);
+  assert.equal(fixture.queryCount(), 1);
+});
+
+test("status changes and all-history keep their full search dataset", async () => {
+  for (const [status, expected] of [["rejected", ["rejected"]], ["all", ["pending", "rejected", "done"]]]) {
+    const fixture = routeFixture(adminActor, { requests: [requestRow("pending"), requestRow("rejected", { status: "rejected" }), requestRow("done", { status: "delivered" })] });
+    const body = await (await fixture.GET(apiRequest(status))).json();
+    assert.deepEqual(body.rows.map(row => row.id), expected);
+  }
+});
+
+test("invalid statuses are rejected before any data queries", async () => {
+  for (const status of ["unknown", "toString", ""]) {
+    const fixture = routeFixture(adminActor);
+    assert.equal((await fixture.GET(apiRequest(status))).status, 400);
+    assert.equal(fixture.queryCount(), 0);
+  }
+});
+
+test("queues above the database default limit are not silently truncated", async () => {
+  const requests = Array.from({ length: 1005 }, (_, i) => requestRow(`r${i}`, { order_id: null, requested_by_user_id: null }));
+  const fixture = routeFixture(adminActor, { requests });
+  const body = await (await fixture.GET(apiRequest())).json();
+  assert.equal(body.rows.length, 1005);
+  assert.deepEqual(fixture.calls.map(call => call.range), [[0, 499], [500, 999], [1000, 1499]]);
+});
+
+test("transport batch lookups run concurrently with a bound of four", async () => {
+  const requests = Array.from({ length: 450 }, (_, i) => requestRow(`r${i}`, { delivery_method: "transport" }));
+  const notes = requests.map(row => ({ id: `n-${row.id}`, delivery_request_id: row.id, transport_deposited_at: "2026-01-01" }));
+  const fixture = routeFixture(adminActor, { requests, notes });
+  const body = await (await fixture.GET(apiRequest())).json();
+  assert.equal(body.rows.length, 450);
+  assert.equal(fixture.maxActive.transport_notes, 4);
+  assert.equal(fixture.maxActive.orders, 4);
+  assert.equal(fixture.calls.filter(call => call.table === "transport_notes").length, 5);
+});
+
+test("query failures return the failing step instead of partial success", async () => {
+  for (const [table, step] of [["shipment_delivery_requests", "load_requests"], ["transport_notes", "load_transport_notes"], ["orders", "load_orders"], ["users", "load_users"]]) {
+    const fixture = routeFixture(adminActor, {
+      requests: [requestRow("r1", { delivery_method: "transport" })],
+      notes: [{ id: "n1", delivery_request_id: "r1", transport_deposited_at: "2026-01-01" }],
+      errors: { [table]: { message: "query failed" } },
+    });
+    const response = await fixture.GET(apiRequest());
+    assert.equal(response.status, 500);
+    assert.match((await response.json()).message, new RegExp(`${step}: query failed`));
+  }
 });

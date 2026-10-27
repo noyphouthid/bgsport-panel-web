@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AppRole } from "@/lib/access-control";
 import { getActorFromAuthHeader } from "@/lib/admin-api-auth";
-import type { ShipmentDeliveryRequestRow } from "@/lib/shipment-delivery-requests";
+import { SHIPMENT_DELIVERY_STATUS_LABELS, type ShipmentDeliveryRequestRow } from "@/lib/shipment-delivery-requests";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { isTransportNoteDeposited } from "@/lib/transport-notes";
 
@@ -34,6 +34,8 @@ type TransportNoteApprovalRow = {
 };
 
 const QUERY_BATCH_SIZE = 100;
+const QUERY_CONCURRENCY = 4;
+const REQUEST_PAGE_SIZE = 500;
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -55,6 +57,24 @@ function chunkValues<T>(values: T[], size: number) {
     out.push(values.slice(index, index + size));
   }
   return out;
+}
+
+// Limit concurrent database calls while avoiding one network round trip per batch.
+async function loadBatches<T>(
+  ids: string[],
+  fetchBatch: (ids: string[]) => PromiseLike<{ data: unknown[] | null; error: unknown }>
+): Promise<T[]> {
+  const chunks = chunkValues(ids, QUERY_BATCH_SIZE);
+  const rows: T[] = [];
+  for (let index = 0; index < chunks.length; index += QUERY_CONCURRENCY) {
+    const results = await Promise.all(chunks.slice(index, index + QUERY_CONCURRENCY).map(async (chunk) => {
+      const result = await fetchBatch(chunk);
+      if (result.error) throw result.error;
+      return (result.data ?? []) as T[];
+    }));
+    rows.push(...results.flat());
+  }
+  return rows;
 }
 
 function shouldShowApprovalRow(
@@ -88,44 +108,39 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const status = new URL(req.url).searchParams.get("status") ?? "submitted";
+  if (status !== "all" && !Object.hasOwn(SHIPMENT_DELIVERY_STATUS_LABELS, status)) {
+    return NextResponse.json({ error: "invalid_status", message: "Invalid shipment status" }, { status: 400 });
+  }
+
   try {
-    let requestData: ShipmentDeliveryRequestRow[] | null = null;
-    let usersData: UserRow[] | null = null;
+    const requestRows: ShipmentDeliveryRequestRow[] = [];
 
     try {
-      const result = await supabaseAdmin.from("shipment_delivery_requests").select("*").order("updated_at", { ascending: false });
-      if (result.error) throw result.error;
-      requestData = (result.data ?? []) as ShipmentDeliveryRequestRow[];
+      // Fetch only the selected status, and explicitly page past PostgREST's row cap.
+      for (let offset = 0; ; offset += REQUEST_PAGE_SIZE) {
+        let query = supabaseAdmin.from("shipment_delivery_requests").select("*");
+        if (status !== "all") query = query.eq("status", status);
+        const result = await query.order("updated_at", { ascending: false }).order("id", { ascending: false })
+          .range(offset, offset + REQUEST_PAGE_SIZE - 1);
+        if (result.error) throw result.error;
+        const page = (result.data ?? []) as ShipmentDeliveryRequestRow[];
+        requestRows.push(...page);
+        if (page.length < REQUEST_PAGE_SIZE) break;
+      }
     } catch (error) {
       throw toStepError("load_requests", error);
     }
 
-    try {
-      const result = await supabaseAdmin.from("users").select("id,auth_user_id,full_name,role,is_active").eq("is_active", true);
-      if (result.error) throw result.error;
-      usersData = (result.data ?? []) as UserRow[];
-    } catch (error) {
-      throw toStepError("load_users", error);
-    }
-    const requestRows = requestData ?? [];
-    const userRows = usersData ?? [];
-    const usersById = Object.fromEntries(userRows.map((user) => [user.id, user]));
-
-    const requestIds = [...new Set(requestRows.map((row) => row.id).filter(Boolean))];
+    const requestIds = [...new Set(requestRows.filter((row) => row.delivery_method === "transport").map((row) => row.id))];
     let transportNotesByRequestId: Record<string, TransportNoteApprovalRow> = {};
 
     if (requestIds.length > 0) {
       try {
-        const chunks = chunkValues(requestIds, QUERY_BATCH_SIZE);
-        const rows: TransportNoteApprovalRow[] = [];
-        for (const chunk of chunks) {
-          const result = await supabaseAdmin
+        const rows = await loadBatches<TransportNoteApprovalRow>(requestIds, (chunk) => supabaseAdmin
             .from("transport_notes")
             .select("id,delivery_request_id,transport_deposited_at,transport_deposited_by,transport_deposit_receipt_id")
-            .in("delivery_request_id", chunk);
-          if (result.error) throw result.error;
-          rows.push(...((result.data ?? []) as TransportNoteApprovalRow[]));
-        }
+            .in("delivery_request_id", chunk));
         transportNotesByRequestId = Object.fromEntries(
           rows
             .filter((row) => row.delivery_request_id)
@@ -137,26 +152,30 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = requestRows.filter((row) => shouldShowApprovalRow(row, transportNotesByRequestId[row.id]));
-    const orderIds = [...new Set(requestRows.map((row) => row.order_id).filter(Boolean))];
-    let ordersById: Record<string, OrderRow> = {};
+    const orderIds = [...new Set(rows.map((row) => row.order_id).filter(Boolean))];
+    const userIds = [...new Set(rows.flatMap((row) => [
+      row.requested_by_user_id, row.approved_by_user_id, row.rejected_by_user_id, row.delivered_by_user_id,
+    ]).filter((id): id is string => Boolean(id)))];
 
-    if (orderIds.length > 0) {
+    const [orderRows, userRows] = await Promise.all([(async () => {
       try {
-        const chunks = chunkValues(orderIds, QUERY_BATCH_SIZE);
-        const rows: OrderRow[] = [];
-        for (const chunk of chunks) {
-          const result = await supabaseAdmin
+        return await loadBatches<OrderRow>(orderIds, (chunk) => supabaseAdmin
             .from("orders")
             .select("id,order_code,factory_bill_code,status,shipment_status,shipment_completed_at,production_completed_at,balance,customer_paid_full_at")
-            .in("id", chunk);
-          if (result.error) throw result.error;
-          rows.push(...((result.data ?? []) as OrderRow[]));
-        }
-        ordersById = Object.fromEntries(rows.map((order) => [order.id, order]));
+            .in("id", chunk));
       } catch (error) {
         throw toStepError("load_orders", error);
       }
-    }
+    })(), (async () => {
+      try {
+        return await loadBatches<UserRow>(userIds, (chunk) => supabaseAdmin.from("users")
+          .select("id,auth_user_id,full_name,role,is_active").eq("is_active", true).in("id", chunk));
+      } catch (error) {
+        throw toStepError("load_users", error);
+      }
+    })()]);
+    const ordersById = Object.fromEntries(orderRows.map((order) => [order.id, order]));
+    const usersById = Object.fromEntries(userRows.map((user) => [user.id, user]));
 
     return NextResponse.json({
       ok: true,

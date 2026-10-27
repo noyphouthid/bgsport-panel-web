@@ -16,7 +16,7 @@ import {
   type PermissionMode,
   type UserPermissionSettings,
 } from "@/lib/user-permissions";
-import type { AppRole } from "@/lib/access-control";
+import { canAccessPath, isRoleLockedPath, type AppRole } from "@/lib/access-control";
 
 type UserRole = AppRole;
 
@@ -35,9 +35,11 @@ const MODE_OPTIONS: Array<{ value: PermissionMode; label: string }> = [
   { value: "deny", label: "ບໍ່ອະນຸຍາດ" },
 ];
 
-function groupAccessItems() {
+function groupAccessItems(query: string) {
+  const keyword = query.trim().toLowerCase();
   const grouped = new Map<string, Array<(typeof ACCESS_PERMISSION_ITEMS)[number]>>();
   ACCESS_PERMISSION_ITEMS.forEach((item) => {
+    if (keyword && ![item.label, item.key, item.group].join(" ").toLowerCase().includes(keyword)) return;
     const current = grouped.get(item.group) || [];
     grouped.set(item.group, [...current, item]);
   });
@@ -49,6 +51,7 @@ export default function UserPermissionsPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [draftSettings, setDraftSettings] = useState<UserPermissionSettings>(buildDefaultPermissionSettings());
   const [query, setQuery] = useState("");
+  const [pageQuery, setPageQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -178,7 +181,8 @@ export default function UserPermissionsPage() {
     }
   };
 
-  const accessGroups = useMemo(() => groupAccessItems(), []);
+  const accessGroups = useMemo(() => groupAccessItems(pageQuery), [pageQuery]);
+  const visiblePageCount = accessGroups.reduce((count, [, items]) => count + items.length, 0);
 
   return (
     <div className="space-y-6">
@@ -284,33 +288,56 @@ export default function UserPermissionsPage() {
           <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <h3 className="text-lg font-black text-slate-900">ສິດເຂົ້າເຖິງໜ້າ</h3>
             <p className="mt-1 text-sm font-medium text-slate-500">ກຳນົດວ່າພະນັກງານຄົນນີ້ຈະເຂົ້າເຖິງໜ້າໃດໄດ້ບ້າງ</p>
+            <p className="mt-2 text-xs font-medium text-slate-500">ໜ້າຍ່ອຍທີ່ເລືອກ inherit ຈະໃຊ້ສິດຂອງໜ້າແມ່ ແລະ role ເດີມ. ໜ້າທີ່ລັອກຕາມ role ຈະໃຊ້ສິດຂອງ role ເທົ່ານັ້ນ.</p>
+            <label className="mt-4 block text-xs font-black text-slate-500">
+              ຄົ້ນຫາໜ້າເວັບ
+              <input
+                value={pageQuery}
+                onChange={(event) => setPageQuery(event.target.value)}
+                placeholder="ຊື່ໜ້າ, /path, ຫຼື ໝວດໝູ່"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-900 outline-none"
+              />
+            </label>
+            <div className="mt-2 text-xs font-medium text-slate-500">{visiblePageCount} / {ACCESS_PERMISSION_ITEMS.length} ໜ້າ</div>
 
             <div className="mt-5 space-y-5">
               {accessGroups.map(([group, items]) => (
                 <div key={group} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
                   <div className="mb-3 text-xs font-black uppercase tracking-wide text-slate-500">{group}</div>
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                    {items.map((item) => (
-                      <div key={item.key} className="rounded-xl border border-slate-200 bg-white p-3">
-                        <div className="font-black text-slate-900">{item.label}</div>
-                        <div className="mt-1 text-xs font-medium text-slate-500">{item.key}</div>
-                        <select
-                          value={normalizePermissionMode(draftSettings.access?.[item.key])}
-                          onChange={(event) => updateAccessMode(item.key, event.target.value as PermissionMode)}
-                          disabled={!selectedUser}
-                          className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 disabled:bg-slate-50"
-                        >
-                          {MODE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ))}
+                    {items.map((item) => {
+                      const roleLocked = isRoleLockedPath(item.key);
+                      const allowed = selectedUser ? canAccessPath(item.key, selectedUser.role, draftSettings) : false;
+                      return (
+                        <div key={item.key} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="font-black text-slate-900">{item.label}</div>
+                          <div className="mt-1 text-xs font-medium text-slate-500">{item.key}</div>
+                          <select
+                            value={normalizePermissionMode(draftSettings.access?.[item.key])}
+                            onChange={(event) => updateAccessMode(item.key, event.target.value as PermissionMode)}
+                            aria-label={`${item.label} (${item.key})`}
+                            disabled={!selectedUser || roleLocked || selectedUser.role === "superadmin"}
+                            className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 disabled:bg-slate-50"
+                          >
+                            {MODE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.value === "inherit" ? "ຕາມໜ້າແມ່ / role ເດີມ" : option.label}
+                              </option>
+                            ))}
+                          </select>
+                          {selectedUser ? (
+                            <div className={`mt-2 text-xs font-bold ${allowed ? "text-emerald-700" : "text-rose-700"}`}>
+                              {allowed ? "ເຂົ້າເຖິງໄດ້" : "ເຂົ້າເຖິງບໍ່ໄດ້"}
+                              {roleLocked ? " · ລັອກຕາມ role" : selectedUser.role === "superadmin" ? " · superadmin" : ""}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
+              {visiblePageCount === 0 ? <div className="py-6 text-center text-sm font-bold text-slate-500">ບໍ່ພົບໜ້າເວັບ</div> : null}
             </div>
           </div>
 

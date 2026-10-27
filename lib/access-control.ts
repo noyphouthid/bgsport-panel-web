@@ -77,6 +77,10 @@ function matchesPrefix(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
+export function isRoleLockedPath(pathname: string) {
+  return ROLE_LOCKED_PATHS.some((prefix) => matchesPrefix(normalizePathname(pathname), prefix));
+}
+
 export function getDefaultPathForRole(role: AppRole) {
   if (role === "staff") return "/inventory-qr";
   if (role === "production") return "/factory-production-queue";
@@ -97,7 +101,7 @@ export function canAccessPath(pathname: string, role: AppRole, permissionSetting
     baseAllowed = matched ? matched.roles.includes(role) : false;
   }
 
-  if (ROLE_LOCKED_PATHS.some((prefix) => matchesPrefix(normalizedPath, prefix))) {
+  if (isRoleLockedPath(normalizedPath)) {
     return baseAllowed;
   }
 

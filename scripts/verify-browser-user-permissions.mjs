@@ -1,0 +1,72 @@
+// Run with the local dev server. Every backend request is intercepted; no production writes.
+import assert from "node:assert/strict";
+const { chromium } = await import(process.argv[2] || "playwright");
+process.loadEnvFile(new URL("../.env.local", import.meta.url));
+const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const user = { id: "00000000-0000-4000-8000-000000000001", email: "qa@example.invalid", aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" };
+const viewer = { ...user, auth_user_id: user.id, full_name: "Owner QA", role: "superadmin", is_active: true, permission_settings: {} };
+const staff = { ...viewer, id: "00000000-0000-4000-8000-000000000002", email: "staff@example.invalid", full_name: "Staff QA", role: "staff", permission_settings: { access: { "/shipments": "deny" } } };
+const session = { access_token: "qa-token", refresh_token: "qa-refresh", expires_at: Math.floor(Date.now() / 1000) + 43200, token_type: "bearer", user };
+const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" });
+try {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+  await context.addInitScript(({ key, session }) => localStorage.setItem(key, JSON.stringify(session)), { key: `sb-${backend.hostname.split(".")[0]}-auth-token`, session });
+  await context.route(`${backend.origin}/**`, async route => {
+    const req = route.request(), url = new URL(req.url());
+    assert.equal(req.method(), "GET", "Browser verification cannot write to the backend");
+    let data = [];
+    if (url.pathname === "/auth/v1/user") data = user;
+    else if (url.pathname === "/rest/v1/users") data = url.searchParams.has("auth_user_id") || url.searchParams.has("email") ? [viewer] : [viewer, staff];
+    if (req.headers().accept?.includes("vnd.pgrst.object") && Array.isArray(data)) data = data[0] || null;
+    await route.fulfill({ json: data });
+  });
+  let saved = null;
+  await context.route("**/api/**", async route => {
+    if (route.request().method() === "PATCH") {
+      assert.ok(route.request().url().endsWith(`/api/admin/users/${staff.id}`));
+      saved = route.request().postDataJSON().permission_settings;
+      staff.permission_settings = saved;
+      await route.fulfill({ json: { user: staff } });
+    } else await route.fulfill({ json: { counts: {} } });
+  });
+  const page = await context.newPage(), errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("http://localhost:3000/users/permissions", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /Staff QA/ }).click();
+  const pageSearch = page.getByRole("textbox", { name: "ຄົ້ນຫາໜ້າເວັບ" });
+  const accessSelects = page.locator("main select[aria-label]");
+  assert.ok(await accessSelects.count() > 50, "Previously missing static pages are listed");
+  await pageSearch.fill("/shipments/notes");
+  assert.equal(await accessSelects.count(), 1);
+  const noteSelect = accessSelects.first();
+  assert.equal(await noteSelect.inputValue(), "inherit");
+  const noteCard = noteSelect.locator("..");
+  assert.ok((await noteCard.innerText()).includes("ເຂົ້າເຖິງບໍ່ໄດ້"), "Saved parent denial is inherited");
+  await noteSelect.selectOption("allow");
+  assert.ok((await noteCard.innerText()).includes("ເຂົ້າເຖິງໄດ້"));
+  await pageSearch.fill("/order-alerts");
+  await accessSelects.first().selectOption("allow");
+  await pageSearch.fill("/reports/data-export");
+  assert.equal(await accessSelects.first().isDisabled(), true, "Role lock is visible");
+  await pageSearch.fill("does-not-exist");
+  assert.equal(await accessSelects.count(), 0);
+  await page.getByText("ບໍ່ພົບໜ້າເວັບ", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "ບັນທຶກສິດ", exact: true }).click();
+  await page.getByText("ບັນທຶກສິດການໃຊ້ງານແລ້ວ", { exact: true }).waitFor();
+  assert.equal(saved.access["/shipments"], "deny");
+  assert.equal(saved.access["/shipments/notes"], "allow");
+  assert.equal(saved.access["/order-alerts"], "allow");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /Staff QA/ }).click();
+  await pageSearch.fill("/order-alerts");
+  assert.equal(await accessSelects.first().inputValue(), "allow", "New page setting survives reload");
+  await page.screenshot({ path: "/tmp/bgsport-user-permissions-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.waitForFunction(() => document.querySelector(".app-sidebar").getBoundingClientRect().right <= 1);
+  await pageSearch.fill("/shirt-catalog");
+  assert.equal(await accessSelects.count(), 4);
+  assert.ok(await page.locator("main").evaluate(el => el.scrollWidth <= el.clientWidth), "Permission editor fits mobile screens");
+  await page.screenshot({ path: "/tmp/bgsport-user-permissions-mobile.png", fullPage: true });
+  assert.deepEqual(errors, []);
+  console.log("PASS: page coverage, search, inheritance, access preview, role locks, mocked save/reload, mobile layout and no runtime errors or production writes.");
+} finally { await browser.close(); }

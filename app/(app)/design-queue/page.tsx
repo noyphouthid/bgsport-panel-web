@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { WorkCategoryField } from "../orders/_components/work-category-field";
-import { getOrderWorkCategoryLabel, type OrderWorkCategory } from "@/lib/order-work-category";
+import { ORDER_WORK_CATEGORIES, getOrderWorkCategoryLabel, normalizeOrderWorkCategory, type OrderWorkCategory } from "@/lib/order-work-category";
 import { queueDesignDeposit, workflowErrorMessage, type DesignPaymentType } from "@/lib/queue-customers";
 import Link from "next/link";
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
@@ -44,6 +44,7 @@ type DesignQueueRow = {
 };
 
 type WorkTypeFilter = "ALL" | "URGENT" | "NORMAL";
+type ShirtCategoryFilter = "ALL" | "UNSPECIFIED" | OrderWorkCategory;
 type GraphicUserRow = {
   id: string;
   full_name: string;
@@ -188,6 +189,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const [monthFilter, setMonthFilter] = useState<MonthFilter>(today.getMonth() + 1);
   const [yearFilter, setYearFilter] = useState(today.getFullYear());
   const [workTypeFilter, setWorkTypeFilter] = useState<WorkTypeFilter>("ALL");
+  const [shirtCategoryFilter, setShirtCategoryFilter] = useState<ShirtCategoryFilter>("ALL");
   const [graphicFilterUserId, setGraphicFilterUserId] = useState<string>(ALL_GRAPHIC_FILTER);
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
@@ -337,6 +339,9 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       if (!isCompletedView && row.is_designed) return false;
       if (workTypeFilter === "URGENT" && !isUrgentWorkType(row.style_name)) return false;
       if (workTypeFilter === "NORMAL" && isUrgentWorkType(row.style_name)) return false;
+      const category = normalizeOrderWorkCategory(row.work_category);
+      if (shirtCategoryFilter === "UNSPECIFIED" && category !== null) return false;
+      if (shirtCategoryFilter !== "ALL" && shirtCategoryFilter !== "UNSPECIFIED" && category !== shirtCategoryFilter) return false;
 
       if (!search) return true;
 
@@ -364,7 +369,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
 
       return a.order_no.localeCompare(b.order_no);
     });
-  }, [activeGraphicFilterUserId, dateFromFilter, dateToFilter, graphicNameMap, isCompletedView, monthFilter, query, rows, workTypeFilter, yearFilter]);
+  }, [activeGraphicFilterUserId, dateFromFilter, dateToFilter, graphicNameMap, isCompletedView, monthFilter, query, rows, shirtCategoryFilter, workTypeFilter, yearFilter]);
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -812,7 +817,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
               </select>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-5">
+            <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
               <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-black text-slate-700">
                 {isCompletedView ? "ສະແດງສະເພາະທີ່ອອກແບບສຳເລັດ" : "ສະແດງສະເພາະທີ່ຍັງບໍ່ທັນອອກແບບ"}
               </div>
@@ -838,6 +843,21 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                 <option value="URGENT">{URGENT_WORK_TYPE}</option>
                 <option value="NORMAL">{NORMAL_WORK_TYPE}</option>
               </select>
+              <div>
+                <label htmlFor="queue-shirt-category-filter" className="mb-1 block text-xs font-black text-slate-500">ປະເພດເສື້ອ</label>
+                <select
+                  id="queue-shirt-category-filter"
+                  value={shirtCategoryFilter}
+                  onChange={(event) => setShirtCategoryFilter(event.target.value as ShirtCategoryFilter)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400"
+                >
+                  <option value="ALL">ທຸກປະເພດເສື້ອ</option>
+                  {ORDER_WORK_CATEGORIES.map((category) => (
+                    <option key={category.value} value={category.value}>{category.label}</option>
+                  ))}
+                  <option value="UNSPECIFIED">ຍັງບໍ່ລະບຸ</option>
+                </select>
+              </div>
               <div>
                 <label className="mb-1 block text-xs font-black uppercase text-slate-500">ວັນທີເລີ່ມ</label>
                 <input

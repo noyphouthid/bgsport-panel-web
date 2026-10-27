@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import toast from "react-hot-toast";
 import { CheckCircle2, ClipboardCheck, LoaderCircle, XCircle } from "lucide-react";
@@ -90,8 +90,8 @@ function getErrorMessage(error: unknown, fallback: string) {
   return raw && raw !== "[object Object]" ? raw : fallback;
 }
 
-async function fetchShipmentApprovalsViaApi() {
-  const response = await authenticatedFetch("/api/shipments/approvals");
+async function fetchShipmentApprovalsViaApi(status: ShipmentDeliveryStatus | "all", signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/shipments/approvals?status=${encodeURIComponent(status)}`, { signal });
 
   const payload = (await response.json().catch(() => ({}))) as ShipmentApprovalsApiPayload;
   if (!response.ok) {
@@ -182,13 +182,19 @@ export default function ShipmentApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState<ShipmentDeliveryStatus | "all">("submitted");
   const [query, setQuery] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const loadController = useRef<AbortController | null>(null);
   const isProcessing = workingId !== null || bulkAction !== null;
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoading(true);
     setErr(null);
+    setRows([]);
     try {
-      const payload = await fetchShipmentApprovalsViaApi();
+      const payload = await fetchShipmentApprovalsViaApi(statusFilter, controller.signal);
+      if (controller.signal.aborted) return;
       setViewerRole((payload.viewerRole as AppRole | null) ?? null);
       setViewerUserId(payload.viewerUserId ?? null);
       setRows((payload.rows ?? []) as ShipmentDeliveryRequestRow[]);
@@ -196,17 +202,19 @@ export default function ShipmentApprovalsPage() {
       setOrdersById(payload.ordersById ?? {});
       setTransportNotesByRequestId(payload.transportNotesByRequestId ?? {});
     } catch (error) {
+      if (controller.signal.aborted) return;
       setViewerRole(null);
       setViewerUserId(null);
       setErr(getErrorMessage(error, "ໂຫຼດຄຳຂໍຈັດສົ່ງບໍ່ສຳເລັດ"));
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
-  };
+  }, [statusFilter]);
 
   useEffect(() => {
     void load();
-  }, []);
+    return () => loadController.current?.abort();
+  }, [load]);
 
   const safeInsertOrderAction = async (orderId: string, action: string, detail: string) => {
     const { error } = await supabase.from("order_status_history").insert({
@@ -607,7 +615,7 @@ export default function ShipmentApprovalsPage() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px,1fr]">
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ສະຖານະ</label>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ShipmentDeliveryStatus | "all")} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500">
+            <select value={statusFilter} disabled={isProcessing} onChange={(e) => setStatusFilter(e.target.value as ShipmentDeliveryStatus | "all")} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500">
               <option value="all">ທັງໝົດ</option>
               <option value="submitted">ລໍຖ້າອະນຸມັດ</option>
               <option value="rejected">ຖືກປະຕິເສດ</option>
