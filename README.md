@@ -1,5 +1,27 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Overdue order report
+
+`/reports/order-alerts` is available from the reports menu and `/order-alerts`.
+It shows eight spreadsheet columns for overdue orders, sorted by days overdue,
+with BG/factory code search, urgent/normal filters, inclusive production/delivery
+date ranges and minimum/maximum overdue days. Select individual rows or use the
+header checkbox to select/deselect all rows matching the current filters. Excel
+exports only selected rows matching those filters, with numbering starting at
+one; hidden selections are preserved but excluded from the download. Clearing
+filters preserves selection; refreshing data clears it. Export is disabled for
+empty selections or invalid ranges. Quantities include free shirts. Dates and overdue days use the
+Laos calendar date captured when refreshing. Orders due today or later, received
+from the factory, completed, closed or shipped are excluded using the shared
+order-alert rules. Deposit rows are paginated to avoid truncating large reports.
+No database migration is required.
+
+Run `node --test tests/order-alert-report.test.mjs tests/order-alerts.test.mjs tests/report-query.test.mjs tests/user-permissions.test.mjs`.
+With the local dev server running, use
+`node scripts/verify-browser-order-alert-report.mjs /path/to/playwright/index.mjs`
+to check the table, Excel contents/types, filters, mobile layout and error/empty
+states against mocked backend data without production writes.
+
 ## Employee page permissions
 
 `/users/permissions` includes the sidebar pages and the static work pages reached

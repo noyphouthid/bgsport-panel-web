@@ -71,6 +71,7 @@ export const APP_NAVIGATION: NavItem[] = [
       { type: "link", href: "/reports/monthly-close", label: "ປິດຍອດຂາຍ-ກຳໄລປະຈໍາເດືອນ", icon: "FileSpreadsheet" },
       { type: "link", href: "/reports/order-status-payments", label: "ລາຍງານຕິດຕາມອໍເດີ-ການຊຳລະ", icon: "FileSpreadsheet" },
       { type: "link", href: "/reports/orders", label: "ລາຍງານອໍເດີ", icon: "FileSpreadsheet" },
+      { type: "link", href: "/reports/order-alerts", label: "ລາຍງານອໍເດີ້ເກີນກຳນົດ", icon: "FileSpreadsheet" },
       { type: "link", href: "/reports/order-activity", label: "Statement ການແກ້ໄຂອໍເດີ", icon: "FileSpreadsheet" },
       { type: "link", href: "/reports/customer-delivery", label: "ລາຍງານຈັດສົ່ງລູກຄ້າ", icon: "FileSpreadsheet" },
       { type: "link", href: "/reports/transport-bills", label: "ລາຍງານໃບບິນຂົນສົ່ງ", icon: "FileSpreadsheet" },

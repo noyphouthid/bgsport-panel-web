@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import type { AppRole } from "@/lib/access-control";
+import { Eye, EyeOff } from "lucide-react";
+import { useDashboardPrivacy } from "@/lib/use-dashboard-privacy";
 
 type DashboardStats = {
   totalProfit: number;
@@ -142,6 +144,7 @@ function getCurrentMonthRange() {
 }
 
 export default function DashboardPage() {
+  const { hideTotals, toggleTotals } = useDashboardPrivacy();
   const currentMonthRange = getCurrentMonthRange();
   const [stats, setStats] = useState<DashboardStats>({
     totalProfit: 0,
@@ -333,7 +336,12 @@ export default function DashboardPage() {
   const isGraphicLimited = viewerRole === "graphic";
 
   const formatCurrency = (amount: number) => {
-    return `₭ ${amount.toLocaleString()}`;
+    return hideTotals ? "••••••" : `₭ ${amount.toLocaleString()}`;
+  };
+
+  const formatTotal = (value: number | string) => {
+    if (hideTotals) return "••••••";
+    return typeof value === "number" ? value.toLocaleString() : value;
   };
 
   const formatDateLao = (dateStr: string) => {
@@ -405,7 +413,18 @@ export default function DashboardPage() {
           <div className="text-sm text-slate-400 font-medium">ພາບລວມຂໍ້ມູນບັນຊີອໍເດີ້</div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleTotals}
+            aria-pressed={hideTotals}
+            aria-label={hideTotals ? "ສະແດງຍອດທັງໝົດ" : "ເຊື່ອງຍອດທັງໝົດ"}
+            title={hideTotals ? "ສະແດງຍອດທັງໝົດ" : "ເຊື່ອງຍອດທັງໝົດ"}
+            className="flex items-center gap-2 bg-white border border-slate-100 px-4 py-2.5 rounded-full text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-all active:scale-95 shadow-[0_2px_10px_rgba(15,23,42,0.04)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            {hideTotals ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+            {hideTotals ? "ສະແດງຍອດ" : "ເຊື່ອງຍອດ"}
+          </button>
           <button
             onClick={loadDashboard}
             className="flex items-center gap-2 bg-white border border-slate-100 px-4 py-2.5 rounded-full text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-all active:scale-95 shadow-[0_2px_10px_rgba(15,23,42,0.04)]"
@@ -522,11 +541,15 @@ export default function DashboardPage() {
             </div>
             <div>
               <div className="text-[11px] font-bold text-slate-400 uppercase">ອັດຕາກຳໄລ</div>
-              <div className="text-lg font-extrabold text-slate-800">{loading ? "..." : `${marginPct.toFixed(1)}%`}</div>
+              <div className="text-lg font-extrabold text-slate-800">{loading ? "..." : formatTotal(`${marginPct.toFixed(1)}%`)}</div>
             </div>
           </div>
 
-          {loading ? (
+          {hideTotals ? (
+            <div className="h-[200px] flex items-center justify-center gap-2 text-slate-400 font-bold text-sm">
+              <EyeOff size={18} aria-hidden="true" /> ເຊື່ອງຂໍ້ມູນເພື່ອຄວາມເປັນສ່ວນຕົວ
+            </div>
+          ) : loading ? (
             <div className="h-[200px] flex items-center justify-center text-slate-400 font-bold text-sm">ກຳລັງໂຫຼດ...</div>
           ) : performanceSeries.length === 0 ? (
             <div className="h-[200px] flex items-center justify-center text-slate-400 font-bold text-sm">ບໍ່ມີຂໍ້ມູນໃນຊ່ວງວັນທີນີ້</div>
@@ -584,7 +607,7 @@ export default function DashboardPage() {
               {loading ? "..." : formatCurrency(stats.totalProfit)}
             </div>
             <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#22C55E] bg-[#22C55E]/10 px-2 py-0.5 rounded-full">
-              ຈາກ {stats.completedOrders} ອໍເດີ້ທີ່ສົ່ງມອບສຳເລັດ
+              ຈາກ {formatTotal(stats.completedOrders)} ອໍເດີ້ທີ່ສົ່ງມອບສຳເລັດ
             </div>
           </div>
 
@@ -616,7 +639,7 @@ export default function DashboardPage() {
               {loading ? "..." : formatCurrency(stats.factoryBalance)}
             </div>
             <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#DC2626] bg-[#DC2626]/10 px-2 py-0.5 rounded-full">
-              ຈາກ {stats.inProgressOrders} ອໍເດີ້ທີ່ຜະລິດ
+              ຈາກ {formatTotal(stats.inProgressOrders)} ອໍເດີ້ທີ່ຜະລິດ
             </div>
           </div>
 
@@ -629,10 +652,10 @@ export default function DashboardPage() {
             </div>
             <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">ກຳລັງຜະລິດ</div>
             <div className="text-[26px] font-extrabold text-slate-900 leading-none mb-2">
-              {loading ? "..." : stats.inProgressOrders}
+              {loading ? "..." : formatTotal(stats.inProgressOrders)}
             </div>
             <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#3B82F6] bg-[#3B82F6]/10 px-2 py-0.5 rounded-full">
-              ອໍເດີ້ທັງໝົດ: {stats.totalOrders}
+              ອໍເດີ້ທັງໝົດ: {formatTotal(stats.totalOrders)}
             </div>
           </div>
         </div>
@@ -649,7 +672,7 @@ export default function DashboardPage() {
           </div>
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">ຈຳນວນເສື້ອທັງໝົດ</div>
           <div className="text-[26px] font-extrabold text-slate-900 leading-none mb-2">
-            {loading ? "..." : stats.totalShirts.toLocaleString()}
+            {loading ? "..." : formatTotal(stats.totalShirts)}
           </div>
           <div className="text-[11px] font-bold text-slate-400">ທັງໝົດທຸກປະເພດ (ຕົວ)</div>
         </div>
@@ -663,10 +686,10 @@ export default function DashboardPage() {
           </div>
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">ແຂນສັ້ນ</div>
           <div className="text-[26px] font-extrabold text-[#3B82F6] leading-none mb-2">
-            {loading ? "..." : stats.shortSleeves.toLocaleString()}
+            {loading ? "..." : formatTotal(stats.shortSleeves)}
           </div>
           <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#3B82F6] bg-[#3B82F6]/10 px-2 py-0.5 rounded-full">
-            ກວມເອົາ {shortPct.toFixed(1)}%
+            ກວມເອົາ {formatTotal(`${shortPct.toFixed(1)}%`)}
           </div>
         </div>
 
@@ -679,10 +702,10 @@ export default function DashboardPage() {
           </div>
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">ແຂນຍາວ</div>
           <div className="text-[26px] font-extrabold text-[#6366F1] leading-none mb-2">
-            {loading ? "..." : stats.longSleeves.toLocaleString()}
+            {loading ? "..." : formatTotal(stats.longSleeves)}
           </div>
           <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#6366F1] bg-[#6366F1]/10 px-2 py-0.5 rounded-full">
-            ກວມເອົາ {longPct.toFixed(1)}%
+            ກວມເອົາ {formatTotal(`${longPct.toFixed(1)}%`)}
           </div>
         </div>
 
@@ -695,10 +718,10 @@ export default function DashboardPage() {
           </div>
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">ແຖມ</div>
           <div className="text-[26px] font-extrabold text-[#EC4899] leading-none mb-2">
-            {loading ? "..." : stats.giveawayShirts.toLocaleString()}
+            {loading ? "..." : formatTotal(stats.giveawayShirts)}
           </div>
           <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#EC4899] bg-[#EC4899]/10 px-2 py-0.5 rounded-full">
-            ຈຳນວນທີ່ແຈກຟຣີ ({freePct.toFixed(1)}%)
+            ຈຳນວນທີ່ແຈກຟຣີ ({formatTotal(`${freePct.toFixed(1)}%`)})
           </div>
         </div>
       </div>
@@ -710,7 +733,7 @@ export default function DashboardPage() {
           <div className="bg-white p-6 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-sm font-extrabold text-slate-800">ສະຖານະອໍເດີ້</h2>
-              <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">ອໍເດີ້ທັງໝົດ {stats.totalOrders}</span>
+              <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">ອໍເດີ້ທັງໝົດ {formatTotal(stats.totalOrders)}</span>
             </div>
 
             <div className="flex items-center gap-6 mb-6">
@@ -732,12 +755,12 @@ export default function DashboardPage() {
               <div>
                 <div className="flex justify-between text-xs font-bold mb-2">
                   <span className="text-slate-400">ກຳລັງຜະລິດ</span>
-                  <span className="text-[#F59E0B]">{stats.inProgressOrders} / {stats.totalOrders}</span>
+                  <span className="text-[#F59E0B]">{formatTotal(stats.inProgressOrders)} / {formatTotal(stats.totalOrders)}</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                   <div
-                    className="bg-[#F59E0B] h-full rounded-full transition-all duration-1000"
-                    style={{ width: `${inProgressPct}%` }}
+                    className={`bg-[#F59E0B] h-full rounded-full ${hideTotals ? "" : "transition-all duration-1000"}`}
+                    style={{ width: hideTotals ? "0%" : `${inProgressPct}%` }}
                   ></div>
                 </div>
               </div>
@@ -745,12 +768,12 @@ export default function DashboardPage() {
               <div>
                 <div className="flex justify-between text-xs font-bold mb-2">
                   <span className="text-slate-400">ສຳເລັດແລ້ວ</span>
-                  <span className="text-[#22C55E]">{stats.completedOrders} / {stats.totalOrders}</span>
+                  <span className="text-[#22C55E]">{formatTotal(stats.completedOrders)} / {formatTotal(stats.totalOrders)}</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                   <div
-                    className="bg-[#22C55E] h-full rounded-full transition-all duration-1000"
-                    style={{ width: `${completedPct}%` }}
+                    className={`bg-[#22C55E] h-full rounded-full ${hideTotals ? "" : "transition-all duration-1000"}`}
+                    style={{ width: hideTotals ? "0%" : `${completedPct}%` }}
                   ></div>
                 </div>
               </div>
@@ -768,11 +791,11 @@ export default function DashboardPage() {
               <div
                 className="relative w-40 h-40 rounded-full flex items-center justify-center shrink-0"
                 style={{
-                  background: `conic-gradient(#22C55E 0% ${completedPct}%, #F59E0B ${completedPct}% 100%)`,
+                  background: hideTotals ? "#F1F5F9" : `conic-gradient(#22C55E 0% ${completedPct}%, #F59E0B ${completedPct}% 100%)`,
                 }}
               >
                 <div className="absolute w-28 h-28 bg-white rounded-full flex flex-col items-center justify-center">
-                  <div className="text-2xl font-extrabold text-slate-900">{loading ? "..." : `${completedPct.toFixed(0)}%`}</div>
+                  <div className="text-2xl font-extrabold text-slate-900">{loading ? "..." : formatTotal(`${completedPct.toFixed(0)}%`)}</div>
                   <div className="text-[10px] font-bold text-slate-400 uppercase">ສຳເລັດ</div>
                 </div>
               </div>
@@ -783,18 +806,18 @@ export default function DashboardPage() {
                     <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]"></span>
                     <span className="text-xs font-bold text-slate-500">ສຳເລັດແລ້ວ</span>
                   </div>
-                  <span className="text-sm font-extrabold text-slate-800">{stats.completedOrders}</span>
+                  <span className="text-sm font-extrabold text-slate-800">{formatTotal(stats.completedOrders)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]"></span>
                     <span className="text-xs font-bold text-slate-500">ກຳລັງຜະລິດ</span>
                   </div>
-                  <span className="text-sm font-extrabold text-slate-800">{stats.inProgressOrders}</span>
+                  <span className="text-sm font-extrabold text-slate-800">{formatTotal(stats.inProgressOrders)}</span>
                 </div>
                 <div className="border-t border-slate-50 pt-4 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-500">Cash Flow ຄາດການ</span>
-                  <span className={`text-sm font-extrabold ${cashFlow >= 0 ? "text-[#22C55E]" : "text-[#DC2626]"}`}>
+                  <span className={`text-sm font-extrabold ${hideTotals ? "text-slate-800" : cashFlow >= 0 ? "text-[#22C55E]" : "text-[#DC2626]"}`}>
                     {formatCurrency(cashFlow)}
                   </span>
                 </div>
@@ -846,10 +869,10 @@ export default function DashboardPage() {
                         </div>
                       </td>
                       <td className="p-4 text-slate-500 font-medium">{order.fabric_name}</td>
-                      <td className="p-4 text-right text-slate-700 font-extrabold">{order.net_total.toLocaleString()}</td>
+                      <td className="p-4 text-right text-slate-700 font-extrabold">{formatTotal(order.net_total)}</td>
                       <td className="p-4 text-right">
-                        <span className={order.balance > 0 ? "text-[#DC2626] font-extrabold" : "text-[#22C55E] font-extrabold"}>
-                          {order.balance > 0 ? order.balance.toLocaleString() : "ຊຳລະແລ້ວ"}
+                        <span className={hideTotals ? "text-slate-700 font-extrabold" : order.balance > 0 ? "text-[#DC2626] font-extrabold" : "text-[#22C55E] font-extrabold"}>
+                          {hideTotals ? "••••••" : order.balance > 0 ? order.balance.toLocaleString() : "ຊຳລະແລ້ວ"}
                         </span>
                       </td>
                       <td className="p-4 text-center">

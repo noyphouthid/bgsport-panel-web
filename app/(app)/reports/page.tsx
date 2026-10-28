@@ -35,6 +35,13 @@ const cards = [
     iconBg: "bg-blue-100 text-blue-700",
   },
   {
+    href: "/reports/order-alerts",
+    title: "ລາຍງານອໍເດີ້ເກີນກຳນົດ",
+    desc: "ຕາລາງອໍເດີ້ເກີນກຳນົດ ພ້ອມຈຳນວນວັນທີ່ຊ້າ ແລະ ດາວໂຫຼດ Excel",
+    icon: ClipboardList,
+    iconBg: "bg-rose-100 text-rose-700",
+  },
+  {
     href: "/reports/order-activity",
     title: "Statement ການແກ້ໄຂອໍເດີ",
     desc: "ຕິດຕາມ ID ຜູ້ແກ້ໄຂອໍເດີ, ເວລາ ແລະ ລາຍລະອຽດທີ່ປ່ຽນແປງ",

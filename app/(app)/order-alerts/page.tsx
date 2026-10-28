@@ -8,6 +8,7 @@ import {
   Building2,
   Clock3,
   FileText,
+  FileSpreadsheet,
   PackageSearch,
   Phone,
   RefreshCw,
@@ -392,6 +393,13 @@ export default function OrderAlertsPage() {
           </div>
 
           <div className="flex flex-wrap items-stretch gap-3">
+            <Link
+              href="/reports/order-alerts"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold text-white transition hover:bg-white/10"
+            >
+              <FileSpreadsheet size={16} />
+              ລາຍງານອໍເດີ້ເກີນກຳນົດ
+            </Link>
             <div className="min-w-[130px] rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
               <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-rose-300">
                 <Clock3 size={13} />
