@@ -29,6 +29,10 @@ export function documentNumberHint(prefix: "QT" | "DPF", date: string) {
 
 export function workflowErrorMessage(error: unknown) {
   const message = error && typeof error === "object" && "message" in error ? String(error.message) : String(error);
+  if (/(collar_label|collar_unit_price|work_category_label|internal_collar_types|internal_work_categories)/i.test(message)
+    && /(column|schema cache|relation)/i.test(message)) {
+    return "ກະລຸນາລັນ migration 20261104_create_internal_document_options.sql ໃນ Supabase ກ່ອນໃຊ້ງານ";
+  }
   if (/(design_payment_type|design_deposit_amount|p_design_payment)/i.test(message)
     && /(column|schema cache|function)/i.test(message)) {
     return "ກະລຸນາຮັນ migration 20261021_add_queue_design_deposits.sql ໃນ Supabase ກ່ອນໃຊ້ງານ";

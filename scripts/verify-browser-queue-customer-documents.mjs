@@ -26,6 +26,8 @@ try {
     let data = [];
     if (url.pathname === "/auth/v1/user") data = user;
     else if (table === "users") data = url.searchParams.has("auth_user_id") || url.searchParams.has("email") ? [profile] : [profile, designer];
+    else if (table === "internal_collar_types") data = [{ code: "none", label: "ຄໍປົກກະຕິ", unit_price: 0, sort_order: 0, is_active: true }, { code: "polo", label: "ຄໍໂປໂລ", unit_price: 20000, sort_order: 10, is_active: true }];
+    else if (table === "internal_work_categories") data = [{ code: "sports", label: "ເສື້ອກິລາ", sort_order: 10, is_active: true }];
     else if (table === "fabrics") data = [fabric];
     else if (table === "order_code_types") data = [{ code: "PK26", type_code: "PK26", is_active: true, sort_order: 1 }];
     else if (table === "design_queue_entries") data = [queue];

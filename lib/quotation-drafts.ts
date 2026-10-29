@@ -33,7 +33,10 @@ export type QuotationDraft = {
   qty4XL: number;
   qty5XL: number;
   qty6XL: number;
-  collarType: "none" | "polo" | "mandarin";
+  collarType: string;
+  collarLabel?: string;
+  collarUnitPrice?: number;
+  workCategoryLabel?: string;
   collarQty: number;
   sleeveChargeQty: number;
   extraCharge: number;
@@ -84,7 +87,10 @@ type QuotationDraftDbRow = {
   qty_4xl: number;
   qty_5xl: number;
   qty_6xl: number;
-  collar_type: "none" | "polo" | "mandarin";
+  collar_type: string;
+  collar_label?: string;
+  collar_unit_price?: number;
+  work_category_label?: string;
   collar_qty: number;
   sleeve_charge_qty?: number;
   extra_charge: number;
@@ -130,6 +136,9 @@ const QUOTATION_DRAFT_BASE_FIELDS = [
   "qty_5xl",
   "qty_6xl",
   "collar_type",
+  "collar_label",
+  "collar_unit_price",
+  "work_category_label",
   "collar_qty",
   "sleeve_charge_qty",
   "extra_charge",
@@ -178,6 +187,9 @@ function mapRowToDraft(row: QuotationDraftDbRow): QuotationDraft {
     qty5XL: Number(row.qty_5xl) || 0,
     qty6XL: Number(row.qty_6xl) || 0,
     collarType: row.collar_type || "none",
+    collarLabel: row.collar_label,
+    collarUnitPrice: row.collar_unit_price == null ? undefined : Number(row.collar_unit_price),
+    workCategoryLabel: row.work_category_label,
     collarQty: Number(row.collar_qty) || 0,
     sleeveChargeQty: Number(row.sleeve_charge_qty) || 0,
     extraCharge: Number(row.extra_charge) || 0,
@@ -362,6 +374,9 @@ export async function saveQuotationDraft(draft: QuotationDraft) {
     qty_5xl: Number(draft.qty5XL) || 0,
     qty_6xl: Number(draft.qty6XL) || 0,
     collar_type: draft.collarType,
+    ...(draft.collarLabel !== undefined ? { collar_label: draft.collarLabel } : {}),
+    ...(draft.collarUnitPrice !== undefined ? { collar_unit_price: draft.collarUnitPrice } : {}),
+    ...(draft.workCategoryLabel !== undefined ? { work_category_label: draft.workCategoryLabel } : {}),
     collar_qty: Number(draft.collarQty) || 0,
     sleeve_charge_qty: Number(draft.sleeveChargeQty) || 0,
     extra_charge: Number(draft.extraCharge) || 0,

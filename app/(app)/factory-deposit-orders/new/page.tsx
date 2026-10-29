@@ -1,5 +1,13 @@
 "use client";
 
+import { getProductionCollarLabel, normalizeProductionCollarCode } from "@/lib/production-collars";
+
+import { ProductionCollarField } from "@/components/production-collar-field";
+import { useProductionCollars } from "@/lib/use-production-collars";
+import { InternalCollarField } from "@/components/internal-collar-field";
+import { useInternalDocumentOptions } from "@/lib/use-internal-document-options";
+import { legacyCollarLabel, legacyCollarPrice } from "@/lib/internal-document-options";
+
 import { WorkCategoryField } from "../../orders/_components/work-category-field";
 import { getOrderWorkCategoryLabel, normalizeOrderWorkCategory, type OrderWorkCategory } from "@/lib/order-work-category";
 import { documentNumberHint, workflowErrorMessage } from "@/lib/queue-customers";
@@ -97,7 +105,10 @@ type DepositOrderRow = {
   qty_4xl: number;
   qty_5xl: number;
   qty_6xl: number;
-  collar_type: "none" | "polo" | "mandarin";
+  collar_type: string;
+  collar_label?: string;
+  collar_unit_price?: number;
+  work_category_label?: string;
   collar_qty: number;
   sleeve_charge_qty?: number;
   extra_charge: number;
@@ -127,21 +138,7 @@ type DepositOrderRow = {
 };
 
 type ProductionSleeveType = "short" | "long" | "mixed" | "raglan" | "basketball";
-type ProductionCollarType =
-  | "crew"
-  | "crew_dyed_rib"
-  | "crew_printed_rib"
-  | "polo"
-  | "mandarin"
-  | "v_cut_polo"
-  | "v_neck"
-  | "cross_v"
-  | "cut_v"
-  | "pentagon"
-  | "v_polo"
-  | "cross_v_polo"
-  | "y_neck"
-  | "sharp_v";
+type ProductionCollarType = string;
 type ProductionHemType = "straight" | "curved";
 type ProductionSlotCount = 1 | 2 | 3 | 4 | 5 | 6;
 type ProductionSizeKey = "xs" | "jxs" | "js" | "jm" | "jl" | "jxl" | "j2xl" | "s" | "m" | "l" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl";
@@ -162,6 +159,7 @@ type ProductionItem = {
   client_id: string;
   sleeve_type: ProductionSleeveType;
   collar_type: ProductionCollarType;
+  collar_label?: string;
   hem_type: ProductionHemType;
   mockup_url: string | null;
   mockup_path: string | null;
@@ -186,7 +184,6 @@ type PantsProductionItem = PantsOrderItemDraft & {
 
 type CsvCell = string | number;
 
-const COLLAR_PRICE = 20000;
 const SLEEVE_PRICE = 20000;
 const SIZE_UPCHARGES = {
   "3XL": 20000,
@@ -204,22 +201,6 @@ const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: str
   { value: "basketball", label: "ເສື້ອບາສ" },
 ];
 
-const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: string }> = [
-  { value: "crew", label: "ຄໍມົນ" },
-  { value: "crew_dyed_rib", label: "ຄໍມົນຜ້າບຸ້ງຍ້ອມ" },
-  { value: "crew_printed_rib", label: "ຄໍມົນຜ້າບຸ້ງພິມລາຍ" },
-  { value: "polo", label: "ໂປໂລ" },
-  { value: "mandarin", label: "ຄໍຈີນ" },
-  { value: "v_cut_polo", label: "ຄໍໂປໂລວີຕັດ" },
-  { value: "v_neck", label: "ຄໍວີ" },
-  { value: "cross_v", label: "ຄໍວີໄຂວ່" },
-  { value: "cut_v", label: "ຄໍວີຕັດ" },
-  { value: "pentagon", label: "ຄໍ 5 ຫຼ່ຽມ" },
-  { value: "v_polo", label: "ຄໍໂປໂລວີ" },
-  { value: "cross_v_polo", label: "ຄໍໂປໂລວີໄຂວ່" },
-  { value: "y_neck", label: "ຄໍ Y" },
-  { value: "sharp_v", label: "ຄໍ V ໂຊສາບ" },
-];
 
 const PRODUCTION_HEM_OPTIONS: Array<{ value: ProductionHemType; label: string }> = [
   { value: "straight", label: "ຕີນຊື່" },
@@ -345,6 +326,7 @@ function buildEmptyProductionItem(
     client_id: buildClientId(),
     sleeve_type: overrides?.sleeve_type ?? "short",
     collar_type: overrides?.collar_type ?? "crew",
+    collar_label: overrides?.collar_label,
     hem_type: overrides?.hem_type ?? "straight",
     mockup_url: overrides?.mockup_url ?? null,
     mockup_path: overrides?.mockup_path ?? null,
@@ -424,9 +406,6 @@ function getProductionSleeveLabel(value: ProductionSleeveType) {
   return PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === value)?.label || "-";
 }
 
-function getProductionCollarLabel(value: ProductionCollarType) {
-  return PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === value)?.label || "-";
-}
 
 function getProductionHemLabel(value: ProductionHemType) {
   return PRODUCTION_HEM_OPTIONS.find((option) => option.value === value)?.label || "-";
@@ -505,7 +484,7 @@ function buildProductionCsvRowsFromDraft({
     csvRows.push([
       styleLabel,
       `ແຂນ: ${getProductionSleeveLabel(item.sleeve_type)}`,
-      `ຄໍ: ${getProductionCollarLabel(item.collar_type)}`,
+      `ຄໍ: ${getProductionCollarLabel(item.collar_type, item.collar_label)}`,
       `ຕີນເສື້ອ: ${getProductionHemLabel(item.hem_type)}`,
     ]);
     csvRows.push(["ແບບເສື້ອ", "ປະເພດຂໍ້ມູນ", "ໄຊສ໌ເສື້ອ", "ຈຳນວນ", "ເບີເສື້ອ", "ຊື່", "ຊື່+ເບີເສື້ອ", "ໝາຍເຫດ"]);
@@ -556,11 +535,8 @@ function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType
           row.sleeve_type === "basketball"
             ? (row.sleeve_type as ProductionSleeveType)
             : fallbackSleeve,
-        collar_type:
-          typeof row.collar_type === "string" &&
-          PRODUCTION_COLLAR_OPTIONS.some((option) => option.value === row.collar_type)
-            ? (row.collar_type as ProductionCollarType)
-            : fallbackCollar,
+        collar_type: normalizeProductionCollarCode(row.collar_type, fallbackCollar),
+        collar_label: getProductionCollarLabel(normalizeProductionCollarCode(row.collar_type, fallbackCollar), typeof row.collar_label === "string" ? row.collar_label : undefined),
         hem_type:
           row.hem_type === "curved" || row.hem_type === "straight"
             ? (row.hem_type as ProductionHemType)
@@ -812,7 +788,12 @@ export default function FactoryDepositOrderFormPage() {
   const [qty5XL, setQty5XL] = useState(0);
   const [qty6XL, setQty6XL] = useState(0);
   const [pantsItems, setPantsItems] = useState<PantsProductionItem[]>([]);
-  const [collarType, setCollarType] = useState<"none" | "polo" | "mandarin">("none");
+  const documentOptions = useInternalDocumentOptions();
+  const productionCollars = useProductionCollars();
+  const [collarType, setCollarType] = useState<string>("none");
+  const [collarLabel, setCollarLabel] = useState(legacyCollarLabel("none"));
+  const [collarUnitPrice, setCollarUnitPrice] = useState(0);
+  const [workCategoryLabel, setWorkCategoryLabel] = useState("");
   const [collarQty, setCollarQty] = useState(0);
   const [sleeveChargeQty, setSleeveChargeQty] = useState(0);
 
@@ -920,6 +901,9 @@ export default function FactoryDepositOrderFormPage() {
           const parsedPantsSummary = getPantsItemsSummary(parsedPantsItems);
           setPantsItems(parsedPantsItems);
           setCollarType(row.collar_type || "none");
+          setCollarLabel(row.collar_label || legacyCollarLabel(row.collar_type || "none"));
+          setCollarUnitPrice(row.collar_unit_price == null ? legacyCollarPrice(row.collar_type || "none") : Number(row.collar_unit_price));
+          setWorkCategoryLabel(row.work_category_label || quotationSnapshot?.workCategoryLabel || getOrderWorkCategoryLabel(row.work_category));
           setCollarQty(Number(row.collar_qty) || 0);
           setSleeveChargeQty(Number(row.sleeve_charge_qty) || 0);
           setExtraCharge(Number(row.extra_charge) || 0);
@@ -982,6 +966,9 @@ export default function FactoryDepositOrderFormPage() {
             setQty6XL(draft.qty6XL || 0);
             setPantsItems((draft.pantsItems || []).map((item) => buildEmptyPantsProductionItem(item)));
             setCollarType(draft.collarType);
+            setCollarLabel(draft.collarLabel || legacyCollarLabel(draft.collarType));
+            setCollarUnitPrice(draft.collarUnitPrice ?? legacyCollarPrice(draft.collarType));
+            setWorkCategoryLabel(draft.workCategoryLabel || getOrderWorkCategoryLabel(draft.workCategory));
             setCollarQty(draft.collarQty);
             setSleeveChargeQty(draft.sleeveChargeQty);
             setExtraCharge(draft.extraCharge);
@@ -1052,8 +1039,8 @@ export default function FactoryDepositOrderFormPage() {
 
   const collarTotal = useMemo(() => {
     if (collarType === "none") return 0;
-    return (Number(collarQty) || 0) * COLLAR_PRICE;
-  }, [collarQty, collarType]);
+    return (Number(collarQty) || 0) * collarUnitPrice;
+  }, [collarQty, collarType, collarUnitPrice]);
   const sleeveChargeTotal = useMemo(() => (Number(sleeveChargeQty) || 0) * SLEEVE_PRICE, [sleeveChargeQty]);
 
   const grossTotal = useMemo(
@@ -1093,8 +1080,10 @@ export default function FactoryDepositOrderFormPage() {
   );
   const totalFactoryCost = useMemo(() => Math.max(0, factoryCost) + pantsSummary.factoryCostTotal, [factoryCost, pantsSummary.factoryCostTotal]);
   const activeProductionItems = useMemo(
-    () => ensureProductionItemCount(productionItems, productionStyleCount).slice(0, productionStyleCount),
-    [productionItems, productionStyleCount]
+    () => ensureProductionItemCount(productionItems, productionStyleCount).slice(0, productionStyleCount).map(item => ({
+      ...item, collar_label: item.collar_label || productionCollars.options.find(option => option.code === item.collar_type)?.label || getProductionCollarLabel(item.collar_type),
+    })),
+    [productionItems, productionStyleCount, productionCollars.options]
   );
   const productionSheetPreviewCardCount = activeProductionItems.length + pantsItems.length;
   const usesExpandedProductionSheetLayout = productionSheetPreviewCardCount > 4;
@@ -1181,6 +1170,9 @@ export default function FactoryDepositOrderFormPage() {
     qty5XL,
     qty6XL,
     collarType,
+    collarLabel,
+    collarUnitPrice,
+    workCategoryLabel: workCategoryLabel || getOrderWorkCategoryLabel(workCategory, documentOptions.workCategories.map(row => ({ value: row.code, label: row.label }))),
     collarQty,
     sleeveChargeQty,
     extraCharge,
@@ -1327,6 +1319,7 @@ export default function FactoryDepositOrderFormPage() {
       order: index + 1,
       sleeve_type: item.sleeve_type,
       collar_type: item.collar_type,
+      collar_label: getProductionCollarLabel(item.collar_type, item.collar_label),
       hem_type: item.hem_type,
       mockup_url: item.mockup_url,
       mockup_path: item.mockup_path,
@@ -1669,6 +1662,8 @@ export default function FactoryDepositOrderFormPage() {
     redirectAfterSave?: boolean;
     extraOrderFields?: Record<string, string | null>;
   }) => {
+    if (documentOptions.error) { toast.error(documentOptions.error); return null; }
+    if (documentOptions.loading) { toast.error("ກະລຸນາລໍຖ້າໂຫຼດລາຍການຕັ້ງຄ່າ"); return null; }
     if (!canEdit) {
       toast.error("ທ່ານບໍ່ມີສິດແກ້ໄຂໃບນີ້");
       return null;
@@ -1827,6 +1822,9 @@ export default function FactoryDepositOrderFormPage() {
         color_name: colorName.trim(),
         sleeve_type: shortQty > 0 && longQty > 0 ? "mixed" : longQty > 0 ? "long" : "short",
         collar_type: collarType,
+        collar_label: collarLabel,
+        collar_unit_price: collarUnitPrice,
+        work_category_label: workCategoryLabel || getOrderWorkCategoryLabel(workCategory, documentOptions.workCategories.map(row => ({ value: row.code, label: row.label }))),
         collar_qty: Math.max(0, collarQty),
         sleeve_charge_qty: Math.max(0, sleeveChargeQty),
         short_qty: Math.max(0, shortQty),
@@ -1954,6 +1952,8 @@ export default function FactoryDepositOrderFormPage() {
   };
 
   const handleSave = async (nextStatus: FactoryDepositOrderStatus) => {
+    if (documentOptions.error) return toast.error(documentOptions.error);
+    if (documentOptions.loading) return toast.error("ກະລຸນາລໍຖ້າໂຫຼດລາຍການຕັ້ງຄ່າ");
     const confirmed = await confirmAction({
       title: nextStatus === "submitted" ? "ຢືນຢັນບັນທຶກ ແລະ ສົ່ງ?" : "ຢືນຢັນບັນທຶກຮ່າງ?",
       text: `${quotationQuoteNo || depositNo} / ${orderCode || "-"}`,
@@ -2039,6 +2039,9 @@ export default function FactoryDepositOrderFormPage() {
         qty_5xl: Math.max(0, qty5XL),
         qty_6xl: Math.max(0, qty6XL),
         collar_type: collarType,
+        collar_label: collarLabel,
+        collar_unit_price: collarUnitPrice,
+        work_category_label: workCategoryLabel || getOrderWorkCategoryLabel(workCategory, documentOptions.workCategories.map(row => ({ value: row.code, label: row.label }))),
         collar_qty: Math.max(0, collarQty),
         sleeve_charge_qty: Math.max(0, sleeveChargeQty),
         size_upcharge: 20000,
@@ -2323,7 +2326,7 @@ export default function FactoryDepositOrderFormPage() {
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ລະຫັດໃບມັດຈຳ</label>
                 <input value={depositNo} readOnly placeholder={documentNumberHint("DPF", depositDate)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               </div>
-              <WorkCategoryField value={workCategory} onChange={setWorkCategory} disabled={!canEdit} />
+              <WorkCategoryField value={workCategory} options={documentOptions.workCategories} currentLabel={workCategoryLabel} onChange={value => { setWorkCategory(value); setWorkCategoryLabel(documentOptions.workCategories.find(row => row.code === value)?.label || ""); }} disabled={!canEdit} />
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຊື່ທີມ</label>
                 <input
@@ -2356,6 +2359,7 @@ export default function FactoryDepositOrderFormPage() {
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນແບບຜະລິດ</label>
                 <select
+                  aria-label="ຈຳນວນແບບຜະລິດ"
                   value={productionStyleCount}
                   onChange={(e) => handleStyleCountChange(Number(e.target.value) as ProductionSlotCount)}
                   disabled={!canEdit}
@@ -2491,20 +2495,7 @@ export default function FactoryDepositOrderFormPage() {
             <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຄໍເສື້ອ</label>
-                <select
-                  value={collarType}
-                  onChange={(e) => {
-                    const nextValue = e.target.value as "none" | "polo" | "mandarin";
-                    setCollarType(nextValue);
-                    if (nextValue === "none") setCollarQty(0);
-                  }}
-                  disabled={!canEdit}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50"
-                >
-                  <option value="none">ຄໍປົກກະຕິ</option>
-                  <option value="polo">ຄໍໂປໂລ +20,000</option>
-                  <option value="mandarin">ຄໍຈີນ +20,000</option>
-                </select>
+                <InternalCollarField value={collarType} label={collarLabel} unitPrice={collarUnitPrice} options={documentOptions.collars} disabled={!canEdit} onChange={option => { setCollarType(option.code); setCollarLabel(option.label); setCollarUnitPrice(Number(option.unit_price) || 0); if (option.code === "none") setCollarQty(0); }}/>
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຈຳນວນຄໍເສື້ອທີ່ບວກເພີ່ມ</label>
@@ -3077,12 +3068,13 @@ export default function FactoryDepositOrderFormPage() {
             </div>
 
             <div className="space-y-4">
+              {productionCollars.error && <div role="alert" className="rounded-xl border border-amber-300 p-3 text-sm text-amber-700">{productionCollars.error}</div>}
               {activeProductionItems.map((item, index) => {
                 const itemTotal = getProductionItemTotal(item);
                 const filledPlayerRows = getFilledPlayerRows(item);
                 const imageUrl = item.mockup_preview_url || item.mockup_url;
                 const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
-                const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
+                const collarLabel = getProductionCollarLabel(item.collar_type, item.collar_label);
                 const hemLabel = getProductionHemLabel(item.hem_type);
                 return (
                   <div key={item.client_id} className="rounded-[28px] border border-slate-200 bg-slate-50/70 p-5">
@@ -3148,9 +3140,7 @@ export default function FactoryDepositOrderFormPage() {
                           </div>
                           <div>
                             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຄໍເສື້ອ</label>
-                            <select value={item.collar_type} onChange={(e) => updateProductionItem(index, (current) => ({ ...current, collar_type: e.target.value as ProductionCollarType }))} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100">
-                              {PRODUCTION_COLLAR_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                            </select>
+                            <ProductionCollarField value={item.collar_type} label={item.collar_label} options={productionCollars.options} designNumber={index + 1} disabled={!canEdit || productionCollars.loading} onChange={option => updateProductionItem(index, current => ({ ...current, collar_type: option.code, collar_label: option.label }))}/>
                           </div>
                           <div>
                             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ຕີນເສື້ອ</label>
@@ -3371,7 +3361,7 @@ export default function FactoryDepositOrderFormPage() {
                     <div className="text-[12px] font-black text-slate-700">ຊື່ທີມ:</div>
                     <div className="mt-1 text-[18px] font-black leading-tight text-slate-900">{teamName || "-"}</div>
                     <div className="mt-3 text-[15px] font-black text-slate-700">ລະຫັດອໍເດີ້: <span className="font-black text-sky-700">{orderCode || "-"}</span></div>
-                    <div className="mt-1 text-[12px] font-bold text-slate-700">ປະເພດງານ: {getOrderWorkCategoryLabel(workCategory)}</div>
+                    <div className="mt-1 text-[12px] font-bold text-slate-700">ປະເພດງານ: {workCategoryLabel || getOrderWorkCategoryLabel(workCategory, documentOptions.workCategories.map(row => ({ value: row.code, label: row.label })))}</div>
                     <div className="mt-1 text-[15px] font-black text-slate-700">ຜ້າ: <span className="font-bold text-slate-900">{selectedFabric?.name || "-"}</span></div>
                     <div className="mt-1 text-[15px] font-black text-slate-700">
                       ຕີນເສື້ອ:{" "}
@@ -3411,7 +3401,7 @@ export default function FactoryDepositOrderFormPage() {
                   {activeProductionItems.map((item, index) => {
                     const usesWidePreviewCard = item.player_mode === "name_and_number";
                     const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
-                    const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
+                    const collarLabel = getProductionCollarLabel(item.collar_type, item.collar_label);
                     const hemLabel = getProductionHemLabel(item.hem_type);
                     const imageUrl = item.mockup_preview_url || item.mockup_url;
                     const filledPlayerRows = getFilledPlayerRows(item);

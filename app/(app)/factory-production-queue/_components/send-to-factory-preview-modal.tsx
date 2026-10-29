@@ -1,4 +1,6 @@
 "use client";
+
+import { getProductionCollarLabel } from "@/lib/production-collars";
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
@@ -58,6 +60,7 @@ type ParsedProductionItem = {
   mockupUrl: string | null;
   sleeveType: string | null;
   collarType: string | null;
+  collarLabel: string | null;
   hemType: string | null;
   playerMode: string | null;
   playerRows: ParsedPlayerRow[];
@@ -111,22 +114,6 @@ const PRODUCTION_SLEEVE_LABELS: Record<string, string> = {
   basketball: "ເສື້ອບາສ",
 };
 
-const PRODUCTION_COLLAR_LABELS: Record<string, string> = {
-  crew: "ຄໍມົນ",
-  crew_dyed_rib: "ຄໍມົນຜ້າບຸ້ງຍ້ອມ",
-  crew_printed_rib: "ຄໍມົນຜ້າບຸ້ງພິມລາຍ",
-  polo: "ໂປໂລ",
-  mandarin: "ຄໍຈີນ",
-  v_cut_polo: "ຄໍໂປໂລວີຕັດ",
-  v_neck: "ຄໍວີ",
-  cross_v: "ຄໍວີໄຂວ່",
-  cut_v: "ຄໍວີຕັດ",
-  pentagon: "ຄໍ 5 ຫຼ່ຽມ",
-  v_polo: "ຄໍໂປໂລວີ",
-  cross_v_polo: "ຄໍໂປໂລວີໄຂວ່",
-  y_neck: "ຄໍ Y",
-  sharp_v: "ຄໍ V ໂຊສາບ",
-};
 
 const PRODUCTION_HEM_LABELS: Record<string, string> = {
   straight: "ຕີນຊື່",
@@ -218,6 +205,7 @@ function parseProductionItems(raw: unknown) {
         mockupUrl: toDisplayMediaUrl(typeof row.mockup_url === "string" ? row.mockup_url : null),
         sleeveType: typeof row.sleeve_type === "string" ? row.sleeve_type : null,
         collarType: typeof row.collar_type === "string" ? row.collar_type : null,
+        collarLabel: typeof row.collar_label === "string" ? row.collar_label : null,
         hemType: typeof row.hem_type === "string" ? row.hem_type : null,
         playerMode: typeof row.player_mode === "string" ? row.player_mode : "none",
         playerRows,
@@ -252,9 +240,8 @@ function getSleeveLabel(value: string | null) {
   return PRODUCTION_SLEEVE_LABELS[value] || formatRawLabel(value);
 }
 
-function getCollarLabel(value: string | null) {
-  if (!value) return "-";
-  return PRODUCTION_COLLAR_LABELS[value] || formatRawLabel(value);
+function getCollarLabel(value: string | null, label: string | null) {
+  return getProductionCollarLabel(value, label);
 }
 
 function getHemLabel(value: string | null) {
@@ -524,7 +511,7 @@ export function SendToFactoryPreviewModal({
                     return (
                       <div key={`shirt-${item.order}`} className={`flex min-h-0 flex-col ${usesWidePreviewCard ? "col-span-2" : ""}`}>
                         <div className={`rounded-md border border-slate-700 text-center font-black text-slate-700 ${usesExpandedProductionSheetLayout ? "mb-1 px-1.5 py-1 text-[9px]" : "mb-2 px-2 py-1.5 text-[11px]"}`}>
-                          ແບບ {item.order} • {getSleeveLabel(item.sleeveType)} • {getCollarLabel(item.collarType)} • {getHemLabel(item.hemType)}
+                          ແບບ {item.order} • {getSleeveLabel(item.sleeveType)} • {getCollarLabel(item.collarType, item.collarLabel)} • {getHemLabel(item.hemType)}
                         </div>
                         <div className={`${usesWidePreviewCard ? (usesExpandedProductionSheetLayout ? "h-[122px]" : "h-[176px]") : "aspect-square"} overflow-hidden rounded-md border border-slate-700 bg-white`}>
                           {item.mockupUrl || fallbackImage ? (

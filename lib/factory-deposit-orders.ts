@@ -62,7 +62,10 @@ export type FactoryDepositOrder = {
   style_name: string;
   color_name: string;
   sleeve_type: "short" | "long" | "mixed";
-  collar_type: "none" | "polo" | "mandarin";
+  collar_type: string;
+  collar_label?: string;
+  collar_unit_price?: number;
+  work_category_label?: string;
   collar_qty: number;
   sleeve_charge_qty: number;
   short_qty: number;

@@ -1,5 +1,7 @@
 "use client";
 
+import { getProductionCollarLabel, normalizeProductionCollarCode } from "@/lib/production-collars";
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
@@ -58,7 +60,10 @@ type DepositRow = {
   fabric_id: string | null;
   fabric_short_price: number;
   fabric_long_price: number;
-  collar_type?: "none" | "polo" | "mandarin" | null;
+  collar_type?: string | null;
+  collar_label?: string;
+  collar_unit_price?: number;
+  work_category_label?: string;
   collar_qty?: number;
   sleeve_charge_qty?: number;
   extra_charge: number;
@@ -107,21 +112,7 @@ type DepositSlipRow = {
 
 type ProductionPlayerMode = "none" | "name_only" | "number_only" | "name_and_number";
 type ProductionSleeveType = "short" | "long" | "mixed" | "raglan" | "basketball";
-type ProductionCollarType =
-  | "crew"
-  | "crew_dyed_rib"
-  | "crew_printed_rib"
-  | "polo"
-  | "mandarin"
-  | "v_cut_polo"
-  | "v_neck"
-  | "cross_v"
-  | "cut_v"
-  | "pentagon"
-  | "v_polo"
-  | "cross_v_polo"
-  | "y_neck"
-  | "sharp_v";
+type ProductionCollarType = string;
 type ProductionSizeKey = "xs" | "jxs" | "js" | "jm" | "jl" | "jxl" | "j2xl" | "s" | "m" | "l" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl";
 
 type ProductionPlayerRow = {
@@ -136,6 +127,7 @@ type ProductionPreviewItem = {
   client_id: string;
   sleeve_type: ProductionSleeveType;
   collar_type: ProductionCollarType;
+  collar_label?: string;
   mockup_url: string | null;
   sizes: Record<ProductionSizeKey, number>;
   player_mode: ProductionPlayerMode;
@@ -157,22 +149,6 @@ const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: str
   { value: "basketball", label: "ເສື້ອບາສ" },
 ];
 
-const PRODUCTION_COLLAR_OPTIONS: Array<{ value: ProductionCollarType; label: string }> = [
-  { value: "crew", label: "ຄໍມົນ" },
-  { value: "crew_dyed_rib", label: "ຄໍມົນຜ້າບຸ້ງຍ້ອມ" },
-  { value: "crew_printed_rib", label: "ຄໍມົນຜ້າບຸ້ງພິມລາຍ" },
-  { value: "polo", label: "ໂປໂລ" },
-  { value: "mandarin", label: "ຄໍຈີນ" },
-  { value: "v_cut_polo", label: "ຄໍໂປໂລວີຕັດ" },
-  { value: "v_neck", label: "ຄໍວີ" },
-  { value: "cross_v", label: "ຄໍວີໄຂວ່" },
-  { value: "cut_v", label: "ຄໍວີຕັດ" },
-  { value: "pentagon", label: "ຄໍ 5 ຫຼ່ຽມ" },
-  { value: "v_polo", label: "ຄໍໂປໂລວີ" },
-  { value: "cross_v_polo", label: "ຄໍໂປໂລວີໄຂວ່" },
-  { value: "y_neck", label: "ຄໍ Y" },
-  { value: "sharp_v", label: "ຄໍ V ໂຊສາບ" },
-];
 
 const PRODUCTION_SIZE_FIELDS: Array<{ key: ProductionSizeKey; label: string }> = [
   { key: "xs", label: "XS" },
@@ -213,10 +189,8 @@ function parseProductionPreviewItems(raw: unknown): ProductionPreviewItem[] {
         row.sleeve_type === "basketball"
           ? (row.sleeve_type as ProductionSleeveType)
           : "short",
-      collar_type:
-        typeof row.collar_type === "string" && PRODUCTION_COLLAR_OPTIONS.some((option) => option.value === row.collar_type)
-          ? (row.collar_type as ProductionCollarType)
-          : "crew",
+      collar_type: normalizeProductionCollarCode(row.collar_type, "crew"),
+        collar_label: getProductionCollarLabel(normalizeProductionCollarCode(row.collar_type, "crew"), typeof row.collar_label === "string" ? row.collar_label : undefined),
       mockup_url: typeof row.mockup_url === "string" ? row.mockup_url : null,
       player_mode:
         row.player_mode === "name_only" ||
@@ -277,10 +251,8 @@ function parseProductionExportItems(raw: unknown): ProductionPreviewItem[] {
         row.sleeve_type === "basketball"
           ? (row.sleeve_type as ProductionSleeveType)
           : "short",
-      collar_type:
-        typeof row.collar_type === "string" && PRODUCTION_COLLAR_OPTIONS.some((option) => option.value === row.collar_type)
-          ? (row.collar_type as ProductionCollarType)
-          : "crew",
+      collar_type: normalizeProductionCollarCode(row.collar_type, "crew"),
+        collar_label: getProductionCollarLabel(normalizeProductionCollarCode(row.collar_type, "crew"), typeof row.collar_label === "string" ? row.collar_label : undefined),
       mockup_url: typeof row.mockup_url === "string" ? row.mockup_url : null,
       player_mode:
         row.player_mode === "name_only" ||
@@ -356,9 +328,6 @@ function getProductionSleeveLabel(value: ProductionSleeveType) {
   return PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === value)?.label || "-";
 }
 
-function getProductionCollarLabel(value: ProductionCollarType) {
-  return PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === value)?.label || "-";
-}
 
 function isImageFileName(name: string) {
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(name || ""));
@@ -429,7 +398,7 @@ function buildProductionCsvRows(row: DepositRow): CsvCell[][] {
   items.forEach((item, index) => {
     const styleLabel = `ແບບ ${index + 1}`;
     const sleeveLabel = getProductionSleeveLabel(item.sleeve_type);
-    const collarLabel = getProductionCollarLabel(item.collar_type);
+    const collarLabel = getProductionCollarLabel(item.collar_type, item.collar_label);
     const filledPlayerRows = getFilledPlayerRows(item);
 
     csvRows.push([styleLabel, `ແຂນ: ${sleeveLabel}`, `ຄໍ: ${collarLabel}`]);
@@ -767,6 +736,9 @@ export default function FactoryDepositOrdersPage() {
         qty_5xl: Number(row.qty_5xl) || 0,
         qty_6xl: Number(row.qty_6xl) || 0,
         collar_type: row.collar_type || "none",
+        collar_label: row.collar_label,
+        collar_unit_price: row.collar_unit_price,
+        work_category_label: row.work_category_label,
         collar_qty: Math.max(0, Number(row.collar_qty) || 0),
         sleeve_charge_qty: Math.max(0, Number(row.sleeve_charge_qty) || 0),
         size_upcharge: 20000,
@@ -1222,6 +1194,7 @@ export default function FactoryDepositOrdersPage() {
           <div className="relative max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[28px] bg-white p-5 shadow-2xl">
             <button
               type="button"
+              aria-label="ປິດໃບສັ່ງຜະລິດ"
               onClick={() => setPreviewRow(null)}
               className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200"
             >
@@ -1276,7 +1249,7 @@ export default function FactoryDepositOrdersPage() {
                   {previewItems.length > 0 ? (
                     previewItems.map((item, index) => {
                       const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
-                      const collarLabel = PRODUCTION_COLLAR_OPTIONS.find((option) => option.value === item.collar_type)?.label || "-";
+                      const collarLabel = getProductionCollarLabel(item.collar_type, item.collar_label);
                       const filledPlayerRows = getFilledPlayerRows(item);
                       return (
                         <div key={item.client_id} className="flex min-h-0 flex-col">

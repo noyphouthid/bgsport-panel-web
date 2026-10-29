@@ -24,6 +24,7 @@ const ACCESS_GROUPS: Record<string, string> = {
   "/imports": "ຕັ້ງຄ່າ",
   "/fabric": "ຕັ້ງຄ່າ",
   "/order-code-types": "ຕັ້ງຄ່າ",
+  "/settings": "ຕັ້ງຄ່າ",
   "/order-alerts": "ອໍເດີ",
 };
 

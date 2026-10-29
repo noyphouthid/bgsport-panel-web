@@ -22,6 +22,61 @@ With the local dev server running, use
 to check the table, Excel contents/types, filters, mobile layout and error/empty
 states against mocked backend data without production writes.
 
+## Internal quotation and production document settings
+
+Apply `supabase/migrations/20261104_create_internal_document_options.sql` after
+the existing document/queue migrations, then apply
+`supabase/migrations/20261105_create_production_collar_types.sql` before deploying.
+The application API keys cannot apply schema migrations.
+
+Settings includes `/settings/collars` (ລາຍການຄໍເສື້ອບວກເພີ່ມ),
+`/settings/production-collars` (ເພີ່ມຄໍເສື້ອ) and `/settings/work-categories`.
+These manage `internal_collar_types` and `internal_work_categories`, independently
+of storefront categories and collar posts. Add or edit names, collar surcharges,
+sort order and active status. Codes remain fixed; disable a used choice to keep
+it off new documents while preserving saved documents. Superadmins and managers
+can manage the choices by default; employee access overrides are enforced in RLS.
+
+The production collar page manages `internal_production_collar_types`, seeded
+with the fourteen existing construction styles. Each mockup/design in the
+factory deposit form uses these choices independently of billing surcharges.
+Production items store both the collar code and its selected label. Reopening,
+production previews, printing, CSV export and the send-to-factory preview retain
+custom codes and saved labels even after an option is renamed or disabled.
+
+Quotation and factory deposit forms use these choices and save the selected
+labels and collar unit price. Saved documents retain their original price and
+labels after a master edit. Quotation previews, printing and conversion into a
+deposit/order retain those snapshots. Existing documents keep their former
+20,000 LAK collar charge. Regular order editing also preserves imported prices.
+
+Verify with `node scripts/verify-internal-document-options.mjs /path/to/pglite/dist/index.js`
+and, with the local development server running,
+`node scripts/verify-browser-internal-document-options.mjs /path/to/playwright/test.mjs`.
+Both use isolated fixtures without production writes.
+
+## COD receipts
+
+Apply `20261102_add_transport_cod.sql`, then
+`supabase/migrations/20261103_create_transport_cod_receipts.sql` in the existing
+Supabase SQL Editor before deploying. Application API keys cannot apply schema
+migrations.
+
+`/shipments/cod` lists all COD shipments, with search, pending/received filters,
+totals across every page, and receipt confirmation. Linked delivery requests and
+transport notes count once; standalone notes and requests without notes are
+included. Confirmation records the authenticated employee, database timestamp,
+and confirmed amount. Retries return the existing receipt. Receipted amounts and
+source links cannot be edited or deleted through existing shipment/note flows.
+This records transport receipt acknowledgements separately from order payment
+transactions and does not alter order balances. Access follows `/shipments/cod`,
+then `/shipments`, then the employee's role.
+
+Verify with `node scripts/verify-transport-cod-receipts.mjs /path/to/pglite/dist/index.js`
+and, with the local dev server running,
+`node scripts/verify-browser-cod-receipts.mjs /path/to/playwright/test.mjs`.
+Both use isolated fixtures without production writes.
+
 ## Employee page permissions
 
 `/users/permissions` includes the sidebar pages and the static work pages reached

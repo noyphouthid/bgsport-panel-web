@@ -29,6 +29,7 @@ const staffPaths = [
   "/factory-receipts/orders",
   "/shipments",
   "/shipments/notes",
+  "/shipments/cod",
   "/shipments/deposits/scan",
   "/shipments/transport-note",
 ];

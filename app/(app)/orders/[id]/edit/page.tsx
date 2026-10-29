@@ -1,5 +1,9 @@
 "use client";
 
+import { InternalCollarField } from "@/components/internal-collar-field";
+import { useInternalDocumentOptions } from "@/lib/use-internal-document-options";
+import { legacyCollarLabel, legacyCollarPrice } from "@/lib/internal-document-options";
+
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -66,7 +70,10 @@ type OrderDetail = {
   qty_4xl: number;
   qty_5xl: number;
   qty_6xl: number;
-  collar_type: "none" | "polo" | "mandarin";
+  collar_type: string;
+  collar_label?: string;
+  collar_unit_price?: number;
+  work_category_label?: string;
   collar_qty: number;
   sleeve_charge_qty?: number;
   size_upcharge: number;
@@ -173,7 +180,9 @@ type LinkedDepositMediaInfo = {
   mockup_urls: string[];
   transfer_slip_urls: string[];
   sleeve_type: "short" | "long" | "mixed" | null;
-  collar_type: "none" | "polo" | "mandarin" | null;
+  collar_type: string | null;
+  collar_label?: string;
+  collar_unit_price?: number;
   collar_qty: number;
   sleeve_charge_qty: number;
   extra_charge: number;
@@ -187,7 +196,6 @@ const SIZE_UPCHARGES = {
   "4XL": 25000,
   "5XL": 35000,
 } as const;
-const COLLAR_PRICE = 20000;
 const SLEEVE_PRICE = 20000;
 
 const CUSTOM_ORDER_TYPE_VALUE = "__custom__";
@@ -195,11 +203,6 @@ const QUOTATION_SLEEVE_OPTIONS = [
   { value: "short", label: "ແຂນສັ້ນ" },
   { value: "long", label: "ແຂນຍາວ" },
   { value: "mixed", label: "ແຂນສັ້ນ/ແຂນຍາວ" },
-] as const;
-const QUOTATION_COLLAR_OPTIONS = [
-  { value: "none", label: "ບໍ່ບວກ" },
-  { value: "polo", label: "ໂປໂລ" },
-  { value: "mandarin", label: "ຄໍຈີນ" },
 ] as const;
 
 const inputClassName =
@@ -264,7 +267,10 @@ export default function EditOrderPage() {
   const [qty4XL, setQty4XL] = useState(0);
   const [qty5XL, setQty5XL] = useState(0);
   const [qty6XL, setQty6XL] = useState(0);
-  const [collarType, setCollarType] = useState<"none" | "polo" | "mandarin">("none");
+  const documentOptions = useInternalDocumentOptions();
+  const [collarType, setCollarType] = useState<string>("none");
+  const [collarLabel, setCollarLabel] = useState(legacyCollarLabel("none"));
+  const [collarUnitPrice, setCollarUnitPrice] = useState(0);
   const [collarQty, setCollarQty] = useState(0);
   const [sleeveChargeQty, setSleeveChargeQty] = useState(0);
   const [pantsItems, setPantsItems] = useState<PantsOrderItemDraft[]>([]);
@@ -392,6 +398,8 @@ export default function EditOrderPage() {
     setQty5XL(o.qty_5xl);
     setQty6XL(o.qty_6xl);
     setCollarType(o.collar_type || "none");
+    setCollarLabel(o.collar_label || legacyCollarLabel(o.collar_type || "none"));
+    setCollarUnitPrice(o.collar_unit_price == null ? legacyCollarPrice(o.collar_type || "none") : Number(o.collar_unit_price));
     setCollarQty(Math.max(0, Number(o.collar_qty) || 0));
     setSleeveChargeQty(Math.max(0, Number(o.sleeve_charge_qty) || 0));
     setExtraCharge(o.extra_charge);
@@ -574,7 +582,7 @@ export default function EditOrderPage() {
   const loadLinkedDepositMedia = async () => {
     const { data, error } = await supabase
       .from("factory_deposit_orders")
-      .select("id,production_items,transfer_slip_url,sleeve_type,collar_type,collar_qty,sleeve_charge_qty,extra_charge,design_deposit,discount,initial_deposit")
+      .select("id,production_items,transfer_slip_url,sleeve_type,collar_type,collar_label,collar_unit_price,collar_qty,sleeve_charge_qty,extra_charge,design_deposit,discount,initial_deposit")
       .eq("order_id", orderId)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -592,7 +600,9 @@ export default function EditOrderPage() {
       production_items?: unknown;
       transfer_slip_url?: string | null;
       sleeve_type?: "short" | "long" | "mixed" | null;
-      collar_type?: "none" | "polo" | "mandarin" | null;
+      collar_type?: string | null;
+      collar_label?: string;
+      collar_unit_price?: number;
       collar_qty?: number | null;
       sleeve_charge_qty?: number | null;
       extra_charge?: number | null;
@@ -624,6 +634,8 @@ export default function EditOrderPage() {
             : [],
       sleeve_type: row.sleeve_type || null,
       collar_type: row.collar_type || null,
+      collar_label: row.collar_label,
+      collar_unit_price: row.collar_unit_price,
       collar_qty: Math.max(0, Number(row.collar_qty) || 0),
       sleeve_charge_qty: Math.max(0, Number(row.sleeve_charge_qty) || 0),
       extra_charge: Math.max(0, Number(row.extra_charge) || 0),
@@ -656,6 +668,8 @@ export default function EditOrderPage() {
       depositCollarFallbackAppliedRef.current = true;
       if (shouldFillCollarType) {
         setCollarType(linkedDepositMedia.collar_type && linkedDepositMedia.collar_type !== "none" ? linkedDepositMedia.collar_type : "none");
+        setCollarLabel(linkedDepositMedia.collar_label || legacyCollarLabel(linkedDepositMedia.collar_type || "none"));
+        setCollarUnitPrice(linkedDepositMedia.collar_unit_price == null ? legacyCollarPrice(linkedDepositMedia.collar_type || "none") : Number(linkedDepositMedia.collar_unit_price));
       }
       if (shouldFillCollarQty) setCollarQty(linkedDepositMedia.collar_qty);
       if (shouldFillSleeveChargeQty) setSleeveChargeQty(linkedDepositMedia.sleeve_charge_qty);
@@ -888,7 +902,7 @@ export default function EditOrderPage() {
       qty6XL * SIZE_UPCHARGES["5XL"],
     [qty3XL, qty4XL, qty5XL, qty6XL]
   );
-  const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * COLLAR_PRICE), [collarQty, collarType]);
+  const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * collarUnitPrice), [collarQty, collarType, collarUnitPrice]);
   const sleeveChargeTotal = useMemo(() => Math.max(0, sleeveChargeQty) * SLEEVE_PRICE, [sleeveChargeQty]);
   const pantsSummary = useMemo(() => getPantsItemsSummary(pantsItems), [pantsItems]);
   const grossTotal = useMemo(
@@ -1163,6 +1177,8 @@ export default function EditOrderPage() {
         qty_5xl: Math.max(0, qty5XL),
         qty_6xl: Math.max(0, qty6XL),
         collar_type: collarType,
+        collar_label: collarLabel,
+        collar_unit_price: collarUnitPrice,
         collar_qty: Math.max(0, collarQty),
         sleeve_charge_qty: Math.max(0, sleeveChargeQty),
         extra_charge: Math.max(0, extraCharge),
@@ -1743,7 +1759,7 @@ export default function EditOrderPage() {
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <WorkCategoryField value={workCategory} onChange={setWorkCategory} disabled={isReadOnlyAdmin} />
+              <WorkCategoryField value={workCategory} options={documentOptions.workCategories} currentLabel={workCategory === order?.work_category ? order?.work_category_label : undefined} onChange={setWorkCategory} disabled={isReadOnlyAdmin} />
               <div>
                 <label className="mb-1 block text-xs font-bold text-slate-700">ວັນທີມັດຈຳສັ່ງຜະລິດ</label>
                 <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className={inputClassName} />
@@ -2110,22 +2126,7 @@ export default function EditOrderPage() {
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-bold text-slate-700">ຄໍເສື້ອ</label>
-                <select
-                  value={collarType}
-                  onChange={(e) => {
-                    const nextValue = e.target.value as "none" | "polo" | "mandarin";
-                    setCollarType(nextValue);
-                    if (nextValue === "none") setCollarQty(0);
-                  }}
-                  disabled={isReadOnlyAdmin}
-                  className={`${inputClassName} bg-white font-bold ${isReadOnlyAdmin ? "cursor-not-allowed bg-slate-50 text-slate-600" : ""}`}
-                >
-                  {QUOTATION_COLLAR_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <InternalCollarField value={collarType} label={collarLabel} unitPrice={collarUnitPrice} options={documentOptions.collars} disabled={isReadOnlyAdmin} onChange={option => { setCollarType(option.code); setCollarLabel(option.label); setCollarUnitPrice(Number(option.unit_price) || 0); if (option.code === "none") setCollarQty(0); }}/>
                 <div className="mt-1 text-[11px] font-bold text-slate-500">
                   ແຂນເສື້ອ: {QUOTATION_SLEEVE_OPTIONS.find((option) => option.value === sleeveType)?.label || "-"}
                 </div>

@@ -71,13 +71,15 @@ test("empty reports return empty groups and zero totals", () => {
   assert.deepEqual(summary.categoryMonths, []);
 });
 
-test("work categories cover the seven requested uses and unknown values remain unclassified", () => {
+test("work categories retain defaults and preserve configured custom codes", () => {
   assert.equal(ORDER_WORK_CATEGORIES.length, 8);
   for (const category of ORDER_WORK_CATEGORIES) {
     assert.equal(normalizeOrderWorkCategory(category.value), category.value);
     assert.equal(getOrderWorkCategoryLabel(category.value), category.label);
   }
-  for (const value of [null, undefined, "PK26", "bad"]) assert.equal(normalizeOrderWorkCategory(value), null);
+  for (const value of [null, undefined, "PK26", "bad code", "", 123]) assert.equal(normalizeOrderWorkCategory(value), null);
+  assert.equal(normalizeOrderWorkCategory("cycling"), "cycling");
+  assert.equal(getOrderWorkCategoryLabel("cycling", [{ value: "cycling", label: "ເສື້ອລົດຖີບ" }]), "ເສື້ອລົດຖີບ");
   assert.equal(isMissingWorkCategoryError({ code: "42703", message: "column orders.work_category does not exist" }), true);
   assert.equal(isMissingWorkCategoryError({ code: "42501", message: "permission denied for work_category" }), false);
 });

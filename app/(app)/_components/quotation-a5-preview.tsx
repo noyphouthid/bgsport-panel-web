@@ -4,7 +4,7 @@ import bgSportLogo from "@/app/BGSPORTLOGO.png";
 import { getPantsItemsSummary, getPantsLineGross } from "@/lib/order-items";
 import type { QuotationDraft } from "@/lib/quotation-drafts";
 
-const COLLAR_PRICE = 20000;
+
 const SIZE_UPCHARGES = {
   "3XL": 20000,
   "4XL": 25000,
@@ -32,7 +32,8 @@ function formatDate(value: string) {
 export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
   const billableQty = Math.max(0, draft.shortQty) + Math.max(0, draft.longQty);
   const totalQty = billableQty + Math.max(0, draft.freeQty);
-  const collarTotal = draft.collarType === "none" ? 0 : Math.max(0, draft.collarQty) * COLLAR_PRICE;
+  const collarUnitPrice = draft.collarUnitPrice ?? (draft.collarType === "none" ? 0 : 20000);
+  const collarTotal = draft.collarType === "none" ? 0 : Math.max(0, draft.collarQty) * collarUnitPrice;
   const sleeveChargeTotal = Math.max(0, draft.sleeveChargeQty) * SLEEVE_PRICE;
   const shirtTotal = Math.max(0, draft.shortQty) * Math.max(0, draft.fabricShortPrice) + Math.max(0, draft.longQty) * Math.max(0, draft.fabricLongPrice);
   const plusSizeTotal =
@@ -60,7 +61,7 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
     draft.qty4XL > 0 ? { key: "4xl", label: "ເພີ່ມ 4XL", qty: draft.qty4XL, price: SIZE_UPCHARGES["4XL"], total: draft.qty4XL * SIZE_UPCHARGES["4XL"] } : null,
     draft.qty5XL > 0 ? { key: "5xl", label: "ເພີ່ມ 5XL", qty: draft.qty5XL, price: SIZE_UPCHARGES["5XL"], total: draft.qty5XL * SIZE_UPCHARGES["5XL"] } : null,
     draft.qty6XL > 0 ? { key: "6xl", label: "ເພີ່ມ 6XL", qty: draft.qty6XL, price: SIZE_UPCHARGES["6XL"], total: draft.qty6XL * SIZE_UPCHARGES["6XL"] } : null,
-    collarTotal > 0 ? { key: "collar", label: "ບວກຄໍເສື້ອ", qty: draft.collarQty, price: COLLAR_PRICE, total: collarTotal } : null,
+    collarTotal > 0 ? { key: "collar", label: draft.collarLabel || "ບວກຄໍເສື້ອ", qty: draft.collarQty, price: collarUnitPrice, total: collarTotal } : null,
     sleeveChargeTotal > 0 ? { key: "sleeve", label: "ບວກແຂນເສື້ອ", qty: draft.sleeveChargeQty, price: SLEEVE_PRICE, total: sleeveChargeTotal } : null,
     draft.extraCharge > 0 ? { key: "extra-charge", label: "ບວກເພີ່ມອື່ນໆ", qty: null, price: null, total: Math.max(0, draft.extraCharge) } : null,
     ...(draft.pantsItems || []).map((item, index) => ({
@@ -90,7 +91,7 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
               <div>ວັນທີ: <span className="font-bold text-slate-900">{formatDate(draft.quoteDate)}</span></div>
               <div>ເລກທີ່: <span className="font-bold text-slate-900">{draft.quoteNo || "-"}</span></div>
               <div>ອໍເດີ: <span className="font-bold text-slate-900">{draft.orderCode || "-"}</span></div>
-              <div>ປະເພດງານ: <span className="font-bold text-slate-900">{getOrderWorkCategoryLabel(draft.workCategory)}</span></div>
+              <div>ປະເພດງານ: <span className="font-bold text-slate-900">{draft.workCategoryLabel || getOrderWorkCategoryLabel(draft.workCategory)}</span></div>
             </div>
           </div>
         </div>

@@ -1,5 +1,9 @@
 "use client";
 
+import { InternalCollarField } from "@/components/internal-collar-field";
+import { useInternalDocumentOptions } from "@/lib/use-internal-document-options";
+import { legacyCollarLabel } from "@/lib/internal-document-options";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
@@ -59,13 +63,7 @@ const SIZE_UPCHARGES = {
   "4XL": 25000,
   "5XL": 35000,
 } as const;
-const COLLAR_PRICE = 20000;
 const SLEEVE_PRICE = 20000;
-const QUOTATION_COLLAR_OPTIONS = [
-  { value: "none", label: "ບໍ່ບວກ" },
-  { value: "polo", label: "ໂປໂລ" },
-  { value: "mandarin", label: "ຄໍຈີນ" },
-] as const;
 const QUOTATION_SLEEVE_OPTIONS = [
   { value: "short", label: "ແຂນສັ້ນ" },
   { value: "long", label: "ແຂນຍາວ" },
@@ -121,7 +119,10 @@ export default function NewOrderPage() {
   const [qty4XL, setQty4XL] = useState<number>(0);
   const [qty5XL, setQty5XL] = useState<number>(0);
   const [qty6XL, setQty6XL] = useState<number>(0);
-  const [collarType, setCollarType] = useState<"none" | "polo" | "mandarin">("none");
+  const documentOptions = useInternalDocumentOptions();
+  const [collarType, setCollarType] = useState<string>("none");
+  const [collarLabel, setCollarLabel] = useState(legacyCollarLabel("none"));
+  const [collarUnitPrice, setCollarUnitPrice] = useState(0);
   const [collarQty, setCollarQty] = useState<number>(0);
   const [sleeveChargeQty, setSleeveChargeQty] = useState<number>(0);
   const [pantsItems, setPantsItems] = useState<PantsOrderItemDraft[]>([]);
@@ -225,7 +226,7 @@ export default function NewOrderPage() {
       qty6XL * SIZE_UPCHARGES["5XL"],
     [qty3XL, qty4XL, qty5XL, qty6XL]
   );
-  const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * COLLAR_PRICE), [collarQty, collarType]);
+  const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * collarUnitPrice), [collarQty, collarType, collarUnitPrice]);
   const sleeveChargeTotal = useMemo(() => Math.max(0, sleeveChargeQty) * SLEEVE_PRICE, [sleeveChargeQty]);
   const pantsSummary = useMemo(() => getPantsItemsSummary(pantsItems), [pantsItems]);
   const grossTotal = useMemo(
@@ -276,6 +277,7 @@ export default function NewOrderPage() {
     setQty5XL(0);
     setQty6XL(0);
     setCollarType("none");
+    setCollarLabel(legacyCollarLabel("none")); setCollarUnitPrice(0);
     setCollarQty(0);
     setSleeveChargeQty(0);
     pantsItems.forEach((item) => {
@@ -593,6 +595,8 @@ export default function NewOrderPage() {
       qty_5xl: Math.max(0, qty5XL),
       qty_6xl: Math.max(0, qty6XL),
       collar_type: collarType,
+        collar_label: collarLabel,
+        collar_unit_price: collarUnitPrice,
       collar_qty: Math.max(0, collarQty),
       sleeve_charge_qty: Math.max(0, sleeveChargeQty),
 
@@ -762,7 +766,7 @@ export default function NewOrderPage() {
             <div className="font-bold text-slate-800 mb-3 uppercase text-xs tracking-wider border-b pb-2 border-slate-50">1) ກ່ຽວກັບອໍເດີ </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <WorkCategoryField value={workCategory} onChange={setWorkCategory} disabled={!canEditOrders} />
+              <WorkCategoryField value={workCategory} options={documentOptions.workCategories} onChange={setWorkCategory} disabled={!canEditOrders} />
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">ວັນທີມັດຈຳສັ່ງຜະລິດ</label>
                 <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" />
@@ -1215,21 +1219,7 @@ export default function NewOrderPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">ຄໍເສື້ອ</label>
-                <select
-                  value={collarType}
-                  onChange={(e) => {
-                    const nextValue = e.target.value as "none" | "polo" | "mandarin";
-                    setCollarType(nextValue);
-                    if (nextValue === "none") setCollarQty(0);
-                  }}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-bold bg-white"
-                >
-                  {QUOTATION_COLLAR_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                <InternalCollarField value={collarType} label={collarLabel} unitPrice={collarUnitPrice} options={documentOptions.collars} onChange={option => { setCollarType(option.code); setCollarLabel(option.label); setCollarUnitPrice(Number(option.unit_price) || 0); if (option.code === "none") setCollarQty(0); }}/>
                 <div className="mt-1 text-[11px] font-bold text-slate-500">
                   ແຂນເສື້ອ: {QUOTATION_SLEEVE_OPTIONS.find((option) => option.value === sleeveType)?.label || "-"}
                 </div>

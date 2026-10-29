@@ -9,14 +9,14 @@ export const ORDER_WORK_CATEGORIES = [
   { value: "other", label: "ອື່ນໆ" },
 ] as const;
 
-export type OrderWorkCategory = (typeof ORDER_WORK_CATEGORIES)[number]["value"];
+export type OrderWorkCategory = string;
 
 export function normalizeOrderWorkCategory(value: unknown): OrderWorkCategory | null {
-  return ORDER_WORK_CATEGORIES.find((category) => category.value === value)?.value ?? null;
+  return typeof value === "string" && /^[a-z][a-z0-9_-]{0,59}$/.test(value) ? value : null;
 }
 
-export function getOrderWorkCategoryLabel(value: unknown) {
-  return ORDER_WORK_CATEGORIES.find((category) => category.value === value)?.label ?? "ຍັງບໍ່ລະບຸ";
+export function getOrderWorkCategoryLabel(value: unknown, options: ReadonlyArray<{ value: string; label: string }> = ORDER_WORK_CATEGORIES) {
+  return options.find((category) => category.value === value)?.label ?? normalizeOrderWorkCategory(value) ?? "ຍັງບໍ່ລະບຸ";
 }
 
 export function isMissingWorkCategoryError(error: { message?: string; code?: string } | null) {

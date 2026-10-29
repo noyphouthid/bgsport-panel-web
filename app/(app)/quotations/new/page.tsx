@@ -1,5 +1,9 @@
 "use client";
 
+import { InternalCollarField } from "@/components/internal-collar-field";
+import { useInternalDocumentOptions } from "@/lib/use-internal-document-options";
+import { legacyCollarLabel, legacyCollarPrice } from "@/lib/internal-document-options";
+
 import { flushSync } from "react-dom";
 import { QueueCustomerSearch } from "../../_components/queue-customer-search";
 import { WorkCategoryField } from "../../orders/_components/work-category-field";
@@ -43,7 +47,6 @@ type UserRow = {
   auth_user_id: string | null;
 };
 
-const COLLAR_PRICE = 20000;
 const SIZE_UPCHARGES = {
   "3XL": 20000,
   "4XL": 25000,
@@ -151,7 +154,11 @@ export default function NewQuotationPage() {
   const [qty5XL, setQty5XL] = useState(0);
   const [qty6XL, setQty6XL] = useState(0);
   const [pantsItems, setPantsItems] = useState<PantsOrderItemDraft[]>([]);
-  const [collarType, setCollarType] = useState<"none" | "polo" | "mandarin">("none");
+  const documentOptions = useInternalDocumentOptions();
+  const [collarType, setCollarType] = useState<string>("none");
+  const [collarLabel, setCollarLabel] = useState(legacyCollarLabel("none"));
+  const [collarUnitPrice, setCollarUnitPrice] = useState(0);
+  const [workCategoryLabel, setWorkCategoryLabel] = useState("");
   const [collarQty, setCollarQty] = useState(0);
   const [sleeveChargeQty, setSleeveChargeQty] = useState(0);
   const [extraCharge, setExtraCharge] = useState(0);
@@ -168,6 +175,7 @@ export default function NewQuotationPage() {
     setDesignQueueEntryId(row.id);
     setOrderCode(queueOrderCode(row));
     setWorkCategory(row.work_category || "");
+    setWorkCategoryLabel("");
     setCustomerName(row.customer_name || "");
     setCustomerPhone(row.customer_phone || "");
     setCustomerWhatsapp("");
@@ -231,6 +239,9 @@ export default function NewQuotationPage() {
           setQty6XL(draft.qty6XL || 0);
           setPantsItems(draft.pantsItems || []);
           setCollarType(draft.collarType);
+          setCollarLabel(draft.collarLabel || legacyCollarLabel(draft.collarType));
+          setCollarUnitPrice(draft.collarUnitPrice ?? legacyCollarPrice(draft.collarType));
+          setWorkCategoryLabel(draft.workCategoryLabel || getOrderWorkCategoryLabel(draft.workCategory));
           setCollarQty(draft.collarQty);
           setSleeveChargeQty(draft.sleeveChargeQty);
           setExtraCharge(draft.extraCharge);
@@ -259,7 +270,7 @@ export default function NewQuotationPage() {
   const selectedFabric = useMemo(() => fabrics.find((item) => item.id === fabricId) ?? null, [fabrics, fabricId]);
   const billableQty = useMemo(() => Math.max(0, shortQty) + Math.max(0, longQty), [shortQty, longQty]);
   const totalQty = useMemo(() => billableQty + Math.max(0, freeQty), [billableQty, freeQty]);
-  const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * COLLAR_PRICE), [collarType, collarQty]);
+  const collarTotal = useMemo(() => (collarType === "none" ? 0 : Math.max(0, collarQty) * collarUnitPrice), [collarType, collarQty, collarUnitPrice]);
   const sleeveChargeTotal = useMemo(() => Math.max(0, sleeveChargeQty) * SLEEVE_PRICE, [sleeveChargeQty]);
   const shirtTotal = useMemo(() => {
     if (!selectedFabric) return 0;
@@ -319,6 +330,7 @@ export default function NewQuotationPage() {
     setQty6XL(0);
     setPantsItems([]);
     setCollarType("none");
+    setCollarLabel(legacyCollarLabel("none")); setCollarUnitPrice(0); setWorkCategoryLabel("");
     setCollarQty(0);
     setSleeveChargeQty(0);
     setExtraCharge(0);
@@ -374,6 +386,9 @@ export default function NewQuotationPage() {
     qty5XL,
     qty6XL,
     collarType,
+    collarLabel,
+    collarUnitPrice,
+    workCategoryLabel: workCategoryLabel || getOrderWorkCategoryLabel(workCategory, documentOptions.workCategories.map(row => ({ value: row.code, label: row.label }))),
     collarQty,
     sleeveChargeQty,
     extraCharge,
@@ -391,6 +406,8 @@ export default function NewQuotationPage() {
   });
 
   const validateDraft = () => {
+    if (documentOptions.error) { toast.error(documentOptions.error); return false; }
+    if (documentOptions.loading) { toast.error("ກະລຸນາລໍຖ້າໂຫຼດລາຍການຕັ້ງຄ່າ"); return false; }
     if (!quoteDate) { toast.error("ກະລຸນາເລືອກວັນທີ"); return false; }
     if (!selectedFabric) {
       toast.error("ກະລຸນາເລືອກຜ້າ");
@@ -492,7 +509,7 @@ export default function NewQuotationPage() {
       ? { key: "6xl", label: "ເພີ່ມ 6XL", qty: qty6XL, price: SIZE_UPCHARGES["6XL"], total: qty6XL * SIZE_UPCHARGES["6XL"] }
       : null,
     collarTotal > 0
-      ? { key: "collar", label: "ບວກຄໍເສື້ອ", qty: collarQty, price: COLLAR_PRICE, total: collarTotal }
+      ? { key: "collar", label: collarLabel || "ບວກຄໍເສື້ອ", qty: collarQty, price: collarUnitPrice, total: collarTotal }
       : null,
     sleeveChargeTotal > 0
       ? { key: "sleeve", label: "ບວກແຂນເສື້ອ", qty: sleeveChargeQty, price: SLEEVE_PRICE, total: sleeveChargeTotal }
@@ -594,11 +611,11 @@ export default function NewQuotationPage() {
             <QueueCustomerSearch onSelect={applyQueueCustomer} disabled={saving || creatingDeposit || loadingFabrics} />
             {designQueueEntryId && <div className="mb-4 flex items-center justify-between gap-3 text-sm font-bold text-sky-800">
               <span>ຄິວທີ່ເລືອກ: {orderCode}</span>
-              <button type="button" onClick={() => { setDesignQueueEntryId(null); setOrderCode(""); setWorkCategory(""); setCustomerName(""); setCustomerPhone(""); setCustomerWhatsapp(""); setCustomerFacebook(""); }} className="underline">ຍົກເລີກການເຊື່ອມ</button>
+              <button type="button" onClick={() => { setDesignQueueEntryId(null); setOrderCode(""); setWorkCategory(""); setWorkCategoryLabel(""); setCustomerName(""); setCustomerPhone(""); setCustomerWhatsapp(""); setCustomerFacebook(""); }} className="underline">ຍົກເລີກການເຊື່ອມ</button>
             </div>}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div><FieldLabel>ລະຫັດອໍເດີ</FieldLabel><input type="text" inputMode="text" value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="ຕົວຢ່າງ RK26-9124+2 ຫຼື RK26-9124+A" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold" /></div>
-              <WorkCategoryField value={workCategory} onChange={setWorkCategory} disabled={Boolean(designQueueEntryId && workCategory)} />
+              <WorkCategoryField value={workCategory} options={documentOptions.workCategories} currentLabel={workCategoryLabel} onChange={value => { setWorkCategory(value); setWorkCategoryLabel(documentOptions.workCategories.find(row => row.code === value)?.label || ""); }} disabled={Boolean(designQueueEntryId && workCategory)} />
               <div><label htmlFor="quote-customer-name" className="mb-1.5 block text-xs font-bold text-slate-600">ຊື່ລູກຄ້າ</label><input id="quote-customer-name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" /></div>
               <div><label htmlFor="quote-customer-phone" className="mb-1.5 block text-xs font-bold text-slate-600">ເບີໂທ</label><input id="quote-customer-phone" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold" /></div>
              
@@ -648,11 +665,7 @@ export default function NewQuotationPage() {
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <FieldLabel>ຄໍເສື້ອ</FieldLabel>
-                <select value={collarType} onChange={(e) => setCollarType(e.target.value as "none" | "polo" | "mandarin")} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100">
-                  <option value="none">ຄໍປົກກະຕິ</option>
-                  <option value="polo">ຄໍໂປໂລ +20,000</option>
-                  <option value="mandarin">ຄໍຈີນ +20,000</option>
-                </select>
+                <InternalCollarField value={collarType} label={collarLabel} unitPrice={collarUnitPrice} options={documentOptions.collars} onChange={option => { setCollarType(option.code); setCollarLabel(option.label); setCollarUnitPrice(Number(option.unit_price) || 0); if (option.code === "none") setCollarQty(0); }}/>
               </div>
               <div>
                 <FieldLabel>ຈຳນວນຄໍເສື້ອທີ່ບວກເພີ່ມ</FieldLabel>
@@ -885,7 +898,7 @@ export default function NewQuotationPage() {
                       <div>ວັນທີ: <span className="font-bold text-slate-900">{formatDate(quoteDate)}</span></div>
                       <div>ເລກທີ່: <span className="font-bold text-slate-900">{quoteNo || documentNumberHint("QT", quoteDate)}</span></div>
                       <div>ອໍເດີ: <span className="font-bold text-slate-900">{orderCode || "-"}</span></div>
-                      <div>ປະເພດງານ: <span className="font-bold text-slate-900">{getOrderWorkCategoryLabel(workCategory)}</span></div>
+                      <div>ປະເພດງານ: <span className="font-bold text-slate-900">{workCategoryLabel || getOrderWorkCategoryLabel(workCategory, documentOptions.workCategories.map(row => ({ value: row.code, label: row.label })))}</span></div>
                     </div>
                   </div>
                 </div>
