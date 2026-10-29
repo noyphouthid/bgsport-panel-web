@@ -8,7 +8,6 @@ import {
   buildFallbackOrderCodeTypeRows,
   isMissingOrderCodeTypesTableError,
   isProtectedOrderCodeType,
-  seedDefaultOrderCodeTypes,
   type OrderCodeTypeRow,
 } from "@/lib/order-code-options";
 import { normalizeOrderType } from "@/lib/order-code";
@@ -48,7 +47,7 @@ export default function OrderCodeTypesPage() {
   const [editSortOrder, setEditSortOrder] = useState(100);
   const [editActive, setEditActive] = useState(true);
   const { markClean } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
-  const editingProtected = editing ? isProtectedOrderCodeType(editing.code) : false;
+  const editingCodeLocked = editing ? isProtectedOrderCodeType(editing.code) : false;
 
   const fetchPersistedRows = async () => {
     const { data, error } = await supabase
@@ -73,12 +72,12 @@ export default function OrderCodeTypesPage() {
     setUsingFallbackRows(false);
 
     try {
-      let nextRows: OrderCodeTypeRow[] = [];
+      let nextRows: OrderCodeTypeRow[];
 
       try {
         nextRows = await fetchPersistedRows();
       } catch (error) {
-        if (error instanceof Error && isMissingOrderCodeTypesTableError(error.message)) {
+        if (isMissingOrderCodeTypesTableError(getSupabaseErrorMessage(error))) {
           setTableMissing(true);
           setUsingFallbackRows(true);
           setRows(buildFallbackOrderCodeTypeRows());
@@ -87,23 +86,6 @@ export default function OrderCodeTypesPage() {
         }
 
         throw error;
-      }
-
-      if (nextRows.length === 0) {
-        try {
-          await seedDefaultOrderCodeTypes();
-          nextRows = await fetchPersistedRows();
-          if (nextRows.length > 0) {
-            setNotice("ລະບົບໄດ້ສ້າງລາຍການ default ເຂົ້າຖານຂໍ້ມູນໃຫ້ແລ້ວ");
-          }
-        } catch (error) {
-          const message = getSupabaseErrorMessage(error, "seed_default_order_code_types_failed");
-          setErr(message);
-          setUsingFallbackRows(true);
-          setRows(buildFallbackOrderCodeTypeRows());
-          setNotice("ຕາຕະລາງປະເພດລະຫັດຍັງບໍ່ມີຂໍ້ມູນ ແລະການ seed ຈາກ Supabase ບໍ່ສຳເລັດ ຈຶ່ງສະແດງລາຍການ default ຊົ່ວຄາວ");
-          return;
-        }
       }
 
       setRows(nextRows);
@@ -201,8 +183,7 @@ export default function OrderCodeTypesPage() {
     setSaving(true);
     setErr(null);
 
-    const resolvedCode = editingProtected ? editing.code : code;
-    const resolvedActive = editingProtected ? true : editActive;
+    const resolvedCode = editingCodeLocked ? editing.code : code;
 
     const { error } = await supabase
       .from("order_code_types")
@@ -210,7 +191,7 @@ export default function OrderCodeTypesPage() {
         code: resolvedCode,
         label: editLabel.trim() || null,
         sort_order: Math.max(0, Number(editSortOrder) || 0),
-        is_active: resolvedActive,
+        is_active: editActive,
         updated_at: new Date().toISOString(),
       })
       .eq("id", editing.id);
@@ -235,11 +216,6 @@ export default function OrderCodeTypesPage() {
       return;
     }
 
-    if (isProtectedOrderCodeType(row.code)) {
-      toast.error("ລະຫັດຫຼັກຂອງລະບົບບໍ່ສາມາດລຶບໄດ້");
-      return;
-    }
-
     const { count, error: usageError } = await supabase
       .from("orders")
       .select("id", { count: "exact", head: true })
@@ -252,7 +228,7 @@ export default function OrderCodeTypesPage() {
     }
 
     if ((count ?? 0) > 0) {
-      toast.error("ຍັງມີອໍເດີໃຊ້ລະຫັດນີ້ຢູ່ ເລີຍລຶບບໍ່ໄດ້");
+      toast.error("ຍັງມີອໍເດີໃຊ້ລະຫັດນີ້ຢູ່ ຈຶ່ງລຶບບໍ່ໄດ້ ແຕ່ສາມາດປິດໃຊ້ງານໄດ້ໃນປຸ່ມແກ້ໄຂ");
       return;
     }
 
@@ -294,6 +270,9 @@ export default function OrderCodeTypesPage() {
         <h1 className="text-2xl font-bold text-slate-800">ຈັດການປະເພດລະຫັດ</h1>
         <div className="text-sm font-medium text-slate-500">
           ເພີ່ມ ຫຼື ປິດການໃຊ້ງານປະເພດລະຫັດທີ່ຈະໄປສະແດງໃນໜ້າສ້າງອໍເດີ
+        </div>
+        <div className="mt-1 text-sm text-slate-500">
+          ປິດໃຊ້ງານໄດ້ທຸກປະເພດ ໂດຍອໍເດີເກົ່າຍັງຄົງຢູ່. ລຶບໄດ້ສະເພາະລະຫັດທີ່ຍັງບໍ່ມີອໍເດີໃຊ້ງານ.
         </div>
         {err ? <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">ຂໍ້ຜິດພາດ: {err}</div> : null}
         {notice ? (
@@ -367,7 +346,7 @@ export default function OrderCodeTypesPage() {
               <input
                 value={editCode}
                 onChange={(e) => setEditCode(normalizeOrderType(e.target.value))}
-                disabled={tableMissing || usingFallbackRows || editingProtected}
+                disabled={tableMissing || usingFallbackRows || editingCodeLocked}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold uppercase text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -392,7 +371,7 @@ export default function OrderCodeTypesPage() {
               />
             </div>
             <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700">
-              <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} disabled={tableMissing || usingFallbackRows || editingProtected} />
+              <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} disabled={tableMissing || usingFallbackRows} />
               ເປີດໃຊ້ງານ
             </label>
           </div>
@@ -466,7 +445,7 @@ export default function OrderCodeTypesPage() {
                         </button>
                         <button
                           onClick={() => deleteType(row)}
-                          disabled={tableMissing || usingFallbackRows || deletingId === row.id || isProtectedOrderCodeType(row.code)}
+                          disabled={tableMissing || usingFallbackRows || deletingId === row.id}
                           className="rounded-lg px-3 py-1.5 text-xs font-black text-rose-600 transition-all hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-300"
                         >
                           {deletingId === row.id ? "ກຳລັງລຶບ..." : "ລຶບ"}

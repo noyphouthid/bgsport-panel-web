@@ -59,12 +59,6 @@ export function buildFallbackOrderCodeTypeRows() {
   })) satisfies OrderCodeTypeRow[];
 }
 
-export async function seedDefaultOrderCodeTypes() {
-  const payload = buildDefaultOrderCodeTypeSeeds();
-  const { error } = await supabase.from("order_code_types").upsert(payload, { onConflict: "code" });
-  if (error) throw error;
-}
-
 export function mergeOrderTypeOptions(values: string[]) {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -104,10 +98,7 @@ export async function fetchOrderCodeTypes(activeOnly = false) {
     code: normalizeOrderType(row.code),
   }));
 
-  if (rows.length === 0) {
-    return activeOnly ? buildFallbackOrderCodeTypeRows().filter((row) => row.is_active) : buildFallbackOrderCodeTypeRows();
-  }
-
+  // An empty result can mean every type was disabled or deleted intentionally.
   return rows;
 }
 
@@ -117,7 +108,7 @@ export async function fetchOrderTypeOptions(activeOnly = true) {
 }
 
 export function useOrderTypeOptions(activeOnly = true) {
-  const [options, setOptions] = useState<string[]>([...ORDER_TYPES]);
+  const [options, setOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -133,7 +124,7 @@ export function useOrderTypeOptions(activeOnly = true) {
         setError(null);
       } catch (error) {
         if (!mounted) return;
-        setOptions(mergeOrderTypeOptions([...ORDER_TYPES]));
+        setOptions([]);
         setError(error instanceof Error ? error.message : "load_failed");
       } finally {
         if (mounted) setLoading(false);
