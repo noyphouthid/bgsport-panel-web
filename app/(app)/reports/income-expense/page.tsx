@@ -28,10 +28,12 @@ import {
   Wallet,
 } from "lucide-react";
 import { calculatePayroll, type PayrollEmployee } from "@/lib/payroll-demo";
+import { fetchAllReportRows } from "@/lib/report-query";
+import { profitDateKey, profitRecognitionError, type ProfitRecognitionFields } from "@/lib/profit-recognition";
 import { supabase } from "@/lib/supabase";
 import { exportReportDocumentAsPdf, openReportPrintWindow } from "../_lib";
 
-type OrderLite = {
+type OrderLite = ProfitRecognitionFields & {
   id: string;
   order_code: string;
   customer_phone: string | null;
@@ -347,10 +349,10 @@ export default function IncomeExpenseReportPage() {
         .from("payment_transactions")
         .select("id,order_id,amount,paid_at,note,created_at")
         .order("paid_at", { ascending: false }),
-      supabase
+      fetchAllReportRows<OrderLite>((from,to) => supabase
         .from("orders")
-        .select("id,order_code,customer_phone,factory_bill_code,net_total,factory_cost,shipment_completed_at,shipment_status")
-        .order("created_at", { ascending: false }),
+        .select("id,order_code,customer_phone,factory_bill_code,net_total,factory_cost,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,shipment_status")
+        .order("created_at", { ascending: false }).order("id").range(from,to)),
       supabase
         .from("income_expense_entries")
         .select("id,entry_type,entry_date,category,title,amount,payment_method,reference_code,note,created_by_name,created_at,updated_at")
@@ -380,7 +382,7 @@ export default function IncomeExpenseReportPage() {
       setManualEntries([]);
       setOrders([]);
       setPayrollEmployees([]);
-      setErrorMessage(ordersResult.error.message);
+      setErrorMessage(profitRecognitionError(ordersResult.error));
       setLoading(false);
       return;
     }
@@ -550,22 +552,20 @@ export default function IncomeExpenseReportPage() {
   const summary = useMemo(() => {
     const deliveredProfit = orders
       .filter((order) => {
-        const deliveredAt = order.shipment_completed_at;
+        const deliveredAt = order.profit_recognized_at;
         if (!deliveredAt) return false;
-        const dayKey = getDayKey(deliveredAt);
+        const dayKey = profitDateKey(deliveredAt);
         if (fromDate && dayKey < fromDate) return false;
         if (toDate && dayKey > toDate) return false;
-        if (order.shipment_status && order.shipment_status !== "shipped") return false;
         return true;
       })
       .reduce((sum, order) => sum + ((Number(order.net_total) || 0) - (Number(order.factory_cost) || 0)), 0);
     const deliveredOrdersCount = orders.filter((order) => {
-      const deliveredAt = order.shipment_completed_at;
+      const deliveredAt = order.profit_recognized_at;
       if (!deliveredAt) return false;
-      const dayKey = getDayKey(deliveredAt);
+      const dayKey = profitDateKey(deliveredAt);
       if (fromDate && dayKey < fromDate) return false;
       if (toDate && dayKey > toDate) return false;
-      if (order.shipment_status && order.shipment_status !== "shipped") return false;
       return true;
     }).length;
     const totalIncome = filteredRows
@@ -973,7 +973,7 @@ export default function IncomeExpenseReportPage() {
           </div>
           <div className="mt-3 text-2xl font-black text-emerald-700">{formatMoney(summary.deliveredProfit)}</div>
           <div className="mt-1 text-xs font-semibold text-slate-500">
-            ຄິດຈາກອໍເດີທີ່ `ຈັດສົ່ງສຳເລັດ` {summary.deliveredOrdersCount.toLocaleString("en-US")} ລາຍການ
+            ຄິດຕາມວັນຮັບຮູ້ກຳໄລ; COD ຕ້ອງຮັບເງິນຄົບ {summary.deliveredOrdersCount.toLocaleString("en-US")} ລາຍການ
           </div>
         </div>
 

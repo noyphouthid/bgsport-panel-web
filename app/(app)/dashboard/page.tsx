@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchAllReportRows } from "@/lib/report-query";
+import { profitDateKey, profitTimestampRange, profitRecognitionError } from "@/lib/profit-recognition";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import type { AppRole } from "@/lib/access-control";
@@ -57,14 +59,14 @@ function toDateInputValue(date: Date) {
 }
 
 function formatShortDateLao(dateStr: string) {
-  const d = new Date(dateStr);
+  const d = new Date(`${dateStr}T12:00:00`);
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
   return `${day}/${month}`;
 }
 
 // จัดกลุ่มออเดอร์เป็นช่วงเวลา (วัน/สัปดาห์/เดือน) ตามความยาวของช่วงวันที่ที่เลือก
-// เพื่อใช้พล็อตกราฟเส้นแนวโน้มผลประกอบการ โดยไม่ต้องยิง query เพิ่ม (ใช้ orderRows ที่โหลดมาแล้ว)
+// Use the same recognized-profit rows as the dashboard total.
 function buildPerformanceSeries(
   rows: Array<{ order_date: string; net_total: number; factory_cost: number }>,
   startDate: string,
@@ -72,12 +74,12 @@ function buildPerformanceSeries(
 ): PerformancePoint[] {
   if (rows.length === 0) return [];
 
-  const start = startDate ? new Date(startDate) : new Date(rows[0].order_date);
-  const end = endDate ? new Date(endDate) : new Date(rows[rows.length - 1].order_date);
+  const start = new Date(`${startDate || rows[0].order_date}T12:00:00`);
+  const end = new Date(`${endDate || rows[rows.length - 1].order_date}T12:00:00`);
   const spanDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
 
   const bucketOf = (dateStr: string): { key: string; label: string } => {
-    const d = new Date(dateStr);
+    const d = new Date(`${dateStr}T12:00:00`);
     if (spanDays <= 31) {
       const key = toDateInputValue(d);
       return { key, label: formatShortDateLao(key) };
@@ -250,14 +252,18 @@ export default function DashboardPage() {
         });
       }
 
-      let profitQuery = supabase
-        .from("orders")
-        .select("id,net_total,factory_cost,shipment_completed_at")
-        .not("shipment_completed_at", "is", null);
-      if (startDate) profitQuery = profitQuery.gte("shipment_completed_at", `${startDate}T00:00:00`);
-      if (endDate) profitQuery = profitQuery.lte("shipment_completed_at", `${endDate}T23:59:59`);
-      const { data: profitOrders, error: profitError } = await profitQuery;
-      if (profitError) throw profitError;
+      const profitRange = profitTimestampRange(startDate,endDate);
+      const { data: profitOrders, error: profitError } = await fetchAllReportRows<{
+        id: string; net_total: number; factory_cost: number; profit_recognized_at: string;
+      }>((from,to) => {
+        let profitQuery = supabase.from("orders")
+          .select("id,net_total,factory_cost,profit_recognized_at")
+          .not("profit_recognized_at", "is", null);
+        if (profitRange.start) profitQuery = profitQuery.gte("profit_recognized_at",profitRange.start);
+        if (profitRange.endExclusive) profitQuery = profitQuery.lt("profit_recognized_at",profitRange.endExclusive);
+        return profitQuery.order("profit_recognized_at").order("id").range(from,to);
+      });
+      if (profitError) throw new Error(profitRecognitionError(profitError));
 
       const inProgress = orderRows.filter((o) => o.status === "in_progress");
 
@@ -292,7 +298,7 @@ export default function DashboardPage() {
         giveawayShirts,
       });
 
-      setPerformanceSeries(buildPerformanceSeries(orderRows, startDate, endDate));
+      setPerformanceSeries(buildPerformanceSeries((profitOrders || []).map(row => ({ ...row, order_date: profitDateKey(row.profit_recognized_at) })), startDate, endDate));
 
       let recentQuery = supabase
         .from("orders")
@@ -345,7 +351,7 @@ export default function DashboardPage() {
   };
 
   const formatDateLao = (dateStr: string) => {
-    const d = new Date(dateStr);
+    const d = new Date(`${dateStr}T12:00:00`);
     const day = String(d.getDate()).padStart(2, "0");
     const month = String(d.getMonth() + 1).padStart(2, "0");
     const year = d.getFullYear();
@@ -607,7 +613,7 @@ export default function DashboardPage() {
               {loading ? "..." : formatCurrency(stats.totalProfit)}
             </div>
             <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#22C55E] bg-[#22C55E]/10 px-2 py-0.5 rounded-full">
-              ຈາກ {formatTotal(stats.completedOrders)} ອໍເດີ້ທີ່ສົ່ງມອບສຳເລັດ
+              ຈາກ {formatTotal(stats.completedOrders)} ອໍເດີ້ທີ່ຮັບຮູ້ກຳໄລແລ້ວ
             </div>
           </div>
 

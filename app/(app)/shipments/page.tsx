@@ -850,7 +850,7 @@ export default function ShipmentsPage() {
             </p>
           </div>
           <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-orange-50">
-            ກຳໄລຈະນັບຕາມວັນຈັດສົ່ງສຳເລັດ
+            COD ຈະນັບກຳໄລເມື່ອຮັບເງິນຄົບ
           </div>
           <Link
             href="/shipments/orders"

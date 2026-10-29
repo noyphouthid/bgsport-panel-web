@@ -55,6 +55,38 @@ and, with the local development server running,
 `node scripts/verify-browser-internal-document-options.mjs /path/to/playwright/test.mjs`.
 Both use isolated fixtures without production writes.
 
+## COD profit recognition
+
+Apply `supabase/migrations/20261106_cod_profit_recognition.sql` after the COD
+receipt migration (`20261103`) and the existing monthly closing migration.
+The application API keys cannot apply schema migrations.
+
+Orders with COD recognize their full sales margin only after every canonical
+COD item has a receipt from `/shipments/cod`. Recognition uses the latest receipt
+timestamp, with calendar months interpreted in `Asia/Vientiane`. For example,
+an October shipment received in November belongs to November's profit. Split
+shipments wait for all COD receipts, and linked request/note snapshots count
+once. Non-COD orders retain their shipment-completion recognition date.
+
+The database maintains `orders.profit_recognized_at`, `has_transport_cod` and
+`cod_pending_count` when sources or receipts change. Receipt confirmation and
+profit recognition commit together; retries retain the original recognition
+date. Existing receipts backfill their recorded receipt time. Delivery timestamps,
+order balances and payment transactions are unchanged.
+
+Dashboard totals and graphs, sales/profit reports (including exports),
+income/expense profit and monthly closings share this date. Alternate sales date
+filters still report zero profit for unpaid COD or profit recognized in another
+month. Month closing calculates a fresh database snapshot rather than trusting
+cached client totals. Existing closed snapshots remain as recorded; reopen and
+close them again to apply the new basis. The closing page identifies old snapshots.
+
+Verify with `node --test tests/profit-recognition.test.mjs tests/report-query.test.mjs`,
+`node scripts/verify-cod-profit-recognition.mjs /path/to/pglite/dist/index.js` and,
+with the local server running,
+`node scripts/verify-browser-cod-profit.mjs /path/to/playwright/test.mjs`.
+Database and browser checks use isolated fixtures without production writes.
+
 ## COD receipts
 
 Apply `20261102_add_transport_cod.sql`, then

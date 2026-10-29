@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { Download, FileDown, Printer } from "lucide-react";
+import { fetchAllReportRows } from "@/lib/report-query";
+import { isProfitInPeriod, profitDateKey, profitRecognitionError, recognizedProfit, type ProfitRecognitionFields } from "@/lib/profit-recognition";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
@@ -22,7 +24,7 @@ import {
   togglePrefix,
 } from "../_lib";
 
-type ReportOrder = {
+type ReportOrder = ProfitRecognitionFields & {
   id: string;
   order_code: string;
   order_date: string;
@@ -50,9 +52,10 @@ type UserOption = {
 };
 
 type FactoryCostFilter = "all" | "missing_cost" | "has_cost";
-type ReportDateField = "shipment_completed_at" | "order_date" | "production_completed_at";
+type ReportDateField = "profit_recognized_at" | "shipment_completed_at" | "order_date" | "production_completed_at";
 
 const DATE_FIELD_OPTIONS: Array<{ value: ReportDateField; label: string }> = [
+  { value: "profit_recognized_at", label: "ວັນຮັບຮູ້ກຳໄລ (COD ຕາມວັນຮັບເງິນ)" },
   { value: "shipment_completed_at", label: "ວັນທີຈັດສົ່ງສຳເລັດ" },
   { value: "order_date", label: "ວັນທີສັ່ງ" },
   { value: "production_completed_at", label: "ວັນທີຜະລິດສຳເລັດ" },
@@ -96,7 +99,7 @@ export default function SalesProfitReportPage() {
   const [month, setMonth] = useState<MonthFilter>(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [selectedPrefixes, setSelectedPrefixes] = useState<PrefixFilter[]>([]);
-  const [dateField, setDateField] = useState<ReportDateField>("shipment_completed_at");
+  const [dateField, setDateField] = useState<ReportDateField>("profit_recognized_at");
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatusFilter>("all");
   const [factoryCostFilter, setFactoryCostFilter] = useState<FactoryCostFilter>("all");
   const [adminFilter, setAdminFilter] = useState("all");
@@ -117,10 +120,10 @@ export default function SalesProfitReportPage() {
     setErr(null);
 
     const [{ data: orderData, error: orderError }, { data: userData, error: userError }] = await Promise.all([
-      supabase
+      fetchAllReportRows<ReportOrder>((from, to) => supabase
         .from("orders")
-        .select("id,order_code,order_date,status,closed_at,production_completed_at,shipment_completed_at,shipment_status,admin_user_id,short_qty,long_qty,free_qty,net_total,factory_cost,customer_phone,customer_whatsapp,factory_bill_code,factory_production_is_rush")
-        .order("shipment_completed_at", { ascending: false, nullsFirst: false }),
+        .select("id,order_code,order_date,status,closed_at,production_completed_at,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,shipment_status,admin_user_id,short_qty,long_qty,free_qty,net_total,factory_cost,customer_phone,customer_whatsapp,factory_bill_code,factory_production_is_rush")
+        .order("profit_recognized_at", { ascending: false, nullsFirst: false }).order("id").range(from,to)),
       supabase
         .from("users")
         .select("id,full_name,role")
@@ -130,7 +133,7 @@ export default function SalesProfitReportPage() {
     ]);
 
     if (orderError) {
-      setErr(orderError.message);
+      setErr(profitRecognitionError(orderError));
       setRows([]);
       setLoading(false);
       return;
@@ -157,8 +160,12 @@ export default function SalesProfitReportPage() {
   const filteredRows = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
     return rows.filter((row) => {
-      const effectiveDate = getComparableDate(row[dateField], dateField);
-      if (!effectiveDate || !(effectiveDate >= start && effectiveDate < endExclusive)) return false;
+      if (dateField === "profit_recognized_at") {
+        if (!isProfitInPeriod(row,year,month)) return false;
+      } else {
+        const effectiveDate = getComparableDate(row[dateField], dateField);
+        if (!effectiveDate || !(effectiveDate >= start && effectiveDate < endExclusive)) return false;
+      }
       if (!matchSelectedPrefixes(row.order_code, selectedPrefixes)) return false;
       if (adminFilter !== "all" && row.admin_user_id !== adminFilter) return false;
       if (!matchesSearch(row, searchTerm)) return false;
@@ -175,9 +182,9 @@ export default function SalesProfitReportPage() {
     const totalSales = filteredRows.reduce((sum, row) => sum + (Number(row.net_total) || 0), 0);
     const totalShirts = filteredRows.reduce((sum, row) => sum + (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0), 0);
     const totalOrders = filteredRows.length;
-    const totalProfit = filteredRows.reduce((sum, row) => sum + ((Number(row.net_total) || 0) - (Number(row.factory_cost) || 0)), 0);
+    const totalProfit = filteredRows.reduce((sum, row) => sum + recognizedProfit(row, year, month), 0);
     return { totalSales, totalShirts, totalOrders, totalProfit };
-  }, [filteredRows]);
+  }, [filteredRows, year, month]);
 
   const periodLabel = buildPeriodLabel(month, year);
   const prefixSummary = selectedPrefixes.length === 0 ? "ALL" : selectedPrefixes.join(", ");
@@ -186,6 +193,7 @@ export default function SalesProfitReportPage() {
   const exportExcel = () => {
     const periodFileLabel = month === "ALL" ? `${year}-ALL` : `${year}-${String(month).padStart(2, "0")}`;
     const exportRows = filteredRows.map((row) => ({
+      profit_recognized_date: profitDateKey(row.profit_recognized_at),
       shipment_completed_date: toDateOnly(row.shipment_completed_at),
       order_date: row.order_date,
       production_completed_date: toDateOnly(row.production_completed_at),
@@ -195,12 +203,13 @@ export default function SalesProfitReportPage() {
       total_qty: (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0),
       net_total: Number(row.net_total) || 0,
       factory_cost: Number(row.factory_cost) || 0,
-      profit: (Number(row.net_total) || 0) - (Number(row.factory_cost) || 0),
+      profit: recognizedProfit(row, year, month),
       rush_status: row.factory_production_is_rush ? "ງານດ່ວນ" : "ງານປົກກະຕິ",
       workflow_status: getWorkflowStatusLabel(getWorkflowStatus(row)),
     }));
 
     exportRows.push({
+      profit_recognized_date: periodLabel,
       shipment_completed_date: periodLabel,
       order_date: `date=${dateField}`,
       production_completed_date: `prefix=${prefixSummary}`,
@@ -231,16 +240,16 @@ export default function SalesProfitReportPage() {
         { label: "ຈຳນວນເສື້ອລວມ", value: summary.totalShirts.toLocaleString() },
         { label: "ອໍເດີທັງໝົດ", value: summary.totalOrders.toLocaleString() },
       ],
-      headers: ["ວັນທີຈັດສົ່ງ", "ວັນທີສັ່ງ", "ລະຫັດອໍເດີ", "ແອັດມິນ", "ຈຳນວນ", "ຍອດຂາຍ", "ຕົ້ນທຶນ", "ກຳໄລ", "ສະຖານະ"],
+      headers: ["ວັນຮັບຮູ້ກຳໄລ", "ວັນທີສັ່ງ", "ລະຫັດອໍເດີ", "ແອັດມິນ", "ຈຳນວນ", "ຍອດຂາຍ", "ຕົ້ນທຶນ", "ກຳໄລ", "ສະຖານະ"],
       rows: filteredRows.map((row) => [
-        toDateOnly(row.shipment_completed_at) || "-",
+        profitDateKey(row.profit_recognized_at) || "-",
         row.order_date,
         row.order_code,
         adminNames.get(row.admin_user_id || "") || "-",
         ((Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0)).toLocaleString(),
         (Number(row.net_total) || 0).toLocaleString(),
         (Number(row.factory_cost) || 0).toLocaleString(),
-        ((Number(row.net_total) || 0) - (Number(row.factory_cost) || 0)).toLocaleString(),
+        recognizedProfit(row, year, month).toLocaleString(),
         getWorkflowStatusLabel(getWorkflowStatus(row)),
       ]),
     });
@@ -258,16 +267,16 @@ export default function SalesProfitReportPage() {
           { label: "ຈຳນວນເສື້ອລວມ", value: summary.totalShirts.toLocaleString() },
           { label: "ອໍເດີທັງໝົດ", value: summary.totalOrders.toLocaleString() },
         ],
-        headers: ["ວັນທີຈັດສົ່ງ", "ວັນທີສັ່ງ", "ລະຫັດອໍເດີ", "ແອັດມິນ", "ຈຳນວນ", "ຍອດຂາຍ", "ຕົ້ນທຶນ", "ກຳໄລ", "ສະຖານະ"],
+        headers: ["ວັນຮັບຮູ້ກຳໄລ", "ວັນທີສັ່ງ", "ລະຫັດອໍເດີ", "ແອັດມິນ", "ຈຳນວນ", "ຍອດຂາຍ", "ຕົ້ນທຶນ", "ກຳໄລ", "ສະຖານະ"],
         rows: filteredRows.map((row) => [
-          toDateOnly(row.shipment_completed_at) || "-",
+          profitDateKey(row.profit_recognized_at) || "-",
           row.order_date,
           row.order_code,
           adminNames.get(row.admin_user_id || "") || "-",
           ((Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0)).toLocaleString(),
           (Number(row.net_total) || 0).toLocaleString(),
           (Number(row.factory_cost) || 0).toLocaleString(),
-          ((Number(row.net_total) || 0) - (Number(row.factory_cost) || 0)).toLocaleString(),
+          recognizedProfit(row, year, month).toLocaleString(),
           getWorkflowStatusLabel(getWorkflowStatus(row)),
         ]),
       }, `sales-profit-${month === "ALL" ? `${year}-ALL` : `${year}-${String(month).padStart(2, "0")}`}.pdf`);
@@ -282,17 +291,17 @@ export default function SalesProfitReportPage() {
         <h1 className="text-2xl font-black text-slate-900">ລາຍງານຍອດຂາຍ-ກຳໄລ</h1>
       </div>
 
-      {err && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">ຂໍ້ຜິດພາດ: {err}</div>}
+      {err && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">ຂໍ້ຜິດພາດ: {err}</div>}
 
       <div className="space-y-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
-          <select value={dateField} onChange={(e) => setDateField(e.target.value as ReportDateField)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
+          <select aria-label="ວັນທີລາຍງານ" value={dateField} onChange={(e) => setDateField(e.target.value as ReportDateField)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
             {DATE_FIELD_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
-          <select value={month} onChange={(e) => setMonth(e.target.value === "ALL" ? "ALL" : Number(e.target.value))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
+          <select aria-label="ເດືອນ" value={month} onChange={(e) => setMonth(e.target.value === "ALL" ? "ALL" : Number(e.target.value))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
             {buildMonthOptions().map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
+          <select aria-label="ປີ" value={year} onChange={(e) => setYear(Number(e.target.value))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
             {buildYearOptions().map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
           <select value={workflowStatus} onChange={(e) => setWorkflowStatus(e.target.value as WorkflowStatusFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
@@ -400,7 +409,7 @@ export default function SalesProfitReportPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-100 bg-slate-50/70 text-slate-700">
               <tr>
-                <th className="p-3 text-left text-xs font-black uppercase">ວັນທີຈັດສົ່ງ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ວັນຮັບຮູ້ກຳໄລ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ວັນທີສັ່ງ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ລະຫັດອໍເດີ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ແອັດມິນ</th>
@@ -419,14 +428,14 @@ export default function SalesProfitReportPage() {
               ) : (
                 filteredRows.map((row) => (
                   <tr key={row.id}>
-                    <td className="p-3 text-slate-800">{toDateOnly(row.shipment_completed_at) || "-"}</td>
+                    <td className="p-3 text-slate-800">{profitDateKey(row.profit_recognized_at) || "-"}</td>
                     <td className="p-3 text-slate-800">{row.order_date}</td>
                     <td className="p-3 font-black text-slate-900">{row.order_code}</td>
                     <td className="p-3 text-slate-800">{adminNames.get(row.admin_user_id || "") || "-"}</td>
                     <td className="p-3 text-right text-slate-800">{((Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0)).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(row.net_total) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(row.factory_cost) || 0).toLocaleString()}</td>
-                    <td className="p-3 text-right font-bold text-blue-600">{((Number(row.net_total) || 0) - (Number(row.factory_cost) || 0)).toLocaleString()}</td>
+                    <td className="p-3 text-right font-bold text-blue-600">{recognizedProfit(row, year, month).toLocaleString()}</td>
                     <td className="p-3 font-medium text-slate-800">{getWorkflowStatusLabel(getWorkflowStatus(row))}</td>
                   </tr>
                 ))

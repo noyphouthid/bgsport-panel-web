@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
 import { Download, Lock, RefreshCcw, TrendingUp, Wallet, Boxes, Unlock, ReceiptText } from "lucide-react";
+import { fetchAllReportRows } from "@/lib/report-query";
+import { isProfitInPeriod, profitDateKey, profitRecognitionError, PROFIT_RECOGNITION_BASIS, type ProfitRecognitionFields } from "@/lib/profit-recognition";
 import { supabase } from "@/lib/supabase";
 
-type OrderRow = {
+type OrderRow = ProfitRecognitionFields & {
   id: string;
   order_code: string;
   order_date: string;
@@ -32,6 +34,7 @@ type MonthlyClosingRow = {
   notes: string | null;
   closed_at: string | null;
   closed_by_name: string | null;
+  summary_snapshot?: { recognition_basis?: string };
 };
 
 function monthKeyOf(year: number, month: number) {
@@ -71,8 +74,8 @@ export default function MonthlyClosePage() {
   );
 
   const filteredOrders = useMemo(() => {
-    return orders.filter((order) => order.order_date >= range.start && order.order_date <= range.endDate);
-  }, [orders, range.endDate, range.start]);
+    return orders.filter((order) => isProfitInPeriod(order,year,month));
+  }, [orders, year, month]);
 
   const summary = useMemo(() => {
     const totalSales = filteredOrders.reduce((sum, row) => sum + (Number(row.net_total) || 0), 0);
@@ -83,13 +86,7 @@ export default function MonthlyClosePage() {
     const outstandingBalance = filteredOrders.reduce((sum, row) => sum + (Number(row.balance) || 0), 0);
     const outstandingOrders = filteredOrders.filter((row) => Number(row.balance) > 0).length;
 
-    const deliveredInMonth = orders.filter(
-      (row) => row.shipment_completed_at && row.shipment_completed_at >= `${range.start}T00:00:00` && row.shipment_completed_at <= `${range.endDate}T23:59:59`
-    );
-    const recognizedProfit = deliveredInMonth.reduce(
-      (sum, row) => sum + ((Number(row.net_total) || 0) - (Number(row.factory_cost) || 0)),
-      0
-    );
+    const recognizedProfit = totalProfit;
 
     return {
       totalSales,
@@ -101,7 +98,7 @@ export default function MonthlyClosePage() {
       outstandingOrders,
       recognizedProfit,
     };
-  }, [filteredOrders, orders, range.endDate, range.start]);
+  }, [filteredOrders]);
 
   const loadPage = async () => {
     setLoading(true);
@@ -111,13 +108,13 @@ export default function MonthlyClosePage() {
     const authUserId = sessionData.session?.user.id;
 
     const tasks = [
-      supabase
+      fetchAllReportRows<OrderRow>((from, to) => supabase
         .from("orders")
-        .select("id,order_code,order_date,status,shipment_completed_at,net_total,factory_cost,balance")
-        .order("order_date", { ascending: false }),
+        .select("id,order_code,order_date,status,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,net_total,factory_cost,balance")
+        .order("profit_recognized_at", { ascending: false, nullsFirst: false }).order("id").range(from,to)),
       supabase
         .from("monthly_closings")
-        .select("id,month_key,start_date,end_date,total_sales,total_cost,total_profit,total_orders,completed_orders,outstanding_balance,status,notes,closed_at,closed_by_name")
+        .select("id,month_key,start_date,end_date,total_sales,total_cost,total_profit,total_orders,completed_orders,outstanding_balance,status,notes,closed_at,closed_by_name,summary_snapshot")
         .order("month_key", { ascending: false }),
     ] as const;
 
@@ -130,7 +127,7 @@ export default function MonthlyClosePage() {
     ]);
 
     if (ordersResult.error) {
-      setErrorMessage(ordersResult.error.message);
+      setErrorMessage(profitRecognitionError(ordersResult.error));
       setOrders([]);
       setHistoryRows([]);
       setLoading(false);
@@ -180,6 +177,7 @@ export default function MonthlyClosePage() {
   };
 
   const handleCloseMonth = async () => {
+    if (loading || errorMessage) return toast.error(errorMessage || "ກະລຸນາລໍຖ້າໂຫຼດຍອດກຳໄລ");
     if (filteredOrders.length === 0) {
       toast.error("ບໍ່ມີອໍເດີ້ໃນເດືອນນີ້");
       return;
@@ -202,10 +200,13 @@ export default function MonthlyClosePage() {
       closed_by_user_id: viewerUserId,
       closed_by_name: viewerName || null,
       summary_snapshot: {
+        recognition_basis: PROFIT_RECOGNITION_BASIS,
         orders: filteredOrders.map((row) => ({
           id: row.id,
           order_code: row.order_code,
           order_date: row.order_date,
+          profit_recognized_at: row.profit_recognized_at,
+          has_transport_cod: row.has_transport_cod,
           status: row.status,
           net_total: Number(row.net_total) || 0,
           factory_cost: Number(row.factory_cost) || 0,
@@ -250,6 +251,7 @@ export default function MonthlyClosePage() {
   const exportExcel = () => {
     const exportRows = filteredOrders.map((row) => ({
       "ເດືອນ": monthKey,
+      "ວັນຮັບຮູ້ກຳໄລ": profitDateKey(row.profit_recognized_at),
       "ວັນທີສັ່ງ": row.order_date,
       "ລະຫັດອໍເດີ້": row.order_code,
       "ສົ່ງມອບສຳເລັດ": row.shipment_completed_at ? new Date(row.shipment_completed_at).toISOString().slice(0, 10) : "-",
@@ -262,6 +264,7 @@ export default function MonthlyClosePage() {
 
     exportRows.push({
       "ເດືອນ": monthKey,
+      "ວັນຮັບຮູ້ກຳໄລ": monthKey,
       "ວັນທີສັ່ງ": "ສະຫຼຸບ",
       "ລະຫັດອໍເດີ້": `${summary.totalOrders} ອໍເດີ້`,
       "ສົ່ງມອບສຳເລັດ": `${summary.completedOrders} ອໍເດີ້`,
@@ -289,7 +292,7 @@ export default function MonthlyClosePage() {
       .map(
         (row) => `
           <tr>
-            <td>${row.order_date}</td>
+            <td>${profitDateKey(row.profit_recognized_at)}</td>
             <td>${row.order_code}</td>
             <td>${row.shipment_completed_at ? "ສົ່ງມອບສຳເລັດ" : "ຍັງບໍ່ສົ່ງມອບ"}</td>
             <td style="text-align:right">${Number(row.net_total || 0).toLocaleString("en-US")}</td>
@@ -330,7 +333,7 @@ export default function MonthlyClosePage() {
           <table>
             <thead>
               <tr>
-                <th>ວັນທີ</th>
+                <th>ວັນຮັບຮູ້ກຳໄລ</th>
                 <th>ລະຫັດອໍເດີ້</th>
                 <th>ສະຖານະສົ່ງມອບ</th>
                 <th>ຍອດຂາຍ</th>
@@ -363,6 +366,7 @@ export default function MonthlyClosePage() {
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <select
+            aria-label="ເດືອນ"
             value={month}
             onChange={(event) => handleMonthChange(Number(event.target.value))}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-400"
@@ -375,6 +379,7 @@ export default function MonthlyClosePage() {
           </select>
 
           <select
+            aria-label="ປີ"
             value={year}
             onChange={(event) => handleYearChange(Number(event.target.value))}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-400"
@@ -402,6 +407,8 @@ export default function MonthlyClosePage() {
         </div>
       ) : null}
 
+      <p className="text-sm text-slate-600">COD ນັບກຳໄລໃນເດືອນທີ່ກົດຮັບເງິນຄົບຈາກໜ້າລາຍການ COD</p>
+      {currentClosing?.status === "closed" && currentClosing.summary_snapshot?.recognition_basis !== PROFIT_RECOGNITION_BASIS && <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">ຍອດປິດນີ້ໃຊ້ເກນກຳໄລເດີມ. ເປີດຍອດຄືນ ແລະ ປິດໃໝ່ເພື່ອຄິດຕາມວັນຮັບເງິນ COD.</p>}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard title="ຍອດຂາຍລວມ" value={formatMoney(summary.totalSales)} icon={<Wallet size={20} />} tone="bg-emerald-100 text-emerald-700" />
         <MetricCard title="ກຳໄລໃນເດືອນ" value={formatMoney(summary.recognizedProfit)} icon={<TrendingUp size={20} />} tone="bg-sky-100 text-sky-700" />
@@ -430,7 +437,7 @@ export default function MonthlyClosePage() {
             ) : (
               <button
                 onClick={handleCloseMonth}
-                disabled={saving}
+                disabled={saving || loading || !!errorMessage}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-60"
               >
                 <Lock size={16} />
@@ -511,7 +518,7 @@ export default function MonthlyClosePage() {
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-left text-slate-500">
               <tr>
-                <th className="px-5 py-3 font-bold">ວັນທີ</th>
+                <th className="px-5 py-3 font-bold">ວັນຮັບຮູ້ກຳໄລ</th>
                 <th className="px-5 py-3 font-bold">ລະຫັດອໍເດີ້</th>
                 <th className="px-5 py-3 font-bold">ສະຖານະ</th>
                 <th className="px-5 py-3 font-bold text-right">ຍອດຂາຍ</th>
@@ -530,7 +537,7 @@ export default function MonthlyClosePage() {
               ) : null}
               {filteredOrders.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
-                  <td className="px-5 py-4 font-semibold text-slate-600">{row.order_date}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-600">{profitDateKey(row.profit_recognized_at)}</td>
                   <td className="px-5 py-4 font-black text-slate-900">{row.order_code}</td>
                   <td className="px-5 py-4">
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${row.shipment_completed_at ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
