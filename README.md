@@ -163,6 +163,15 @@ QC or factory shipping flags do not set these shop milestones. The storefront us
 them to confirm its final production step without duplicating the shop workflow.
 Validate with `node --test tests/public-order-progress.test.mjs`.
 
+Tracking also returns `orderImageUrls`: the saved primary order photo, images from
+the matching `order-media/order-image/{order_code}` folder, and production mockups
+from the newest linked active deposit. Galleries are deduplicated and limited to
+20 images. Only raster images from this project's public order-image and
+factory-production-mockups locations are included. Payment slips, documents and
+private deposit fields are not selected. Listing failures retain available saved
+photos. No migration or re-upload is required. Validate with
+`node --test tests/public-order-photos.test.mjs`.
+
 `GET /api/public/order-tracking/delivery-dates` supplies storefront customer delivery
 commitments from **factory-deposit-orders → ກຳນົດສົ່ງລູກຄ້າ**
 (`factory_deposit_orders.delivery_date`). It accepts up to 20 exact order UUIDs in

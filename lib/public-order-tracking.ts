@@ -2,6 +2,7 @@ type RawOrderRow = {
   id: string;
   order_code: string;
   order_date: string;
+  order_image_urls?: string[];
   customer_phone: string | null;
   customer_whatsapp: string | null;
   fabric_name: string;
@@ -78,6 +79,7 @@ export type PublicTrackingResult = {
   fabricName: string | null;
   totalQty: number;
   designImageUrl: string | null;
+  orderImageUrls: string[];
   currentStatus: string;
   currentStageIndex: number | null;
   currentStageSource: "factory" | "shop";
@@ -161,6 +163,7 @@ export function mapOrderToPublicTracking(row: RawOrderRow): PublicTrackingResult
     customerPhoneMasked: maskPhone(row.customer_phone || row.customer_whatsapp || null),
     fabricName: row.fabric_name || null,
     totalQty,
+    orderImageUrls: row.order_image_urls ?? [],
     designImageUrl: buildTrackingImageProxyUrl(row.factory_production_payload?.design_image_url, {
       orderId: row.id,
       factoryBillCode: row.factory_bill_code,

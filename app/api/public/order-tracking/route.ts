@@ -5,6 +5,7 @@ import {
   fetchFactoryProductionSnapshot,
 } from "@/lib/factory-production";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { fetchPublicOrderPhotosWithClient } from "@/lib/public-order-photos";
 import {
   mapOrderToPublicTracking,
   matchesTrackingQuery,
@@ -18,6 +19,7 @@ type RawOrderRow = {
   id: string;
   order_code: string;
   order_date: string;
+  order_image_url: string | null;
   customer_phone: string | null;
   customer_whatsapp: string | null;
   fabric_name: string;
@@ -167,7 +169,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from("orders")
     .select(
-      "id,order_code,order_date,customer_phone,customer_whatsapp,fabric_name,short_qty,long_qty,free_qty,status,closed_at,shipment_status,shipment_completed_at,production_completed_at,factory_bill_code,factory_production_status,factory_production_status_index,factory_production_shipping_status,factory_production_due_date,factory_production_is_rush,factory_production_source_updated_at,factory_production_synced_at,factory_production_sync_error,factory_production_payload"
+      "id,order_code,order_date,order_image_url,customer_phone,customer_whatsapp,fabric_name,short_qty,long_qty,free_qty,status,closed_at,shipment_status,shipment_completed_at,production_completed_at,factory_bill_code,factory_production_status,factory_production_status_index,factory_production_shipping_status,factory_production_due_date,factory_production_is_rush,factory_production_source_updated_at,factory_production_synced_at,factory_production_sync_error,factory_production_payload"
     )
     .or(clauses.join(","))
     .order("order_date", { ascending: false })
@@ -188,8 +190,11 @@ export async function GET(req: NextRequest) {
     .slice(0, 20);
 
   const rowsWithLiveFactoryStatus = await refreshOrdersFromFactory(supabaseAdmin, matches);
-  const rowsWithShopReceiptState = await attachShopReceiptState(supabaseAdmin, rowsWithLiveFactoryStatus);
-  const results: PublicTrackingResult[] = rowsWithShopReceiptState.map(mapOrderToPublicTracking);
+  const [rowsWithShopReceiptState, photos] = await Promise.all([
+    attachShopReceiptState(supabaseAdmin, rowsWithLiveFactoryStatus),
+    fetchPublicOrderPhotosWithClient(supabaseAdmin, matches, process.env.NEXT_PUBLIC_SUPABASE_URL || ""),
+  ]);
+  const results: PublicTrackingResult[] = rowsWithShopReceiptState.map(row => mapOrderToPublicTracking({ ...row, order_image_urls: photos.get(row.id) ?? [] }));
   return NextResponse.json({
     ok: true,
     query: search,
