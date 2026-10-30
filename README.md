@@ -157,6 +157,12 @@ HTTPS storefront origin. Keep `/api/public/order-tracking` and its design-image
 API running here: the shop Worker uses these existing APIs without panel login.
 Production currently uses `https://bgsportaccounting.com` as the ERP API origin.
 
+Public tracking responses include `shopReceived` and `shopShipped`, derived from
+shop receipt/production-completion and customer-delivery/closure records. Factory
+QC or factory shipping flags do not set these shop milestones. The storefront uses
+them to confirm its final production step without duplicating the shop workflow.
+Validate with `node --test tests/public-order-progress.test.mjs`.
+
 `GET /api/public/order-tracking/delivery-dates` supplies storefront customer delivery
 commitments from **factory-deposit-orders → ກຳນົດສົ່ງລູກຄ້າ**
 (`factory_deposit_orders.delivery_date`). It accepts up to 20 exact order UUIDs in

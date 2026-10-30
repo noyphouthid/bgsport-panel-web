@@ -88,6 +88,8 @@ export type PublicTrackingResult = {
   steps: string[];
   activeStepIndex: number | null;
   factoryBillCode: string | null;
+  shopReceived: boolean;
+  shopShipped: boolean;
 };
 
 function normalizeDigits(value: string | null | undefined) {
@@ -130,6 +132,8 @@ function getLocalTrackingSteps(row: RawOrderRow) {
 }
 
 export function mapOrderToPublicTracking(row: RawOrderRow): PublicTrackingResult {
+  const shopShipped = row.shipment_status === "shipped" || Boolean(row.shipment_completed_at || row.closed_at) || row.status === "completed";
+  const shopReceived = shopShipped || Boolean(row.shop_received_at || row.production_completed_at);
   const totalQty = (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0);
   const factorySteps = Array.isArray(row.factory_production_payload?.statuses)
     ? row.factory_production_payload?.statuses?.filter((item): item is string => Boolean(String(item || "").trim()))
@@ -185,6 +189,8 @@ export function mapOrderToPublicTracking(row: RawOrderRow): PublicTrackingResult
     steps,
     activeStepIndex,
     factoryBillCode: row.factory_bill_code || null,
+    shopReceived,
+    shopShipped,
   };
 }
 
