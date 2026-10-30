@@ -205,6 +205,7 @@ export function rankTrackingMatch(row: RawOrderRow, rawQuery: string) {
   const numericSuffix = normalizedOrderCode.match(/(\d+)$/)?.[1] || "";
 
   if (normalizedQuery && normalizedOrderCode === normalizedQuery) return 100;
+  if (normalizedQuery && normalizeText(row.factory_bill_code) === normalizedQuery) return 100;
   if (digits.length >= 4 && numericSuffix === digits) return 90;
   if (digits.length >= 7 && phoneDigits === digits) return 80;
   if (digits.length >= 7 && phoneDigits.endsWith(digits)) return 70;
