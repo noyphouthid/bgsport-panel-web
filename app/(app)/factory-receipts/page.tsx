@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { CheckCheck, Factory, MessageCircleMore, PackagePlus, RotateCcw, Search } from "lucide-react";
+import { Barcode, CheckCheck, Factory, MessageCircleMore, PackagePlus, RotateCcw, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { getTotalShirtQty } from "@/lib/order-quantities";
 import {
@@ -19,6 +19,8 @@ import {
 } from "@/lib/inventory-qr";
 import { WhatsappMessageModal } from "../_components/whatsapp-message-modal";
 import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
+import { FactoryBarcodeScanner } from "../_components/factory-barcode-scanner";
+import { findFactoryBarcodeOrder, normalizeFactoryBarcode } from "@/lib/factory-receipt-barcode";
 
 type QueueItem = QrLabelRow & {
   customer_phone: string | null;
@@ -127,6 +129,10 @@ async function searchSimilarOrders(rawValue: string) {
 
 export default function FactoryReceiptsPage() {
   const [scannerInput, setScannerInput] = useState("");
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const [lookingUp, setLookingUp] = useState(false);
+  const lookupLockRef = useRef(false);
+  const [lastBarcode, setLastBarcode] = useState<{ code: string; message: string; success: boolean } | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [receivedAt, setReceivedAt] = useState(() => toLocalDateTimeInputValue());
   const [receivedBy, setReceivedBy] = useState("");
@@ -293,7 +299,19 @@ export default function FactoryReceiptsPage() {
     setActiveReceiptItems(details);
   };
 
-  const findOrderByInput = async (rawValue: string) => {
+  const findOrderByInput = async (rawValue: string, factoryBarcodeOnly = false) => {
+    if (factoryBarcodeOnly) {
+      const order = await findFactoryBarcodeOrder(supabase, rawValue, ORDER_SELECT);
+      if (!order) return null;
+      const { data, error } = await supabase
+        .from("order_qr_labels")
+        .select(ORDER_QR_LABEL_SELECT)
+        .eq("order_id", order.id)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return { order, existingLabel: (data as QrLabelRow | null) || null };
+    }
+
     const parsed = parseQrInput(rawValue);
     if (!parsed.normalized) return null;
 
@@ -395,6 +413,15 @@ export default function FactoryReceiptsPage() {
       return false;
     }
 
+    const initialBlockReason = getImportBlockReason(resolved.order, resolved.existingLabel);
+    if (initialBlockReason) {
+      toast.error(initialBlockReason);
+      return false;
+    }
+    if (queue.some((item) => item.order_id === resolved.order.id)) {
+      toast("ອໍເດີນີ້ຢູ່ໃນລາຍການຮັບເຂົ້າແລ້ວ");
+      return false;
+    }
     const label = await ensureLabelForOrder(resolved.order, resolved.existingLabel);
     const blockedReason = getImportBlockReason(resolved.order, label);
     if (queue.some((item) => item.id === label.id || item.order_id === label.order_id)) {
@@ -418,7 +445,7 @@ export default function FactoryReceiptsPage() {
       return false;
     }
 
-    setQueue((prev) => [
+    setQueue((prev) => prev.some((item) => item.order_id === label.order_id) ? prev : [
       ...prev,
       {
         ...label,
@@ -476,13 +503,26 @@ export default function FactoryReceiptsPage() {
     }, 220);
   };
 
-  const lookupLabel = async (rawValue: string) => {
+  const lookupLabel = async (rawValue: string, factoryBarcodeOnly = false) => {
     const input = rawValue.trim();
-    if (!input) return;
+    if (!input || saving || lookupLockRef.current) return;
+    lookupLockRef.current = true;
+    setLookingUp(true);
+    // Invalidate any pending suggestions before resolving a scanned code.
+    suggestionRequestId += 1;
+    if (suggestionSearchTimer) clearTimeout(suggestionSearchTimer);
+    setSuggestionsLoading(false);
+    if (factoryBarcodeOnly) {
+      setBarcodeInput(normalizeFactoryBarcode(input) || input);
+      setLastBarcode(null);
+    }
 
     try {
-      const resolved = await findOrderByInput(input);
+      const resolved = await findOrderByInput(input, factoryBarcodeOnly);
       if (!resolved) {
+        if (factoryBarcodeOnly) {
+          throw new Error(`ບໍ່ພົບອໍເດີທີ່ມີລະຫັດບິນໂຮງງານ ${normalizeFactoryBarcode(input)}`);
+        }
         const nearby = await searchSimilarOrders(input);
         setSuggestions(nearby);
         setSuggestionsOpen(true);
@@ -490,13 +530,46 @@ export default function FactoryReceiptsPage() {
         return;
       }
 
-      await addResolvedOrderToQueue(resolved);
+      const added = await addResolvedOrderToQueue(resolved);
+      if (factoryBarcodeOnly) {
+        const alreadyQueued = queue.some((item) => item.order_id === resolved.order.id);
+        setLastBarcode({
+          code: resolved.order.factory_bill_code || input,
+          message: added
+            ? `ເພີ່ມ ${resolved.order.order_code} ເຂົ້າລາຍການແລ້ວ`
+            : alreadyQueued
+              ? `ອໍເດີ ${resolved.order.order_code} ຢູ່ໃນລາຍການແລ້ວ`
+              : getImportBlockReason(resolved.order, resolved.existingLabel) || "ບໍ່ສາມາດເພີ່ມອໍເດີນີ້ໄດ້",
+          success: added || alreadyQueued,
+        });
+        if (added || alreadyQueued) setBarcodeInput("");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "ກວດສອບຂໍ້ມູນບໍ່ສຳເລັດ";
+      toast.error(message);
+      if (factoryBarcodeOnly) setLastBarcode({ code: input, message, success: false });
+    } finally {
+      lookupLockRef.current = false;
+      setLookingUp(false);
+    }
+  };
+
+  const selectSuggestedOrder = async (item: SearchSuggestion) => {
+    if (saving || lookupLockRef.current) return;
+    lookupLockRef.current = true;
+    setLookingUp(true);
+    try {
+      await addResolvedOrderToQueue({ order: item, existingLabel: item.existingLabel });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ກວດສອບຂໍ້ມູນບໍ່ສຳເລັດ");
+    } finally {
+      lookupLockRef.current = false;
+      setLookingUp(false);
     }
   };
 
   const submitImport = async () => {
+    if (saving || lookupLockRef.current) return;
     if (queue.length === 0) {
       toast.error("ກະລຸນາເລືອກອໍເດີຢ່າງໜ້ອຍ 1 ລາຍການກ່ອນ");
       return;
@@ -620,6 +693,8 @@ export default function FactoryReceiptsPage() {
     setQueue([]);
     setNote("");
     setScannerInput("");
+    setBarcodeInput("");
+    setLastBarcode(null);
     setReceivedAt(toLocalDateTimeInputValue());
     await loadRecentReceipts();
     await loadReceiptItems(receipt.id);
@@ -746,24 +821,70 @@ export default function FactoryReceiptsPage() {
 
   return (
     <div className="space-y-6 text-slate-900">
-      <section className="rounded-[2rem] bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-900 p-6 text-white shadow-xl">
+      <section className="rounded-[2rem] bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-900 p-5 text-white shadow-xl sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.25em]">
               <Factory size={14} />
               ຮັບສິນຄ້າເຂົ້າ
             </div>
-            <h1 className="mt-4 text-3xl font-black tracking-tight">ຮັບສິນຄ້າເຂົ້າດ້ວຍການຄົ້ນຫາລະຫັດ</h1>
+            <h1 className="mt-4 text-2xl font-black tracking-tight sm:text-3xl">ສະແກນ Barcode ຮັບສິນຄ້າເຂົ້າ</h1>
             <p className="mt-2 max-w-2xl text-sm font-medium text-emerald-50">
-              ພິມລະຫັດອໍເດີຂອງຮ້ານ ຫຼື ລະຫັດບິນໂຮງງານເພື່ອຄົ້ນຫາ. ລະບົບຈະສະແດງລາຍການທີ່ໃກ້ຄຽງ ແລະ ສາມາດເລືອກເພີ່ມໄດ້ທັນທີ.
+              ໃຊ້ກ້ອງຫຼັງໂທລະສັບຂອງພະນັກງານ ສະແກນ Barcode ໃນໃບໂຮງງານເພື່ອເພີ່ມອໍເດີ. ສະແກນໃຫ້ຄົບ ແລ້ວກວດສອບ ແລະ ກົດນຳເຂົ້າທັງໝົດ.
             </p>
           </div>
-          <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-emerald-50">ຍ້າຍຟັງຊັນພິມໄປຢູ່ໜ້າ Inventory QR ແລ້ວ</div>
+          <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-emerald-50">ສຳລັບກ້ອງໂທລະສັບພະນັກງານ</div>
         </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
+          <div className="rounded-[2rem] border border-emerald-100 bg-white p-5 shadow-sm">
+            <FactoryBarcodeScanner onDetected={(value) => lookupLabel(value, true)} disabled={saving} />
+            <details className="mt-5 border-t border-slate-100 pt-4">
+              <summary className="cursor-pointer py-2 text-sm font-bold text-slate-600">ສະແກນບໍ່ໄດ້? ພິມລະຫັດດ້ວຍຕົນເອງ</summary>
+              <form
+                className="mt-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void lookupLabel(barcodeInput, true);
+                }}
+              >
+                <label htmlFor="factory-barcode-input" className="text-sm font-bold text-slate-700">ລະຫັດບິນໂຮງງານ</label>
+                <div className="mt-2 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    id="factory-barcode-input"
+                    value={barcodeInput}
+                    onChange={(event) => setBarcodeInput(event.target.value)}
+                    placeholder="26-184019"
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    disabled={saving}
+                    aria-describedby="factory-barcode-help"
+                    className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-4 py-3 font-mono text-base font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                  />
+                  <button type="submit" disabled={saving || lookingUp || !barcodeInput.trim()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-700 disabled:opacity-50">
+                    <Barcode size={18} /> ເພີ່ມອໍເດີ
+                  </button>
+                </div>
+                <p id="factory-barcode-help" className="mt-2 text-xs font-medium leading-relaxed text-slate-500">ພິມລະຫັດເຕັມທີ່ຢູ່ໃຕ້ Barcode ແລ້ວກົດເພີ່ມອໍເດີ.</p>
+              </form>
+            </details>
+            <div aria-live="polite" role="status" className="mt-4">
+              {lookingUp ? <div className="text-sm font-bold text-emerald-700">ກຳລັງກວດສອບອໍເດີ...</div> : lastBarcode ? (
+                <div className={`rounded-2xl border p-3 ${lastBarcode.success ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
+                  <div className="break-all font-mono text-base font-black">{lastBarcode.code}</div>
+                  <div className="mt-1 text-sm font-bold">{lastBarcode.message}</div>
+                </div>
+              ) : null}
+            </div>
+            {queue.length > 0 ? (
+              <a href="#factory-receipt-queue" className="mt-4 flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white xl:hidden">
+                <CheckCheck size={18} /> ກວດສອບ {queue.length} ອໍເດີທີ່ສະແກນແລ້ວ
+              </a>
+            ) : null}
+          </div>
           <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2 text-lg font-black text-slate-900">
               <Search size={20} />
@@ -772,6 +893,7 @@ export default function FactoryReceiptsPage() {
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
               <input
                 value={scannerInput}
+                disabled={saving || lookingUp}
                 onChange={(e) => scheduleSuggestionSearch(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void lookupLabel(scannerInput);
@@ -779,7 +901,7 @@ export default function FactoryReceiptsPage() {
                 placeholder="ພິມລະຫັດບິນໂຮງງານ ຫຼື ລະຫັດອໍເດີຂອງຮ້ານ"
                 className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
               />
-              <button type="button" onClick={() => void lookupLabel(scannerInput)} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700">
+              <button type="button" disabled={saving || lookingUp} onClick={() => void lookupLabel(scannerInput)} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50">
                 ຄົ້ນຫາ
               </button>
             </div>
@@ -800,13 +922,8 @@ export default function FactoryReceiptsPage() {
                         <button
                           key={item.id}
                           type="button"
-                          onClick={() => {
-                            if (!canImport) {
-                              showMissingFactoryBillNotification(item.order_code);
-                              return;
-                            }
-                            void addResolvedOrderToQueue({ order: item, existingLabel: item.existingLabel });
-                          }}
+                          disabled={saving || lookingUp}
+                          onClick={() => void selectSuggestedOrder(item)}
                           className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${
                             canImport
                               ? "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50"
@@ -861,18 +978,19 @@ export default function FactoryReceiptsPage() {
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
+        <div id="factory-receipt-queue" className="scroll-mt-24 rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-lg font-black text-slate-900">ລາຍການຮັບເຂົ້າ</div>
               <div className="text-sm font-medium text-slate-500">ເລືອກຫຼາຍອໍເດີ ແລ້ວ ນຳເຂົ້າໃນຄັ້ງດຽວ</div>
             </div>
-            <button type="button" onClick={() => void submitImport()} disabled={saving || queue.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50">
+            <button type="button" onClick={() => void submitImport()} disabled={saving || lookingUp || queue.length === 0} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50">
               <PackagePlus size={16} />
               {saving ? "ກຳລັງບັນທຶກ..." : "ນຳເຂົ້າທັງໝົດ"}
             </button>
           </div>
 
+          <div className="mt-3 text-sm font-bold text-emerald-700">{queue.length} ອໍເດີລໍຖ້າຮັບເຂົ້າ</div>
           <div className="mt-5 space-y-3">
             {queue.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm font-medium text-slate-500">ຍັງບໍ່ມີລາຍການທີ່ເລືອກ.</div>
@@ -909,7 +1027,7 @@ export default function FactoryReceiptsPage() {
                       )}
                     </div>
                   </div>
-                  <button type="button" onClick={() => setQueue((prev) => prev.filter((row) => row.id !== item.id))} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-100">
+                  <button type="button" disabled={saving || lookingUp} onClick={() => setQueue((prev) => prev.filter((row) => row.id !== item.id))} className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">
                     ລຶບອອກ
                   </button>
                 </div>
