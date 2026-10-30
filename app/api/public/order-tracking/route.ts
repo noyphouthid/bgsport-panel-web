@@ -161,7 +161,7 @@ export async function GET(req: NextRequest) {
   const escapedText = search.replace(/[\\%_]/g, "\\$&");
   const escapedDigits = digits;
   const clauses = [`order_code.ilike.${JSON.stringify(`%${escapedText}%`)}`];
-  if (/^\d{2}-\d{3,16}$/.test(search)) clauses.push(`factory_bill_code.eq.${JSON.stringify(search)}`);
+  if (/^[A-Za-z0-9][A-Za-z0-9_-]{2,99}$/.test(search)) clauses.push(`factory_bill_code.eq.${JSON.stringify(search)}`);
   if (escapedDigits.length >= 4) {
     clauses.push(`customer_phone.ilike.${JSON.stringify(`%${escapedDigits}%`)}`);
     clauses.push(`customer_whatsapp.ilike.${JSON.stringify(`%${escapedDigits}%`)}`);
