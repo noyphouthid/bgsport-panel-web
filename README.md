@@ -157,6 +157,16 @@ HTTPS storefront origin. Keep `/api/public/order-tracking` and its design-image
 API running here: the shop Worker uses these existing APIs without panel login.
 Production currently uses `https://bgsportaccounting.com` as the ERP API origin.
 
+`GET /api/public/order-tracking/delivery-dates` supplies storefront customer delivery
+commitments from **factory-deposit-orders → ກຳນົດສົ່ງລູກຄ້າ**
+(`factory_deposit_orders.delivery_date`). It accepts up to 20 exact order UUIDs in
+`orders` and 20 exact factory bills in `bills`, as comma-separated lists. Only
+submitted, approved and converted deposits are eligible. The server returns only
+order/bill links and delivery dates, without contacts, financial data or notes.
+Dates are read on each request with no caching; no migration is required. A missing
+customer date stays unset rather than using payment, rush or factory deadlines.
+Validate with `node --test tests/public-customer-delivery-dates.test.mjs`.
+
 Apply **only** `supabase/migrations/20261019_create_storefront_collars.sql` in the
 existing Supabase SQL Editor after `20261016_create_storefront_posts.sql`.
 Then deploy the panel to enable `/shirt-catalog/collars`: upload photos, choose
