@@ -27,7 +27,8 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
-import { calculatePayroll, type PayrollEmployee } from "@/lib/payroll-demo";
+import { buildPayrollExpenseRows, fetchPayrollExpenseRuns } from "@/lib/payroll-expenses";
+import { payrollHistoryMigration } from "@/lib/payroll-history";
 import { fetchAllReportRows } from "@/lib/report-query";
 import { profitDateKey, profitRecognitionError, type ProfitRecognitionFields } from "@/lib/profit-recognition";
 import { supabase } from "@/lib/supabase";
@@ -299,7 +300,7 @@ export default function IncomeExpenseReportPage() {
   const [rows, setRows] = useState<LedgerRow[]>([]);
   const [manualEntries, setManualEntries] = useState<ManualEntryRow[]>([]);
   const [orders, setOrders] = useState<OrderLite[]>([]);
-  const [payrollEmployees, setPayrollEmployees] = useState<PayrollEmployee[]>([]);
+  const [payrollRows, setPayrollRows] = useState<LedgerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -329,13 +330,6 @@ export default function IncomeExpenseReportPage() {
     setToDate(range.to);
   };
 
-  const applyMonthRange = (value: string) => {
-    const range = getMonthBounds(value);
-    setDateRangeMode("custom");
-    setFromDate(range.from);
-    setToDate(range.to);
-  };
-
   const loadPage = async () => {
     setLoading(true);
     setErrorMessage(null);
@@ -357,11 +351,7 @@ export default function IncomeExpenseReportPage() {
         .from("income_expense_entries")
         .select("id,entry_type,entry_date,category,title,amount,payment_method,reference_code,note,created_by_name,created_at,updated_at")
         .order("entry_date", { ascending: false }),
-      supabase
-        .from("payroll_employees")
-        .select("*")
-        .eq("is_active", true)
-        .order("full_name", { ascending: true }),
+      fetchPayrollExpenseRuns(supabase),
       authUserId
         ? supabase.from("users").select("id,full_name").eq("auth_user_id", authUserId).maybeSingle()
         : Promise.resolve({ data: null, error: null }),
@@ -371,7 +361,7 @@ export default function IncomeExpenseReportPage() {
       setRows([]);
       setManualEntries([]);
       setOrders([]);
-      setPayrollEmployees([]);
+      setPayrollRows([]);
       setErrorMessage(paymentsResult.error.message);
       setLoading(false);
       return;
@@ -381,7 +371,7 @@ export default function IncomeExpenseReportPage() {
       setRows([]);
       setManualEntries([]);
       setOrders([]);
-      setPayrollEmployees([]);
+      setPayrollRows([]);
       setErrorMessage(profitRecognitionError(ordersResult.error));
       setLoading(false);
       return;
@@ -396,7 +386,7 @@ export default function IncomeExpenseReportPage() {
       setRows([]);
       setManualEntries([]);
       setOrders([]);
-      setPayrollEmployees([]);
+      setPayrollRows([]);
       setErrorMessage(manualResult.error.message);
       setLoading(false);
       return;
@@ -411,20 +401,21 @@ export default function IncomeExpenseReportPage() {
 
     const missingPayrollLedger =
       payrollResult.error?.message.includes("Could not find the table") ||
-      payrollResult.error?.message.includes("relation \"public.payroll_employees\" does not exist");
+      payrollResult.error?.message.includes("relation \"public.payroll_runs\" does not exist") ||
+      payrollResult.error?.message.includes("relation \"public.payroll_months\" does not exist");
 
     if (payrollResult.error && !missingPayrollLedger) {
       setRows([]);
       setManualEntries([]);
       setOrders([]);
-      setPayrollEmployees([]);
+      setPayrollRows([]);
       setErrorMessage(payrollResult.error.message);
       setLoading(false);
       return;
     }
 
     if (missingPayrollLedger) {
-      warnings.push("ຍັງບໍ່ພົບຕາຕະລາງ payroll_employees ດັ່ງນັ້ນລາຍຈ່າຍ payroll ຈະຍັງບໍ່ຖືກນຳເຂົ້າອັດຕະໂນມັດ");
+      warnings.push(`ຍັງບໍ່ພົບປະຫວັດ payroll ກະລຸນາລັນ migration ${payrollHistoryMigration} ກ່ອນ. ລາຍຈ່າຍ payroll ຍັງບໍ່ຖືກລວມໃນລາຍງານນີ້`);
     }
 
     const ordersById = new Map(((ordersResult.data ?? []) as OrderLite[]).map((row) => [row.id, row]));
@@ -484,7 +475,7 @@ export default function IncomeExpenseReportPage() {
     );
     setViewerUserId(viewerResult.data?.id ? String((viewerResult.data as ViewerRow).id) : null);
     setViewerName(String((viewerResult.data as ViewerRow | null)?.full_name || ""));
-    setPayrollEmployees(missingPayrollLedger ? [] : ((payrollResult.data ?? []) as PayrollEmployee[]));
+    setPayrollRows(buildPayrollExpenseRows(payrollResult.data ?? []));
     setLedgerWarning(warnings.length > 0 ? warnings.join(" • ") : null);
     setLoading(false);
   };
@@ -496,34 +487,6 @@ export default function IncomeExpenseReportPage() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const payrollRows = useMemo(() => {
-    if (payrollEmployees.length === 0) return [];
-
-    const monthBounds = getMonthBounds(toDate);
-    const paidAt = `${monthBounds.to}T18:00:00`;
-
-    return payrollEmployees.map((employee) => {
-      const payroll = calculatePayroll(employee);
-      return {
-        id: `payroll-${employee.id}-${monthBounds.to}`,
-        entryType: "expense" as const,
-        source: "payroll" as const,
-        occurredAt: paidAt,
-        category: "ຄ່າພະນັກງານ",
-        title: `ເງິນເດືອນ ${employee.full_name}`,
-        amount: Math.max(0, Number(payroll.netSalary) || 0),
-        paymentMethod: "unknown" as const,
-        referenceCode: employee.employee_code || null,
-        note: `${monthBounds.from.slice(0, 7)} • ${employee.department || "-"}`,
-        orderCode: null,
-        customerPhone: null,
-        factoryBillCode: null,
-        createdByName: null,
-        isManual: false,
-      } satisfies LedgerRow;
-    });
-  }, [payrollEmployees, toDate]);
 
   const ledgerRows = useMemo(() => {
     return [...rows, ...payrollRows].sort((a, b) => {
@@ -873,6 +836,7 @@ export default function IncomeExpenseReportPage() {
             <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-slate-300">
               ໜ້ານີ້ໃຊ້ສຳລັບຄິດໄລ່ລາຍຮັບລວມຂອງເດືອນ ແລະ ລາຍຈ່າຍພາຍໃນຮ້ານເທົ່ານັ້ນ
               ເຊັ່ນ ຄ່ານ້ຳ-ຄ່າໄຟ, ຄ່າພະນັກງານ, ຄ່າເຊົ່າ ແລະ ອື່ນໆ ໂດຍບໍ່ຮວມຕົ້ນທຶນໂຮງງານ.
+              ລາຍຈ່າຍເງິນເດືອນໃຊ້ຍອດປິດລ່າສຸດຂອງເດືອນທີ່ປິດແລ້ວ ແລະນັບຕາມວັນຈ່າຍທີ່ບັນທຶກ.
             </p>
           </div>
 
@@ -1067,10 +1031,12 @@ export default function IncomeExpenseReportPage() {
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຈາກວັນທີ</label>
             <input
+              aria-label="ຈາກວັນທີ"
               type="date"
               value={fromDate}
               onChange={(event) => {
-                applyMonthRange(event.target.value);
+                setDateRangeMode("custom");
+                setFromDate(event.target.value);
               }}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-400"
             />
@@ -1078,10 +1044,12 @@ export default function IncomeExpenseReportPage() {
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">ຫາວັນທີ</label>
             <input
+              aria-label="ຫາວັນທີ"
               type="date"
               value={toDate}
               onChange={(event) => {
-                applyMonthRange(event.target.value);
+                setDateRangeMode("custom");
+                setToDate(event.target.value);
               }}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-400"
             />
