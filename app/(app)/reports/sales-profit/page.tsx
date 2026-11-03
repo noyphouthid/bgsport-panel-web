@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { Download, FileDown, Printer } from "lucide-react";
 import { fetchAllReportRows } from "@/lib/report-query";
+import { buildProfitChannelMap, getProfitChannel, PROFIT_CHANNELS, PROFIT_CHANNEL_LABELS, type ProfitChannel, type ProfitChannelFilter, type ProfitChannelRequest, type ProfitChannelNote } from "@/lib/profit-channels";
 import { isProfitInPeriod, profitDateKey, profitRecognitionError, recognizedProfit, type ProfitRecognitionFields } from "@/lib/profit-recognition";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
@@ -104,9 +105,11 @@ export default function SalesProfitReportPage() {
   const [factoryCostFilter, setFactoryCostFilter] = useState<FactoryCostFilter>("all");
   const [adminFilter, setAdminFilter] = useState("all");
   const [rushFilter, setRushFilter] = useState<"all" | "rush" | "normal">("all");
+  const [channelFilter, setChannelFilter] = useState<ProfitChannelFilter>("all");
   const [searchTerm, setSearchTerm] = useState("");
 
   const [rows, setRows] = useState<ReportOrder[]>([]);
+  const [channels, setChannels] = useState<Map<string, ProfitChannel>>(new Map());
   const [adminOptions, setAdminOptions] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -119,7 +122,7 @@ export default function SalesProfitReportPage() {
     setLoading(true);
     setErr(null);
 
-    const [{ data: orderData, error: orderError }, { data: userData, error: userError }] = await Promise.all([
+    const [{ data: orderData, error: orderError }, { data: userData, error: userError }, { data: requestData, error: requestError }, { data: noteData, error: noteError }] = await Promise.all([
       fetchAllReportRows<ReportOrder>((from, to) => supabase
         .from("orders")
         .select("id,order_code,order_date,status,closed_at,production_completed_at,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,shipment_status,admin_user_id,short_qty,long_qty,free_qty,net_total,factory_cost,customer_phone,customer_whatsapp,factory_bill_code,factory_production_is_rush")
@@ -130,11 +133,25 @@ export default function SalesProfitReportPage() {
         .eq("is_active", true)
         .in("role", ["superadmin", "admin", "manager", "staff"])
         .order("full_name", { ascending: true }),
+      fetchAllReportRows<ProfitChannelRequest>((from, to) => supabase
+        .from("shipment_delivery_requests")
+        .select("id,order_id,delivery_method,status,delivered_at,approved_at,created_at")
+        .in("status", ["approved", "delivered"])
+        .order("id").range(from, to)),
+      fetchAllReportRows<ProfitChannelNote>((from, to) => supabase
+        .from("transport_notes")
+        .select("id,order_id,delivery_request_id,transport_deposited_at")
+        .is("delivery_request_id", null)
+        .not("order_id", "is", null)
+        .not("transport_deposited_at", "is", null)
+        .order("id").range(from, to)),
     ]);
 
-    if (orderError) {
-      setErr(profitRecognitionError(orderError));
+    const reportError = orderError || requestError || noteError;
+    if (reportError) {
+      setErr(profitRecognitionError(reportError));
       setRows([]);
+      setChannels(new Map());
       setLoading(false);
       return;
     }
@@ -146,6 +163,7 @@ export default function SalesProfitReportPage() {
       setAdminOptions((userData ?? []) as UserOption[]);
     }
 
+    setChannels(buildProfitChannelMap(requestData ?? [], noteData ?? []));
     setRows((orderData ?? []) as ReportOrder[]);
     setLoading(false);
   };
@@ -167,6 +185,7 @@ export default function SalesProfitReportPage() {
         if (!effectiveDate || !(effectiveDate >= start && effectiveDate < endExclusive)) return false;
       }
       if (!matchSelectedPrefixes(row.order_code, selectedPrefixes)) return false;
+      if (channelFilter !== "all" && getProfitChannel(row, channels) !== channelFilter) return false;
       if (adminFilter !== "all" && row.admin_user_id !== adminFilter) return false;
       if (!matchesSearch(row, searchTerm)) return false;
       if (workflowStatus !== "all" && getWorkflowStatus(row) !== workflowStatus) return false;
@@ -176,15 +195,31 @@ export default function SalesProfitReportPage() {
       if (rushFilter === "normal" && row.factory_production_is_rush) return false;
       return true;
     });
-  }, [rows, month, year, dateField, selectedPrefixes, adminFilter, searchTerm, workflowStatus, factoryCostFilter, rushFilter]);
+  }, [rows, month, year, dateField, selectedPrefixes, adminFilter, searchTerm, workflowStatus, factoryCostFilter, rushFilter, channelFilter, channels]);
 
   const summary = useMemo(() => {
     const totalSales = filteredRows.reduce((sum, row) => sum + (Number(row.net_total) || 0), 0);
     const totalShirts = filteredRows.reduce((sum, row) => sum + (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0), 0);
     const totalOrders = filteredRows.length;
     const totalProfit = filteredRows.reduce((sum, row) => sum + recognizedProfit(row, year, month), 0);
-    return { totalSales, totalShirts, totalOrders, totalProfit };
-  }, [filteredRows, year, month]);
+    const byChannel: Record<ProfitChannel, { profit: number; orders: number }> = {
+      cod: { profit: 0, orders: 0 }, transport: { profit: 0, orders: 0 },
+      pickup: { profit: 0, orders: 0 }, unknown: { profit: 0, orders: 0 },
+    };
+    for (const row of filteredRows) {
+      const channel = byChannel[getProfitChannel(row, channels)];
+      channel.profit += recognizedProfit(row, year, month);
+      channel.orders += 1;
+    }
+    return { totalSales, totalShirts, totalOrders, totalProfit, byChannel };
+  }, [filteredRows, year, month, channels]);
+
+  const visibleChannels = PROFIT_CHANNELS.filter((channel) => channel !== "unknown" || summary.byChannel.unknown.orders > 0);
+  const channelSummary = visibleChannels.map((channel) => ({
+    label: `ກຳໄລ: ${PROFIT_CHANNEL_LABELS[channel]}`,
+    value: summary.byChannel[channel].profit.toLocaleString(),
+  }));
+  const channelFilterLabel = channelFilter === "all" ? "ທັງໝົດ" : PROFIT_CHANNEL_LABELS[channelFilter];
 
   const periodLabel = buildPeriodLabel(month, year);
   const prefixSummary = selectedPrefixes.length === 0 ? "ALL" : selectedPrefixes.join(", ");
@@ -200,6 +235,7 @@ export default function SalesProfitReportPage() {
       order_code: row.order_code,
       factory_bill_code: row.factory_bill_code ?? "",
       admin_name: adminNames.get(row.admin_user_id || "") || "-",
+      profit_channel: PROFIT_CHANNEL_LABELS[getProfitChannel(row, channels)],
       total_qty: (Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0),
       net_total: Number(row.net_total) || 0,
       factory_cost: Number(row.factory_cost) || 0,
@@ -216,6 +252,7 @@ export default function SalesProfitReportPage() {
       order_code: `admin=${adminFilter === "all" ? "ALL" : adminNames.get(adminFilter) || "-"}`,
       factory_bill_code: searchTerm || "-",
       admin_name: `status=${workflowStatus}`,
+      profit_channel: channelFilterLabel,
       total_qty: summary.totalShirts,
       net_total: summary.totalSales,
       factory_cost: 0,
@@ -227,25 +264,32 @@ export default function SalesProfitReportPage() {
     const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "sales_profit_report");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(visibleChannels.map((channel) => ({
+      profit_channel: PROFIT_CHANNEL_LABELS[channel],
+      total_orders: summary.byChannel[channel].orders,
+      profit: summary.byChannel[channel].profit,
+    }))), "profit_channels");
     XLSX.writeFile(wb, `sales-profit-${periodFileLabel}.xlsx`);
   };
 
   const handlePrint = () => {
     openReportPrintWindow({
       title: "ລາຍງານຍອດຂາຍ-ກຳໄລ",
-      subtitle: `ວັນທີ: ${dateFieldLabel} | ໄລຍະ: ${periodLabel} | ລະຫັດ: ${prefixSummary} | ແອັດມິນ: ${adminFilter === "all" ? "ທັງໝົດ" : adminNames.get(adminFilter) || "-"} | ຄົ້ນຫາ: ${searchTerm || "-"} | ງານດ່ວນ: ${rushFilter === "all" ? "ທັງໝົດ" : rushFilter === "rush" ? "ສະເພາະງານດ່ວນ" : "ສະເພາະງານປົກກະຕິ"}`,
+      subtitle: `ວັນທີ: ${dateFieldLabel} | ໄລຍະ: ${periodLabel} | ລະຫັດ: ${prefixSummary} | ແອັດມິນ: ${adminFilter === "all" ? "ທັງໝົດ" : adminNames.get(adminFilter) || "-"} | ຊ່ອງທາງກຳໄລ: ${channelFilterLabel} | ຄົ້ນຫາ: ${searchTerm || "-"} | ງານດ່ວນ: ${rushFilter === "all" ? "ທັງໝົດ" : rushFilter === "rush" ? "ສະເພາະງານດ່ວນ" : "ສະເພາະງານປົກກະຕິ"}`,
       summary: [
         { label: "ຍອດຂາຍລວມ", value: summary.totalSales.toLocaleString() },
         { label: "ກຳໄລລວມ", value: summary.totalProfit.toLocaleString() },
+        ...channelSummary,
         { label: "ຈຳນວນເສື້ອລວມ", value: summary.totalShirts.toLocaleString() },
         { label: "ອໍເດີທັງໝົດ", value: summary.totalOrders.toLocaleString() },
       ],
-      headers: ["ວັນຮັບຮູ້ກຳໄລ", "ວັນທີສັ່ງ", "ລະຫັດອໍເດີ", "ແອັດມິນ", "ຈຳນວນ", "ຍອດຂາຍ", "ຕົ້ນທຶນ", "ກຳໄລ", "ສະຖານະ"],
+      headers: ["ວັນຮັບຮູ້ກຳໄລ", "ວັນທີສັ່ງ", "ລະຫັດອໍເດີ", "ແອັດມິນ", "ຊ່ອງທາງກຳໄລ", "ຈຳນວນ", "ຍອດຂາຍ", "ຕົ້ນທຶນ", "ກຳໄລ", "ສະຖານະ"],
       rows: filteredRows.map((row) => [
         profitDateKey(row.profit_recognized_at) || "-",
         row.order_date,
         row.order_code,
         adminNames.get(row.admin_user_id || "") || "-",
+        PROFIT_CHANNEL_LABELS[getProfitChannel(row, channels)],
         ((Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0)).toLocaleString(),
         (Number(row.net_total) || 0).toLocaleString(),
         (Number(row.factory_cost) || 0).toLocaleString(),
@@ -260,19 +304,21 @@ export default function SalesProfitReportPage() {
     try {
       await exportReportDocumentAsPdf({
         title: "ລາຍງານຍອດຂາຍ-ກຳໄລ",
-        subtitle: `ວັນທີ: ${dateFieldLabel} | ໄລຍະ: ${periodLabel} | ລະຫັດ: ${prefixSummary} | ແອັດມິນ: ${adminFilter === "all" ? "ທັງໝົດ" : adminNames.get(adminFilter) || "-"} | ຄົ້ນຫາ: ${searchTerm || "-"} | ງານດ່ວນ: ${rushFilter === "all" ? "ທັງໝົດ" : rushFilter === "rush" ? "ສະເພາະງານດ່ວນ" : "ສະເພາະງານປົກກະຕິ"}`,
+        subtitle: `ວັນທີ: ${dateFieldLabel} | ໄລຍະ: ${periodLabel} | ລະຫັດ: ${prefixSummary} | ແອັດມິນ: ${adminFilter === "all" ? "ທັງໝົດ" : adminNames.get(adminFilter) || "-"} | ຊ່ອງທາງກຳໄລ: ${channelFilterLabel} | ຄົ້ນຫາ: ${searchTerm || "-"} | ງານດ່ວນ: ${rushFilter === "all" ? "ທັງໝົດ" : rushFilter === "rush" ? "ສະເພາະງານດ່ວນ" : "ສະເພາະງານປົກກະຕິ"}`,
         summary: [
           { label: "ຍອດຂາຍລວມ", value: summary.totalSales.toLocaleString() },
           { label: "ກຳໄລລວມ", value: summary.totalProfit.toLocaleString() },
+          ...channelSummary,
           { label: "ຈຳນວນເສື້ອລວມ", value: summary.totalShirts.toLocaleString() },
           { label: "ອໍເດີທັງໝົດ", value: summary.totalOrders.toLocaleString() },
         ],
-        headers: ["ວັນຮັບຮູ້ກຳໄລ", "ວັນທີສັ່ງ", "ລະຫັດອໍເດີ", "ແອັດມິນ", "ຈຳນວນ", "ຍອດຂາຍ", "ຕົ້ນທຶນ", "ກຳໄລ", "ສະຖານະ"],
+        headers: ["ວັນຮັບຮູ້ກຳໄລ", "ວັນທີສັ່ງ", "ລະຫັດອໍເດີ", "ແອັດມິນ", "ຊ່ອງທາງກຳໄລ", "ຈຳນວນ", "ຍອດຂາຍ", "ຕົ້ນທຶນ", "ກຳໄລ", "ສະຖານະ"],
         rows: filteredRows.map((row) => [
           profitDateKey(row.profit_recognized_at) || "-",
           row.order_date,
           row.order_code,
           adminNames.get(row.admin_user_id || "") || "-",
+          PROFIT_CHANNEL_LABELS[getProfitChannel(row, channels)],
           ((Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0)).toLocaleString(),
           (Number(row.net_total) || 0).toLocaleString(),
           (Number(row.factory_cost) || 0).toLocaleString(),
@@ -322,7 +368,7 @@ export default function SalesProfitReportPage() {
           </select>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-5">
           <input
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -333,6 +379,10 @@ export default function SalesProfitReportPage() {
             <option value="all">ງານດ່ວນທັງໝົດ</option>
             <option value="rush">ສະເພາະງານດ່ວນ</option>
             <option value="normal">ສະເພາະງານປົກກະຕິ</option>
+          </select>
+          <select aria-label="ຊ່ອງທາງກຳໄລ" value={channelFilter} onChange={(e) => setChannelFilter(e.target.value as ProfitChannelFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900">
+            <option value="all">ຊ່ອງທາງກຳໄລທັງໝົດ</option>
+            {PROFIT_CHANNELS.map((channel) => <option key={channel} value={channel}>{PROFIT_CHANNEL_LABELS[channel]}</option>)}
           </select>
           <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-600">
             {dateFieldLabel}: {periodLabel}
@@ -387,6 +437,20 @@ export default function SalesProfitReportPage() {
           </div>
         </div>
 
+        <div className="space-y-3">
+          <div className="text-sm font-black text-slate-800">ກຳໄລແຍກຕາມຊ່ອງທາງ</div>
+          <p className="text-xs text-slate-500">ກຳໄລອໍເດີຕາມໄລຍະຮັບຮູ້ກຳໄລ; COD ນັບຕາມວັນຮັບເງິນ. ອໍເດີທີ່ມີຫຼາຍການສົ່ງມອບໃຊ້ຊ່ອງທາງສົ່ງມອບລ່າສຸດ ແລະ ນັບກຳໄລຄັ້ງດຽວ.</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {visibleChannels.map((channel) => (
+              <div key={channel} className="rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+                <div className="text-xs font-bold text-slate-700">ກຳໄລ: {PROFIT_CHANNEL_LABELS[channel]}</div>
+                <div className="mt-1 text-xl font-black text-blue-600">{summary.byChannel[channel].profit.toLocaleString()}</div>
+                <div className="mt-1 text-xs text-slate-500">{summary.byChannel[channel].orders.toLocaleString()} ອໍເດີ</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="flex flex-wrap justify-end gap-2">
           <button onClick={handlePrint} disabled={filteredRows.length === 0} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50">
             <Printer size={16} />
@@ -406,13 +470,14 @@ export default function SalesProfitReportPage() {
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
         <div className="border-b bg-slate-50 p-4 text-sm font-black uppercase text-slate-800">ຕາຕະລາງຜົນໄດ້ຮັບ ({filteredRows.length})</div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[1000px] text-sm">
             <thead className="border-b border-slate-100 bg-slate-50/70 text-slate-700">
               <tr>
                 <th className="p-3 text-left text-xs font-black uppercase">ວັນຮັບຮູ້ກຳໄລ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ວັນທີສັ່ງ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ລະຫັດອໍເດີ</th>
                 <th className="p-3 text-left text-xs font-black uppercase">ແອັດມິນ</th>
+                <th className="p-3 text-left text-xs font-black uppercase">ຊ່ອງທາງກຳໄລ</th>
                 <th className="p-3 text-right text-xs font-black uppercase">ຈຳນວນ</th>
                 <th className="p-3 text-right text-xs font-black uppercase">ຍອດຂາຍ</th>
                 <th className="p-3 text-right text-xs font-black uppercase">ຕົ້ນທຶນ</th>
@@ -423,7 +488,7 @@ export default function SalesProfitReportPage() {
             <tbody className="divide-y divide-slate-50">
               {!loading && filteredRows.length === 0 ? (
                 <tr>
-                  <td className="p-8 text-center font-bold text-slate-500" colSpan={9}>ບໍ່ມີຂໍ້ມູນ</td>
+                  <td className="p-8 text-center font-bold text-slate-500" colSpan={10}>ບໍ່ມີຂໍ້ມູນ</td>
                 </tr>
               ) : (
                 filteredRows.map((row) => (
@@ -432,6 +497,7 @@ export default function SalesProfitReportPage() {
                     <td className="p-3 text-slate-800">{row.order_date}</td>
                     <td className="p-3 font-black text-slate-900">{row.order_code}</td>
                     <td className="p-3 text-slate-800">{adminNames.get(row.admin_user_id || "") || "-"}</td>
+                    <td className="p-3 text-slate-800">{PROFIT_CHANNEL_LABELS[getProfitChannel(row, channels)]}</td>
                     <td className="p-3 text-right text-slate-800">{((Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0)).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(row.net_total) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(row.factory_cost) || 0).toLocaleString()}</td>

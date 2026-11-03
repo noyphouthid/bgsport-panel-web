@@ -11,6 +11,7 @@ const session={access_token:'qa-token',refresh_token:'qa-refresh',expires_at:Mat
 const row=(n,extra={})=>({id:uid(n),order_code:`RK26-${n}`,order_date:'2026-10-02',created_at:'2026-10-02T03:00:00Z',status:'in_progress',shipment_status:'shipped',shipment_completed_at:'2026-10-15T03:00:00Z',production_completed_at:'2026-10-10T03:00:00Z',closed_at:null,admin_user_id:profile.id,short_qty:10,long_qty:0,free_qty:0,net_total:1000000,factory_cost:600000,balance:0,customer_phone:'02012345678',customer_whatsapp:null,factory_bill_code:null,factory_production_is_rush:false,fabric_name:'QA',has_transport_cod:true,cod_pending_count:1,profit_recognized_at:null,...extra});
 const orders=[row(10),row(11,{net_total:800000,factory_cost:300000}),row(12,{order_date:'2026-11-02',has_transport_cod:false,cod_pending_count:0,shipment_completed_at:'2026-11-02T03:00:00Z',profit_recognized_at:'2026-11-02T03:00:00Z',net_total:200000,factory_cost:50000})];
 let history=[],missing=false;
+let deliveryRequests=[],transportNotes=[],channelLoadError=false;
 const errors=[],receipts=[],closingWrites=[];
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
 let debugPage;
@@ -37,6 +38,9 @@ try {
         return true;
       });
       const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||1000);data=data.slice(offset,offset+limit);
+    }else if(table==='shipment_delivery_requests'||table==='transport_notes'){
+      if(channelLoadError){await route.fulfill({status:400,json:{message:'Channel source unavailable'}});return;}
+      data=table==='shipment_delivery_requests'?deliveryRequests:transportNotes;
     }else if(table==='monthly_closings'){
       if(req.method()==='POST'){const body=req.postDataJSON();closingWrites.push(body);history=[{id:uid(90),...body}];}data=history;
     }else if(table==='list_transport_cod'){
@@ -85,13 +89,57 @@ try {
   await goto('/dashboard');await expect(page.getByText('ກຳໄລທັງໝົດ',{exact:true}).locator('..')).toContainText('550,000');
   await expect(page.getByText('ກຳໄລລວມ',{exact:true}).locator('..')).toContainText('550,000');
   await goto('/reports/income-expense');await expect(page.getByText('ກຳໄລຂອງເດືອນ',{exact:true}).locator('../..')).toContainText('550,000');
+  // Channel totals remain exclusive and use the same recognition rules and filters.
+  const paid={has_transport_cod:false,cod_pending_count:0,profit_recognized_at:'2026-11-03T03:00:00Z'};
+  orders.splice(0,orders.length,
+    row(20,{...paid,has_transport_cod:true}),row(21,paid),row(22,paid),
+    row(23,{...paid,net_total:50000,factory_cost:100000}),
+    row(24,{...paid,net_total:200000,factory_cost:50000}),row(25),
+    row(26,{...paid,net_total:200000,factory_cost:100000}));
+  const delivery=(n,order,method,extra={})=>({id:uid(n),order_id:uid(order),delivery_method:method,status:'delivered',delivered_at:'2026-11-03T03:00:00Z',approved_at:null,created_at:'2026-11-01T03:00:00Z',...extra});
+  deliveryRequests=[delivery(120,20,'transport'),delivery(121,21,'transport'),delivery(122,21,'transport'),delivery(123,22,'transport',{transport_providers:['ລົດໂດຍສານ']}),delivery(124,23,'pickup')];
+  transportNotes=[{id:uid(130),order_id:uid(26),delivery_request_id:null,transport_deposited_at:'2026-11-03T03:00:00Z'}];
+  await goto('/reports/sales-profit');await expect(salesProfit()).toContainText('1,400,000');
+  const channelCard=label=>page.getByText(`ກຳໄລ: ${label}`,{exact:true}).locator('..');
+  await expect(channelCard('COD')).toContainText('400,000');
+  await expect(channelCard('ຂົນສົ່ງ / ໂດຍສານ')).toContainText('900,000');
+  await expect(channelCard('ລູກຄ້າມາຮັບເອງ')).toContainText('-50,000');
+  await expect(channelCard('ບໍ່ລະບຸຊ່ອງທາງ')).toContainText('150,000');
+  await expect(page.getByRole('table')).not.toContainText('RK26-25');
+  const [channelDownload]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:/XLSX/}).click()]);
+  const channelBook=XLSX.readFile(await channelDownload.path());
+  const channelExport=XLSX.utils.sheet_to_json(channelBook.Sheets.profit_channels);
+  assert.deepEqual(channelExport.map(item=>item.profit),[400000,900000,-50000,150000]);
+  assert.equal(XLSX.utils.sheet_to_json(channelBook.Sheets.sales_profit_report).find(item=>item.order_code==='RK26-20').profit_channel,'COD');
+  const [printPage]=await Promise.all([context.waitForEvent('page'),page.getByRole('button',{name:'ພິມ',exact:true}).click()]);
+  await expect(printPage.locator('.summary')).toContainText('ກຳໄລ: COD');
+  await expect(printPage.locator('.summary')).toContainText('900,000');
+  await expect(printPage.getByRole('columnheader',{name:'ຊ່ອງທາງກຳໄລ',exact:true})).toBeVisible();await printPage.close();
+  const [pdfDownload]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'ສ້າງ PDF',exact:true}).click()]);
+  assert.match(pdfDownload.suggestedFilename(),/\.pdf$/);
+  for(const [channel,profit,count] of [['cod','400,000',1],['transport','900,000',3],['pickup','-50,000',1],['unknown','150,000',1]]){
+    await page.getByLabel('ຊ່ອງທາງກຳໄລ',{exact:true}).selectOption(channel);
+    await expect(salesProfit()).toContainText(profit);await expect(page.locator('tbody tr')).toHaveCount(count);
+  }
+  await page.getByLabel('ຊ່ອງທາງກຳໄລ',{exact:true}).selectOption('all');
+  await page.getByLabel('ເດືອນ',{exact:true}).selectOption('ALL');await expect(salesProfit()).toContainText('1,400,000');
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+  await page.getByRole('button',{name:'Close navigation',exact:true}).click();
+  await expect(page.getByLabel('ຊ່ອງທາງກຳໄລ',{exact:true})).toBeVisible();
+  await expect(page.getByRole('table')).toHaveCSS('min-width','1000px');
+  await page.screenshot({path:'/tmp/bgsport-profit-channels-mobile.png',fullPage:true});
+  await page.setViewportSize({width:1440,height:1000});
+  await page.screenshot({path:'/tmp/bgsport-profit-channels-desktop.png',fullPage:true});
+  channelLoadError=true;await goto('/reports/sales-profit');
+  await expect(page.getByRole('alert').filter({hasText:'Channel source unavailable'})).toBeVisible();await expect(salesProfit()).toContainText('0');channelLoadError=false;
   missing=true;await goto('/reports/sales-profit');await expect(page.getByRole('alert').filter({hasText:'20261106_cod_profit_recognition.sql'})).toBeVisible();
   await expect(salesProfit()).toContainText('0');
   await goto('/reports/monthly-close');await expect(page.getByText(/ກະລຸນາລັນ 20261106_cod_profit_recognition.sql/)).toBeVisible();
   await expect(page.getByRole('button',{name:'ເປີດຍອດຄືນ',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'ປິດຍອດເດືອນ',exact:true})).toBeDisabled();
   assert.deepEqual(errors,[]);
-  console.log('COD profit browser passed: receive button → correct Lao month across sales report, monthly close, dashboard total/chart and income/expense; pending exclusion, prior-month exclusion, Excel and closing payload consistency, missing-migration failure. Browser timezone: Los Angeles.');
+  console.log('COD profit browser passed: receipt recognition, cross-report totals, exclusive COD/transport (including passenger)/pickup/unknown channels, split-order deduplication, pending exclusion, losses, channel filters, yearly view, Excel summaries, print, PDF, mobile layout, source-query failure and missing migration. Browser timezone: Los Angeles.');
 }catch(error){
   if(debugPage){console.error('Browser failure:',debugPage.url(),errors,(await debugPage.locator('body').innerText()).slice(0,1500));await debugPage.screenshot({path:'/tmp/bgsport-cod-profit-failure.png'});}throw error;
 }finally{await browser.close();}
