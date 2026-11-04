@@ -316,7 +316,7 @@ export default function PaymentsPage() {
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="w-full border border-slate-100 bg-slate-50 rounded-full px-3.5 py-2 text-sm text-slate-700 font-semibold focus:ring-2 focus:ring-[#2563EB]/40 outline-none"
+              className="w-full border border-slate-100 bg-slate-50 rounded-full px-3.5 py-2 text-sm text-slate-700 font-semibold focus:ring-2 focus:ring-blue-600/40 outline-none"
             />
           </div>
           <div>
@@ -325,7 +325,7 @@ export default function PaymentsPage() {
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="w-full border border-slate-100 bg-slate-50 rounded-full px-3.5 py-2 text-sm text-slate-700 font-semibold focus:ring-2 focus:ring-[#2563EB]/40 outline-none"
+              className="w-full border border-slate-100 bg-slate-50 rounded-full px-3.5 py-2 text-sm text-slate-700 font-semibold focus:ring-2 focus:ring-blue-600/40 outline-none"
             />
           </div>
           <div>
@@ -333,7 +333,7 @@ export default function PaymentsPage() {
             <select
               value={paymentFilter}
               onChange={(e) => setPaymentFilter(e.target.value as PaymentFilter)}
-              className="w-full border border-slate-100 bg-slate-50 rounded-full px-3.5 py-2 text-sm text-slate-700 font-semibold focus:ring-2 focus:ring-[#2563EB]/40 outline-none"
+              className="w-full border border-slate-100 bg-slate-50 rounded-full px-3.5 py-2 text-sm text-slate-700 font-semibold focus:ring-2 focus:ring-blue-600/40 outline-none"
             >
               <option value="all">ທັງໝົດ</option>
               <option value="paid">ຈ່າຍແລ້ວ</option>
@@ -346,13 +346,13 @@ export default function PaymentsPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="ລະຫັດອໍເດີ້ / ບິນໂຮງງານ / ເບີໂທ"
-              className="w-full border border-slate-100 bg-slate-50 rounded-full px-3.5 py-2 text-sm text-slate-700 font-semibold focus:ring-2 focus:ring-[#2563EB]/40 outline-none"
+              className="w-full border border-slate-100 bg-slate-50 rounded-full px-3.5 py-2 text-sm text-slate-700 font-semibold focus:ring-2 focus:ring-blue-600/40 outline-none"
             />
           </div>
           <div className="flex gap-2">
             <button
               onClick={load}
-              className="bg-[#2563EB] text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-[#1D4ED8] w-full transition-all active:scale-95 shadow-sm"
+              className="bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-blue-700 w-full transition-all active:scale-95 shadow-sm"
             >
               ຄົ້ນຫາ
             </button>
@@ -376,28 +376,28 @@ export default function PaymentsPage() {
           <div className="text-[22px] font-extrabold text-slate-900">{loading ? "..." : formatMoney(summary.totalBilled)}</div>
         </div>
         <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
-          <div className="w-11 h-11 bg-[#22C55E]/12 rounded-2xl flex items-center justify-center text-[#22C55E] mb-4">
+          <div className="w-11 h-11 bg-emerald-600/12 rounded-2xl flex items-center justify-center text-emerald-600 mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
           </div>
           <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">ຍອດຮັບແລ້ວ</div>
-          <div className="text-[22px] font-extrabold text-[#22C55E]">{loading ? "..." : formatMoney(summary.totalReceived)}</div>
+          <div className="text-[22px] font-extrabold text-emerald-600">{loading ? "..." : formatMoney(summary.totalReceived)}</div>
         </div>
         <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
-          <div className="w-11 h-11 bg-[#DC2626]/12 rounded-2xl flex items-center justify-center text-[#DC2626] mb-4">
+          <div className="w-11 h-11 bg-red-600/12 rounded-2xl flex items-center justify-center text-red-600 mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
           </div>
           <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">ຍອດຄ້າງ</div>
-          <div className="text-[22px] font-extrabold text-[#DC2626]">{loading ? "..." : formatMoney(summary.totalOutstanding)}</div>
+          <div className="text-[22px] font-extrabold text-red-600">{loading ? "..." : formatMoney(summary.totalOutstanding)}</div>
         </div>
         <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
-          <div className="w-11 h-11 bg-[#3B82F6]/12 rounded-2xl flex items-center justify-center text-[#3B82F6] mb-4">
+          <div className="w-11 h-11 bg-sky-600/12 rounded-2xl flex items-center justify-center text-sky-600 mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-3 3" /></svg>
           </div>
           <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">ອັດຕາເກັບເງິນ</div>
-          <div className="text-[22px] font-extrabold text-[#3B82F6]">{loading ? "..." : `${summary.collectionRate.toFixed(1)}%`}</div>
+          <div className="text-[22px] font-extrabold text-sky-600">{loading ? "..." : `${summary.collectionRate.toFixed(1)}%`}</div>
         </div>
         <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
-          <div className="w-11 h-11 bg-[#6366F1]/12 rounded-2xl flex items-center justify-center text-[#6366F1] mb-4">
+          <div className="w-11 h-11 bg-indigo-600/12 rounded-2xl flex items-center justify-center text-indigo-600 mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /></svg>
           </div>
           <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1">ຈຳນວນທຸລະກໍາ</div>
@@ -409,15 +409,15 @@ export default function PaymentsPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-2xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50 flex items-center justify-between">
           <span className="text-xs font-bold text-slate-400">ອໍເດີ້ຈ່າຍຄົບ</span>
-          <span className="text-sm font-extrabold text-[#22C55E]">{summary.paidOrders}</span>
+          <span className="text-sm font-extrabold text-emerald-600">{summary.paidOrders}</span>
         </div>
         <div className="bg-white p-4 rounded-2xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50 flex items-center justify-between">
           <span className="text-xs font-bold text-slate-400">ກຳລັງຜະລິດ</span>
-          <span className="text-sm font-extrabold text-[#F59E0B]">{summary.inProgress}</span>
+          <span className="text-sm font-extrabold text-amber-600">{summary.inProgress}</span>
         </div>
         <div className="bg-white p-4 rounded-2xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50 flex items-center justify-between">
           <span className="text-xs font-bold text-slate-400">ພ້ອມປິດງານ</span>
-          <span className="text-sm font-extrabold text-[#3B82F6]">{summary.readyToClose}</span>
+          <span className="text-sm font-extrabold text-sky-600">{summary.readyToClose}</span>
         </div>
       </div>
 
@@ -427,8 +427,8 @@ export default function PaymentsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <h2 className="text-sm font-extrabold text-slate-800">ແນວໂນ້ມການຮັບເງິນ</h2>
             <div className="flex items-center gap-4 text-[11px] font-bold text-slate-400">
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#94A3B8]"></span>ຍອດອອກບິນ</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]"></span>ຍອດຮັບແລ້ວ</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span>ຍອດອອກບິນ</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>ຍອດຮັບແລ້ວ</span>
             </div>
           </div>
 
@@ -441,16 +441,16 @@ export default function PaymentsPage() {
               <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-[190px]" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="billedFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#94A3B8" stopOpacity="0.15" />
-                    <stop offset="100%" stopColor="#94A3B8" stopOpacity="0" />
+                    <stop offset="0%" stopColor="var(--color-slate-400)" stopOpacity="0.15" />
+                    <stop offset="100%" stopColor="var(--color-slate-400)" stopOpacity="0" />
                   </linearGradient>
                 </defs>
                 {[0.25, 0.5, 0.75].map((f) => (
-                  <line key={f} x1="0" x2={chartWidth} y1={chartHeight * f} y2={chartHeight * f} stroke="#F1F5F9" strokeWidth="1" />
+                  <line key={f} x1="0" x2={chartWidth} y1={chartHeight * f} y2={chartHeight * f} stroke="var(--color-slate-100)" strokeWidth="1" />
                 ))}
                 <path d={billedAreaPath} fill="url(#billedFill)" stroke="none" />
-                <path d={billedPath} fill="none" stroke="#94A3B8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 5" />
-                <path d={receivedPath} fill="none" stroke="#22C55E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={billedPath} fill="none" stroke="var(--color-slate-400)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 5" />
+                <path d={receivedPath} fill="none" stroke="var(--color-emerald-600)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               <div className="flex justify-between mt-2 text-[11px] font-bold text-slate-400">
                 <span>{ledgerSeries[0]?.label}</span>
@@ -467,7 +467,7 @@ export default function PaymentsPage() {
             <div
               className="relative w-36 h-36 rounded-full flex items-center justify-center"
               style={{
-                background: `conic-gradient(#22C55E 0% ${summary.collectionRate}%, #DC2626 ${summary.collectionRate}% 100%)`,
+                background: `conic-gradient(var(--color-emerald-600) 0% ${summary.collectionRate}%, var(--color-red-600) ${summary.collectionRate}% 100%)`,
               }}
             >
               <div className="absolute w-24 h-24 bg-white rounded-full flex flex-col items-center justify-center">
@@ -477,11 +477,11 @@ export default function PaymentsPage() {
             </div>
             <div className="w-full mt-6 space-y-3">
               <div className="flex items-center justify-between text-xs font-bold">
-                <span className="flex items-center gap-2 text-slate-500"><span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]"></span>ຮັບແລ້ວ</span>
+                <span className="flex items-center gap-2 text-slate-500"><span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>ຮັບແລ້ວ</span>
                 <span className="text-slate-800">{summary.collectionRate.toFixed(1)}%</span>
               </div>
               <div className="flex items-center justify-between text-xs font-bold">
-                <span className="flex items-center gap-2 text-slate-500"><span className="w-2.5 h-2.5 rounded-full bg-[#DC2626]"></span>ຄ້າງຊຳລະ</span>
+                <span className="flex items-center gap-2 text-slate-500"><span className="w-2.5 h-2.5 rounded-full bg-red-600"></span>ຄ້າງຊຳລະ</span>
                 <span className="text-slate-800">{outstandingPct.toFixed(1)}%</span>
               </div>
             </div>
@@ -525,7 +525,7 @@ export default function PaymentsPage() {
                       <td className="p-4 text-slate-500 font-semibold">{r.order_date}</td>
                       <td className="p-4">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-8 h-8 rounded-full bg-[#2563EB]/10 text-[#2563EB] flex items-center justify-center text-[11px] font-extrabold">
+                          <span className="w-8 h-8 rounded-full bg-blue-600/10 text-blue-600 flex items-center justify-center text-[11px] font-extrabold">
                             {r.order_code?.slice(0, 2)?.toUpperCase() || "OD"}
                           </span>
                           <span className="font-extrabold text-slate-700 tracking-tight">{r.order_code}</span>
@@ -533,15 +533,15 @@ export default function PaymentsPage() {
                       </td>
                       <td className="p-4 text-slate-500 font-semibold">{r.customer_phone || "-"}</td>
                       <td className="p-4 text-right text-slate-700 font-extrabold">{formatMoney(r.net_total)}</td>
-                      <td className="p-4 text-right text-[#22C55E] font-extrabold">{formatMoney(received)}</td>
-                      <td className="p-4 text-right text-[#DC2626] font-extrabold">{formatMoney(r.balance)}</td>
+                      <td className="p-4 text-right text-emerald-600 font-extrabold">{formatMoney(received)}</td>
+                      <td className="p-4 text-right text-red-600 font-extrabold">{formatMoney(r.balance)}</td>
                       <td className="p-4 text-center">
                         {r.balance === 0 ? (
-                          <span className="px-3 py-1 rounded-full bg-[#22C55E]/10 text-[#22C55E] text-[10px] font-extrabold uppercase">
+                          <span className="px-3 py-1 rounded-full bg-emerald-600/10 text-emerald-600 text-[10px] font-extrabold uppercase">
                             ຈ່າຍແລ້ວ
                           </span>
                         ) : (
-                          <span className="px-3 py-1 rounded-full bg-[#DC2626]/10 text-[#DC2626] text-[10px] font-extrabold uppercase">
+                          <span className="px-3 py-1 rounded-full bg-red-600/10 text-red-600 text-[10px] font-extrabold uppercase">
                             ຍັງຄ້າງ
                           </span>
                         )}
@@ -549,7 +549,7 @@ export default function PaymentsPage() {
                       <td className="p-4 text-center">
                         <Link
                           href={`/orders/${r.id}/edit`}
-                          className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-full text-xs font-extrabold text-[#2563EB] bg-[#2563EB]/10 hover:bg-blue-600 hover:text-white transition-all"
+                          className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-full text-xs font-extrabold text-blue-600 bg-blue-600/10 hover:bg-blue-600 hover:text-white transition-all"
                         >
                           ເປີດ
                         </Link>

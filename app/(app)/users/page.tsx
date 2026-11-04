@@ -378,7 +378,7 @@ export default function UsersPage() {
       case "admin":
         return <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-black uppercase border border-purple-200">Admin</span>;
       case "manager":
-        return <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-black uppercase border border-blue-200">Manager</span>;
+        return <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-black uppercase border border-sky-200">Manager</span>;
       case "staff":
         return <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-black uppercase border border-slate-200">Staff</span>;
       case "graphic":
@@ -545,7 +545,7 @@ export default function UsersPage() {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 mb-1.5 block uppercase tracking-tighter">ຜົນການຄົ້ນຫາ</label>
-            <div className="text-lg font-black text-blue-400 leading-none py-1.5">
+            <div className="text-lg font-black text-blue-600 leading-none py-1.5">
               {filteredUsers.length} <span className="text-xs text-slate-500">ຈາກ {users.length} ຄົນ</span>
             </div>
           </div>

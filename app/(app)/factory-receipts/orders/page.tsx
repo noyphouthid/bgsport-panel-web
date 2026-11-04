@@ -305,7 +305,7 @@ export default function FactoryReceiptOrdersPage() {
   const displayStatusBadge = (row: ImportedOrderRow) => {
     if (row.status === "completed" || row.closedAt) return <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">ສຳເລັດແລ້ວ</span>;
     if (row.shipmentStatus === "shipped" || row.shipmentCompletedAt) return <span className="px-3 py-1 rounded-full bg-sky-100 text-sky-700 text-xs font-bold border border-sky-200">ຈັດສົ່ງແລ້ວ</span>;
-    if (row.productionCompletedAt) return <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200">ນຳເຂົ້າແລ້ວ</span>;
+    if (row.productionCompletedAt) return <span className="px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold border border-indigo-200">ນຳເຂົ້າແລ້ວ</span>;
     return <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200">ລໍຖ້າດຳເນີນການ</span>;
   };
 

@@ -325,7 +325,7 @@ export default function ShipmentOrdersPage() {
       return <span className="rounded-full border border-orange-200 bg-orange-100 px-3 py-1 text-xs font-bold text-orange-700">ຈັດສົ່ງແລ້ວ</span>;
     }
     if (row.productionCompletedAt) {
-      return <span className="rounded-full border border-blue-200 bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">ນຳເຂົ້າແລ້ວ</span>;
+      return <span className="rounded-full border border-indigo-200 bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-700">ນຳເຂົ້າແລ້ວ</span>;
     }
     return <span className="rounded-full border border-amber-200 bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700">ລໍຖ້າດຳເນີນການ</span>;
   };

@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Banknote, CheckCircle2, Clock3, LoaderCircle, RefreshCw, Search } from "lucide-react";
+import { Banknote, CheckCircle2, Clock3, LoaderCircle, RefreshCw, Search, Undo2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
-import { getTransportCodReceiptError, type TransportCodItem, type TransportCodList } from "@/lib/transport-cod-receipts";
+import { getTransportCodCancelError, getTransportCodReceiptError, type TransportCodItem, type TransportCodList } from "@/lib/transport-cod-receipts";
 
 const PAGE_SIZE = 50;
 const money = (value: number) => `${Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 })} ກີບ`;
@@ -23,7 +23,21 @@ export default function TransportCodPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [canCancelReceipt, setCanCancelReceipt] = useState(false);
   const receiving = useRef(false);
+
+  // Display only: cancel_transport_cod_receipt enforces the same roles.
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const authUserId = sessionData.session?.user.id;
+      if (!authUserId) return;
+      const { data } = await supabase.from("users").select("role").eq("auth_user_id", authUserId).maybeSingle();
+      if (active) setCanCancelReceipt(data?.role === "superadmin" || data?.role === "accountant");
+    })();
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -79,6 +93,32 @@ export default function TransportCodPage() {
     }
   }
 
+  async function cancelReceipt(row: TransportCodItem) {
+    if (receiving.current || loading || error || !row.received_at) return;
+    receiving.current = true;
+    const reason = window.prompt(`ຍົກເລີກການຮັບຍອດ COD?\n${row.order_code || row.note_no}\n${row.receiver_name}\nຈຳນວນ ${money(row.amount)}\nຍອດນີ້ຈະກັບໄປຄ້າງຊຳລະ ແລະ ຖອນກຳໄລອອກ\n\nກະລຸນາໃສ່ເຫດຜົນ:`);
+    if (reason === null) { receiving.current = false; return; }
+    if (!reason.trim()) {
+      toast.error("ກະລຸນາໃສ່ເຫດຜົນທີ່ຍົກເລີກ");
+      receiving.current = false;
+      return;
+    }
+    setWorkingId(`${row.source}:${row.source_id}`);
+    try {
+      const result = await supabase.rpc("cancel_transport_cod_receipt", {
+        p_source: row.source, p_source_id: row.source_id, p_reason: reason.trim(),
+      });
+      if (result.error) throw result.error;
+      toast.success("ຍົກເລີກການຮັບຍອດ COD ແລ້ວ");
+    } catch (failure) {
+      toast.error(getTransportCodCancelError(failure as { code?: string; message?: string }));
+    } finally {
+      reload();
+      receiving.current = false;
+      setWorkingId(null);
+    }
+  }
+
   return (
     <div className="space-y-6 text-[var(--theme-foreground)]">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -124,7 +164,7 @@ export default function TransportCodPage() {
                   <td className="p-4"><p>{row.transporters.join(", ") || "—"}</p><p className="mt-1 text-xs text-[var(--theme-muted)]">{row.branch || "—"}</p></td>
                   <td className="whitespace-nowrap p-4 font-black">{money(row.amount)}</td>
                   <td className="p-4"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${row.received_at ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{row.received_at ? "ຮັບຍອດ COD ແລ້ວ" : "ຍັງບໍ່ຮັບຍອດ"}</span>{row.received_at && <div className="mt-2 space-y-1 text-xs text-[var(--theme-muted)]"><p>{row.received_by_name || "—"}</p><p>{dateTime(row.received_at)}</p></div>}</td>
-                  <td className="p-4">{row.received_at ? <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600"><CheckCircle2 size={16}/>ບັນທຶກແລ້ວ</span> : <button type="button" disabled={!!workingId} onClick={() => void receive(row)} className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">{workingId === key ? <LoaderCircle size={16} className="animate-spin"/> : <CheckCircle2 size={16}/>}ຮັບຍອດ COD ແລ້ວ</button>}</td>
+                  <td className="p-4">{row.received_at ? <div className="flex flex-col items-start gap-2"><span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600"><CheckCircle2 size={16}/>ບັນທຶກແລ້ວ</span>{canCancelReceipt && <button type="button" disabled={!!workingId} onClick={() => void cancelReceipt(row)} className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-rose-300 px-3 py-2 text-xs font-bold text-rose-600 disabled:opacity-50">{workingId === key ? <LoaderCircle size={16} className="animate-spin"/> : <Undo2 size={16}/>}ຍົກເລີກຮັບຍອດ</button>}</div> : <button type="button" disabled={!!workingId} onClick={() => void receive(row)} className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">{workingId === key ? <LoaderCircle size={16} className="animate-spin"/> : <CheckCircle2 size={16}/>}ຮັບຍອດ COD ແລ້ວ</button>}</td>
                 </tr>;
               })}
             </tbody>

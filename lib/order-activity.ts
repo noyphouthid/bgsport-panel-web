@@ -63,6 +63,7 @@ export const ORDER_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   cancel_factory_receipt: "ຍົກເລີກນຳເຂົ້າ",
   cancel_factory_receipt_approved: "ອະນຸມັດຍົກເລີກນຳເຂົ້າ",
   cancel_shipment: "ຍົກເລີກຈັດສົ່ງ",
+  cancel_cod_receipt: "ຍົກເລີກຮັບຍອດ COD",
   cancel_shipment_approved: "ອະນຸມັດຍົກເລີກຈັດສົ່ງ",
   approve_shipment_delivery_request: "ອະນຸມັດສົ່ງມອບ",
   reject_shipment_delivery_request: "ປະຕິເສດສົ່ງມອບ",
@@ -102,6 +103,8 @@ export function getOrderActivityDetail(detail: string | null | undefined) {
   if (match) return `ປະຕິເສດຄຳຂໍສົ່ງມອບ ${match[1]}; ເຫດຜົນ: ${match[2]}`;
   match = text.match(/^Canceled shipment ([^;]+); rollback_amount=([^;]+); reason=([\s\S]*)$/);
   if (match) return `ຍົກເລີກຈັດສົ່ງ ${match[1]}; ຈຳນວນເງິນທີ່ຍົກເລີກ: ${match[2]}; ເຫດຜົນ: ${match[3]}`;
+  match = text.match(/^Canceled COD receipt ([^;]+); amount=([^;]+); received_by=([^;]*); reason=([\s\S]*)$/);
+  if (match) return `ຍົກເລີກຮັບຍອດ COD ${match[1]}; ຈຳນວນເງິນ: ${match[2]}; ຜູ້ຮັບຍອດເດີມ: ${match[3]}; ເຫດຜົນ: ${match[4]}`;
   match = text.match(/^Approved request ([^;]+)(?:; rollback_amount=([^;]+))?$/);
   if (match) return `ອະນຸມັດຄຳຂໍ ${match[1]}${match[2] ? `; ຈຳນວນເງິນທີ່ຍົກເລີກ: ${match[2]}` : ""}`;
   return text;

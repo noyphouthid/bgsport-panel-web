@@ -827,7 +827,7 @@ export default function FactoryPaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-[28px] border border-emerald-100 bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-100">
+      <section className="overflow-hidden rounded-[28px] border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-lg">
         <div className="grid gap-6 p-6 lg:grid-cols-[1.3fr,0.7fr] lg:p-7">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-black uppercase tracking-[0.2em] text-white/90">
@@ -888,7 +888,7 @@ export default function FactoryPaymentsPage() {
               ຖ້າພິມລະຫັດແລ້ວກົງກັບອໍເດີພຽງ 1 ລາຍການ ລະບົບຈະເລືອກໃຫ້ອັດຕະໂນມັດ
             </div>
             {searchPaidResult && (
-              <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">
+              <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-800">
                 ອໍເດີ້ {searchPaidResult.order_code}
                 {searchPaidResult.factory_bill_code ? ` (${searchPaidResult.factory_bill_code})` : ""} ຈ່າຍຄ່າໂຮງງານແລ້ວ
                 {searchPaidResult.factory_paid_full_at ? ` ໃນວັນທີ ${toDateOnly(searchPaidResult.factory_paid_full_at)}` : ""}
@@ -1001,9 +1001,9 @@ export default function FactoryPaymentsPage() {
                 <div className="text-xs font-black uppercase tracking-[0.18em] text-rose-700">ບໍ່ພົບ</div>
                 <div className="mt-2 text-2xl font-black text-rose-800">{importSummary.not_found.toLocaleString()}</div>
               </div>
-              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                <div className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">ກົງຫຼາຍລາຍການ</div>
-                <div className="mt-2 text-2xl font-black text-blue-800">{importSummary.ambiguous.toLocaleString()}</div>
+              <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                <div className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">ກົງຫຼາຍລາຍການ</div>
+                <div className="mt-2 text-2xl font-black text-sky-800">{importSummary.ambiguous.toLocaleString()}</div>
               </div>
             </div>
 
@@ -1030,7 +1030,7 @@ export default function FactoryPaymentsPage() {
                                 : row.status === "already_selected"
                                   ? "bg-amber-100 text-amber-700"
                                   : row.status === "ambiguous"
-                                    ? "bg-blue-100 text-blue-700"
+                                    ? "bg-sky-100 text-sky-700"
                                     : "bg-rose-100 text-rose-700"
                             }`}
                           >
@@ -1213,7 +1213,7 @@ export default function FactoryPaymentsPage() {
                         <td className="p-3">
                           <span
                             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
-                              row.batch_id ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-700"
+                              row.batch_id ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-700"
                             }`}
                           >
                             {row.batch_id ? "ກຸ່ມ" : "ດ່ຽວ"}

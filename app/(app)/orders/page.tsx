@@ -336,7 +336,7 @@ export default function OrdersPage() {
       return <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-200">ຈັດສົ່ງສຳເລັດ</span>;
     }
     if (row.production_completed_at) {
-      return <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200">ຜະລິດສຳເລັດ</span>;
+      return <span className="px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold border border-indigo-200">ຜະລິດສຳເລັດ</span>;
     }
     return <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200">ກຳລັງຜະລິດ</span>;
   };

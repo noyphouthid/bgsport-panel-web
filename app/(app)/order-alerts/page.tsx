@@ -370,7 +370,7 @@ export default function OrderAlertsPage() {
 
   return (
     <div className="space-y-6 text-slate-900">
-      <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[#0b1220] p-6 text-white shadow-lg">
+      <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 p-6 text-white shadow-lg">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{

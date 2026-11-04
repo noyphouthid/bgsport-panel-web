@@ -603,13 +603,13 @@ export default function OrderStatusPaymentsReportPage() {
             <div className="text-xs font-bold uppercase text-amber-700">ຍອດຄ້າງໂຮງງານ</div>
             <div className="mt-1 text-xl font-black text-amber-700">{formatMoney(summary.factoryOutstandingTotal)}</div>
           </div>
-          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
-            <div className="text-xs font-bold uppercase text-blue-700">ກຳລັງຜະລິດ</div>
-            <div className="mt-1 text-xl font-black text-blue-700">{summary.inProductionCount.toLocaleString()}</div>
+          <div className="rounded-xl border border-sky-100 bg-sky-50 p-3">
+            <div className="text-xs font-bold uppercase text-sky-700">ກຳລັງຜະລິດ</div>
+            <div className="mt-1 text-xl font-black text-sky-700">{summary.inProductionCount.toLocaleString()}</div>
           </div>
-          <div className="rounded-xl border border-cyan-100 bg-cyan-50 p-3">
-            <div className="text-xs font-bold uppercase text-cyan-700">ຜະລິດສຳເລັດ</div>
-            <div className="mt-1 text-xl font-black text-cyan-700">{summary.productionCompletedCount.toLocaleString()}</div>
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+            <div className="text-xs font-bold uppercase text-indigo-700">ຜະລິດສຳເລັດ</div>
+            <div className="mt-1 text-xl font-black text-indigo-700">{summary.productionCompletedCount.toLocaleString()}</div>
           </div>
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="text-xs font-bold uppercase text-slate-700">ອໍເດີຄ້າງຈ່າຍລູກຄ້າ</div>

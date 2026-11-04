@@ -245,7 +245,7 @@ function normalizeLedgerPaymentMethod(value: string | null | undefined): LedgerR
 
 function sourceBadgeClass(source: LedgerSource) {
   if (source === "customer_payment") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (source === "payroll") return "bg-blue-50 text-blue-700 border-blue-200";
+  if (source === "payroll") return "bg-sky-50 text-sky-700 border-sky-200";
   return "bg-amber-50 text-amber-700 border-amber-200";
 }
 
@@ -861,7 +861,7 @@ export default function IncomeExpenseReportPage() {
               <button
                 onClick={() => void handleExportPdf()}
                 disabled={exportingPdf || filteredRows.length === 0}
-                className="group rounded-[22px] border border-sky-300/25 bg-gradient-to-br from-sky-500/16 to-blue-500/10 p-4 text-left transition hover:border-sky-200/40 hover:from-sky-400/22 hover:to-blue-400/16 disabled:opacity-60"
+                className="group rounded-[22px] border border-sky-300/25 bg-gradient-to-br from-sky-500/16 to-sky-500/10 p-4 text-left transition hover:border-sky-200/40 hover:from-sky-400/22 hover:to-sky-400/16 disabled:opacity-60"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -965,14 +965,14 @@ export default function IncomeExpenseReportPage() {
           <div className="mt-1 text-xs font-semibold text-slate-500">ກຳໄລຂອງເດືອນ - ລາຍຈ່າຍລວມ</div>
         </div>
 
-        <div className="rounded-3xl border border-blue-100 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-sky-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="text-sm font-bold text-slate-500">ຍອດກຳໄລຈິງໃນເດືອນ</div>
-            <div className="rounded-2xl bg-blue-100 p-2 text-blue-700">
+            <div className="rounded-2xl bg-sky-100 p-2 text-sky-700">
               <TrendingUp size={18} />
             </div>
           </div>
-          <div className={`mt-3 text-2xl font-black ${summary.actualMonthlyProfit >= 0 ? "text-blue-700" : "text-rose-700"}`}>
+          <div className={`mt-3 text-2xl font-black ${summary.actualMonthlyProfit >= 0 ? "text-sky-700" : "text-rose-700"}`}>
             {formatMoney(summary.actualMonthlyProfit)}
           </div>
           <div className="mt-1 text-xs font-semibold text-slate-500">
@@ -1140,17 +1140,17 @@ export default function IncomeExpenseReportPage() {
               <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="incomeFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.28} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--color-emerald-600)" stopOpacity={0.28} />
+                    <stop offset="95%" stopColor="var(--color-emerald-600)" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="expenseFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.24} />
                     <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                <XAxis dataKey="day" tick={{ fill: "#64748b", fontSize: 12 }} />
-                <YAxis tick={{ fill: "#64748b", fontSize: 12 }} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`} />
+                <CartesianGrid stroke="var(--color-slate-200)" strokeDasharray="3 3" />
+                <XAxis dataKey="day" tick={{ fill: "var(--color-slate-500)", fontSize: 12 }} />
+                <YAxis tick={{ fill: "var(--color-slate-500)", fontSize: 12 }} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`} />
                 <Tooltip
                   formatter={(value: number | undefined, name: string | undefined) => [
                     formatMoney(Number(value) || 0),
@@ -1158,7 +1158,7 @@ export default function IncomeExpenseReportPage() {
                   ]}
                   labelFormatter={(label) => `ວັນທີ ${label}`}
                 />
-                <Area type="monotone" dataKey="income" stroke="#10b981" strokeWidth={3} fill="url(#incomeFill)" />
+                <Area type="monotone" dataKey="income" stroke="var(--color-emerald-600)" strokeWidth={3} fill="url(#incomeFill)" />
                 <Area type="monotone" dataKey="expense" stroke="#f43f5e" strokeWidth={3} fill="url(#expenseFill)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -1179,9 +1179,9 @@ export default function IncomeExpenseReportPage() {
           <div className="mt-4 h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={expenseCategoryData} layout="vertical" margin={{ left: 8, right: 16 }}>
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" tick={{ fill: "#64748b", fontSize: 12 }} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`} />
-                <YAxis dataKey="name" type="category" width={110} tick={{ fill: "#475569", fontSize: 12, fontWeight: 700 }} />
+                <CartesianGrid stroke="var(--color-slate-200)" strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" tick={{ fill: "var(--color-slate-500)", fontSize: 12 }} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`} />
+                <YAxis dataKey="name" type="category" width={110} tick={{ fill: "var(--color-slate-600)", fontSize: 12, fontWeight: 700 }} />
                 <Tooltip formatter={(value: number | undefined) => [formatMoney(Number(value) || 0), "ລາຍຈ່າຍ"]} />
                 <Bar dataKey="amount" fill="#f97316" radius={[0, 10, 10, 0]} />
               </BarChart>

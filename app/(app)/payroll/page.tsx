@@ -886,29 +886,29 @@ function PayslipSheet({
   const slipNumber = `${selectedMonthValue.replace("-", "")}-${selectedEmployee.employee_code}`;
 
   return (
-    <div className="payroll-a5-sheet mx-auto w-[148mm] max-w-none border border-[#c8d5ea] bg-white p-[8mm] shadow-[0_26px_60px_-35px_rgba(15,23,42,0.55)]">
+    <div className="payroll-a5-sheet mx-auto w-[148mm] max-w-none border border-[#cdd1cd] bg-white p-[8mm] shadow-[0_26px_60px_-35px_rgba(15,23,42,0.55)]">
       <div className="flex min-h-[194mm] flex-col">
-        <div className="flex items-start justify-between gap-4 border-b border-[#c8d5ea] pb-4">
+        <div className="flex items-start justify-between gap-4 border-b border-[#cdd1cd] pb-4">
           <div className="space-y-1">
             <Image src={bgSportLogo} alt="BG Sport" className="h-auto w-24" priority />
             <div className="text-[13px] font-semibold tracking-tight text-slate-700">ບີຈີ ສະປອດ</div>
           </div>
 
           <div className="flex-1 pt-1 text-center">
-            <div className="text-[9px] font-black tracking-[0.36em] text-[#7186a7] uppercase">Payslip</div>
+            <div className="text-[9px] font-black tracking-[0.36em] text-[#6b716c] uppercase">Payslip</div>
             <h3 className="mt-1 text-[19px] leading-[1.15] font-black tracking-tight text-slate-900">
               ບິນຈ່າຍເງິນເດືອນ
             </h3>
-            <div className="mt-2 text-[12px] font-black text-[#62769b]">{selectedMonthLabel}</div>
+            <div className="mt-2 text-[12px] font-black text-[#535953]">{selectedMonthLabel}</div>
           </div>
 
-          <div className="min-w-[160px] border border-[#c8d5ea] px-4 py-3 text-right text-[10px] font-black leading-5 text-slate-700">
+          <div className="min-w-[160px] border border-[#cdd1cd] px-4 py-3 text-right text-[10px] font-black leading-5 text-slate-700">
             <div>ເລກທີ: {slipNumber}</div>
             <div>ສະຖານະ: {selectedEmployee.is_active ? "Ready" : "Hold"}</div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-x-7 gap-y-2.5 border-b border-[#c8d5ea] py-4 text-[11px]">
+        <div className="grid grid-cols-2 gap-x-7 gap-y-2.5 border-b border-[#cdd1cd] py-4 text-[11px]">
           <InfoRow label="ຊື່-ນາມສະກຸນ" value={selectedEmployee.full_name} />
           <InfoRow label="ປະຈຳເດືອນ" value={selectedMonthLabel} />
           <InfoRow label="ພະແນກ" value={selectedEmployee.department || "-"} />
@@ -919,40 +919,40 @@ function PayslipSheet({
           <InfoRow label="OT" value={`${selectedEmployee.overtime_hours} ຊົ່ວໂມງ`} />
         </div>
 
-        <div className="mt-4 overflow-hidden border border-[#9ab0d0]">
+        <div className="mt-4 overflow-hidden border border-[#9aa09a]">
           <table className="w-full border-collapse text-[11px]">
             <thead>
-              <tr className="bg-[#f7faff] text-center text-slate-800">
-                <th className="border border-[#9ab0d0] px-2 py-2.5 font-black">ລາຍຮັບ</th>
-                <th className="border border-[#9ab0d0] px-2 py-2.5 font-black">ຈຳນວນເງິນ</th>
-                <th className="border border-[#9ab0d0] px-2 py-2.5 font-black">ລາຍການຫັກ</th>
-                <th className="border border-[#9ab0d0] px-2 py-2.5 font-black">ຈຳນວນເງິນ</th>
+              <tr className="bg-[#f7f8f7] text-center text-slate-800">
+                <th className="border border-[#9aa09a] px-2 py-2.5 font-black">ລາຍຮັບ</th>
+                <th className="border border-[#9aa09a] px-2 py-2.5 font-black">ຈຳນວນເງິນ</th>
+                <th className="border border-[#9aa09a] px-2 py-2.5 font-black">ລາຍການຫັກ</th>
+                <th className="border border-[#9aa09a] px-2 py-2.5 font-black">ຈຳນວນເງິນ</th>
               </tr>
             </thead>
             <tbody>
               {previewRows.map((row, index) => (
                 <tr key={`${selectedEmployee.id}-${index}`} className="align-top">
-                  <td className="h-10 border border-[#c8d5ea] px-3 py-2.5 font-bold text-emerald-700">
+                  <td className="h-10 border border-[#cdd1cd] px-3 py-2.5 font-bold text-emerald-700">
                     {row.income?.label ?? ""}
                   </td>
-                  <td className="border border-[#c8d5ea] px-3 py-2.5 text-right font-black text-slate-800">
+                  <td className="border border-[#cdd1cd] px-3 py-2.5 text-right font-black text-slate-800">
                     {row.income ? formatKipLine(row.income.amount) : ""}
                   </td>
-                  <td className="border border-[#c8d5ea] px-3 py-2.5 font-bold text-rose-600">
+                  <td className="border border-[#cdd1cd] px-3 py-2.5 font-bold text-rose-600">
                     {row.deduction?.label ?? ""}
                   </td>
-                  <td className="border border-[#c8d5ea] px-3 py-2.5 text-right font-black text-slate-800">
+                  <td className="border border-[#cdd1cd] px-3 py-2.5 text-right font-black text-slate-800">
                     {row.deduction ? formatKipLine(row.deduction.amount) : ""}
                   </td>
                 </tr>
               ))}
-              <tr className="bg-[#f9fbff]">
-                <td className="border border-[#9ab0d0] px-3 py-3 text-center font-black text-slate-800">ລວມລາຍຮັບ</td>
-                <td className="border border-[#9ab0d0] px-3 py-3 text-right font-black text-[12px] text-emerald-700">
+              <tr className="bg-[#f7f8f7]">
+                <td className="border border-[#9aa09a] px-3 py-3 text-center font-black text-slate-800">ລວມລາຍຮັບ</td>
+                <td className="border border-[#9aa09a] px-3 py-3 text-right font-black text-[12px] text-emerald-700">
                   {formatKip(selectedEmployee.grossIncome)}
                 </td>
-                <td className="border border-[#9ab0d0] px-3 py-3 text-center font-black text-slate-800">ລວມລາຍການຫັກ</td>
-                <td className="border border-[#9ab0d0] px-3 py-3 text-right font-black text-[12px] text-rose-600">
+                <td className="border border-[#9aa09a] px-3 py-3 text-center font-black text-slate-800">ລວມລາຍການຫັກ</td>
+                <td className="border border-[#9aa09a] px-3 py-3 text-right font-black text-[12px] text-rose-600">
                   {formatKip(selectedEmployee.totalDeduction)}
                 </td>
               </tr>
@@ -961,24 +961,24 @@ function PayslipSheet({
         </div>
 
         <div className="mt-4 grid grid-cols-[1.15fr_0.85fr] gap-4">
-          <div className="overflow-hidden border border-[#9ab0d0]">
+          <div className="overflow-hidden border border-[#9aa09a]">
             <div className="grid grid-cols-2">
-              <div className="border-r border-[#9ab0d0] bg-[#f9fbff] px-4 py-3 text-center">
-                <div className="text-[10px] font-black tracking-[0.24em] text-[#7186a7] uppercase">Net Salary</div>
+              <div className="border-r border-[#9aa09a] bg-[#f7f8f7] px-4 py-3 text-center">
+                <div className="text-[10px] font-black tracking-[0.24em] text-[#6b716c] uppercase">Net Salary</div>
                 <div className="mt-2 text-[19px] leading-none font-black text-emerald-700">
                   <div className="mb-1 text-[16px]">₭</div>
                   <div>{Number(selectedEmployee.netSalary || 0).toLocaleString("en-US")}</div>
                 </div>
               </div>
               <div className="px-4 py-3 text-center">
-                <div className="text-[10px] font-black tracking-[0.24em] text-[#7186a7] uppercase">Payslip Date</div>
+                <div className="text-[10px] font-black tracking-[0.24em] text-[#6b716c] uppercase">Payslip Date</div>
                 <div className="mt-3 text-[14px] font-black text-slate-900">{paymentDateLabel}</div>
               </div>
             </div>
           </div>
 
-          <div className="overflow-hidden border border-[#9ab0d0]">
-            <div className="border-b border-[#c8d5ea] bg-[#f9fbff] px-4 py-3 text-center text-[10px] font-black tracking-[0.24em] text-[#7186a7] uppercase">
+          <div className="overflow-hidden border border-[#9aa09a]">
+            <div className="border-b border-[#cdd1cd] bg-[#f7f8f7] px-4 py-3 text-center text-[10px] font-black tracking-[0.24em] text-[#6b716c] uppercase">
               Notes
             </div>
             <div className="text-[11px]">
@@ -1007,7 +1007,7 @@ function PayslipSheet({
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[90px_1fr] items-start gap-2">
-      <div className="text-[11px] font-black text-[#7186a7]">{label}:</div>
+      <div className="text-[11px] font-black text-[#6b716c]">{label}:</div>
       <div className="text-[11px] font-black text-slate-900">{value}</div>
     </div>
   );

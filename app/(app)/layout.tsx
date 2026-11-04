@@ -441,12 +441,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   key={item.href}
                   href={item.href}
                   onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
-                    active ? "text-white shadow-lg" : "hover:text-white"
-                  } ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
+                  className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${active ? "shadow-sm" : ""} ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
                   style={{
                     backgroundColor: active ? "var(--app-sidebar-active)" : "transparent",
-                    color: active ? "var(--app-sidebar-fg)" : "var(--app-sidebar-muted)",
+                    color: active ? "var(--app-sidebar-active-fg)" : "var(--app-sidebar-muted)",
                   }}
                   onMouseEnter={(event) => {
                     if (!active) event.currentTarget.style.backgroundColor = "var(--app-sidebar-hover)";
@@ -456,7 +454,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                   }}
                 >
                   <div className="relative flex items-center justify-center">
-                    <Icon size={18} className={active ? "text-blue-400" : ""} style={active ? undefined : { color: "var(--app-sidebar-muted)" }} />
+                    <Icon size={18} style={active ? undefined : { color: "var(--app-sidebar-muted)" }} />
                     {sidebarCollapsed && badgeCount > 0 ? (
                       <span className="absolute -right-2.5 -top-2.5">
                         <NavCountBadge count={badgeCount} />
@@ -487,12 +485,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     }
                     setOpenGroups((prev) => ({ ...prev, [item.label]: !isOpen }));
                   }}
-                  className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left transition-all duration-200 ${
-                    groupActive ? "text-white shadow-lg" : "hover:text-white"
-                  } ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
+                  className={`flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left transition-all duration-200 ${groupActive ? "shadow-sm" : ""} ${sidebarCollapsed ? "md:justify-center md:px-2" : ""}`}
                   style={{
                     backgroundColor: groupActive ? "var(--app-sidebar-active)" : "transparent",
-                    color: groupActive ? "var(--app-sidebar-fg)" : "var(--app-sidebar-muted)",
+                    color: groupActive ? "var(--app-sidebar-active-fg)" : "var(--app-sidebar-muted)",
                   }}
                   onMouseEnter={(event) => {
                     if (!groupActive) event.currentTarget.style.backgroundColor = "var(--app-sidebar-hover)";
@@ -501,7 +497,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                     if (!groupActive) event.currentTarget.style.backgroundColor = "transparent";
                   }}
                 >
-                  <Icon size={18} className={groupActive ? "text-blue-400" : ""} style={groupActive ? undefined : { color: "var(--app-sidebar-muted)" }} />
+                  <Icon size={18} style={groupActive ? undefined : { color: "var(--app-sidebar-muted)" }} />
                   <span className={`flex-1 ${sidebarCollapsed ? "md:hidden" : ""}`}>{item.label}</span>
                   <ChevronDown
                     size={16}
@@ -523,12 +519,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                           href={subItem.href}
                           aria-current={subActive ? "page" : undefined}
                           onClick={() => setSidebarOpen(false)}
-                          className={`flex items-center gap-3 rounded-lg px-4 py-2.5 transition-all duration-200 ${
-                            subActive ? "text-white" : "hover:text-white"
-                          }`}
+                          className={`flex items-center gap-3 rounded-lg px-4 py-2.5 transition-all duration-200`}
                           style={{
                             backgroundColor: subActive ? "var(--app-sidebar-active)" : "transparent",
-                            color: subActive ? "var(--app-sidebar-fg)" : "var(--app-sidebar-muted)",
+                            color: subActive ? "var(--app-sidebar-active-fg)" : "var(--app-sidebar-muted)",
                           }}
                           onMouseEnter={(event) => {
                             if (!subActive) event.currentTarget.style.backgroundColor = "var(--app-sidebar-hover)";
@@ -537,7 +531,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                             if (!subActive) event.currentTarget.style.backgroundColor = "transparent";
                           }}
                         >
-                          <SubIcon size={16} className={subActive ? "text-blue-400" : ""} style={subActive ? undefined : { color: "var(--app-sidebar-muted)" }} />
+                          <SubIcon size={16} style={subActive ? undefined : { color: "var(--app-sidebar-muted)" }} />
                           <span>{subItem.label}</span>
                         </Link>
                       );

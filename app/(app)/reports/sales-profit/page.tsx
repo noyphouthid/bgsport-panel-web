@@ -425,7 +425,7 @@ export default function SalesProfitReportPage() {
           </div>
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="text-xs font-bold uppercase text-slate-700">ກຳໄລລວມ</div>
-            <div className="text-xl font-black text-blue-600">{summary.totalProfit.toLocaleString()}</div>
+            <div className="text-xl font-black text-sky-600">{summary.totalProfit.toLocaleString()}</div>
           </div>
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="text-xs font-bold uppercase text-slate-700">ຈຳນວນເສື້ອລວມ</div>
@@ -442,9 +442,9 @@ export default function SalesProfitReportPage() {
           <p className="text-xs text-slate-500">ກຳໄລອໍເດີຕາມໄລຍະຮັບຮູ້ກຳໄລ; COD ນັບຕາມວັນຮັບເງິນ. ອໍເດີທີ່ມີຫຼາຍການສົ່ງມອບໃຊ້ຊ່ອງທາງສົ່ງມອບລ່າສຸດ ແລະ ນັບກຳໄລຄັ້ງດຽວ.</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {visibleChannels.map((channel) => (
-              <div key={channel} className="rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+              <div key={channel} className="rounded-xl border border-sky-100 bg-sky-50/50 p-3">
                 <div className="text-xs font-bold text-slate-700">ກຳໄລ: {PROFIT_CHANNEL_LABELS[channel]}</div>
-                <div className="mt-1 text-xl font-black text-blue-600">{summary.byChannel[channel].profit.toLocaleString()}</div>
+                <div className="mt-1 text-xl font-black text-sky-600">{summary.byChannel[channel].profit.toLocaleString()}</div>
                 <div className="mt-1 text-xs text-slate-500">{summary.byChannel[channel].orders.toLocaleString()} ອໍເດີ</div>
               </div>
             ))}
@@ -501,7 +501,7 @@ export default function SalesProfitReportPage() {
                     <td className="p-3 text-right text-slate-800">{((Number(row.short_qty) || 0) + (Number(row.long_qty) || 0) + (Number(row.free_qty) || 0)).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(row.net_total) || 0).toLocaleString()}</td>
                     <td className="p-3 text-right text-slate-800">{(Number(row.factory_cost) || 0).toLocaleString()}</td>
-                    <td className="p-3 text-right font-bold text-blue-600">{recognizedProfit(row, year, month).toLocaleString()}</td>
+                    <td className="p-3 text-right font-bold text-sky-600">{recognizedProfit(row, year, month).toLocaleString()}</td>
                     <td className="p-3 font-medium text-slate-800">{getWorkflowStatusLabel(getWorkflowStatus(row))}</td>
                   </tr>
                 ))

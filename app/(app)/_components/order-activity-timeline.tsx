@@ -41,7 +41,7 @@ function getActionAppearance(action: string) {
   if (action.includes("cancel") || action.includes("reject")) return { Icon: XCircle, icon: "border-rose-200 bg-rose-50 text-rose-600", badge: "bg-rose-50 text-rose-700" };
   if (action === "receive_customer_payment" || action === "pay_factory") return { Icon: Banknote, icon: "border-emerald-200 bg-emerald-50 text-emerald-600", badge: "bg-emerald-50 text-emerald-700" };
   if (action === "create_order") return { Icon: Plus, icon: "border-sky-200 bg-sky-50 text-sky-600", badge: "bg-sky-50 text-sky-700" };
-  if (action === "update_order") return { Icon: PencilLine, icon: "border-blue-200 bg-blue-50 text-blue-600", badge: "bg-blue-50 text-blue-700" };
+  if (action === "update_order") return { Icon: PencilLine, icon: "border-slate-200 bg-slate-50 text-slate-600", badge: "bg-slate-100 text-slate-700" };
   if (action === "production_completed") return { Icon: PackageCheck, icon: "border-teal-200 bg-teal-50 text-teal-600", badge: "bg-teal-50 text-teal-700" };
   if (action === "close_order") return { Icon: CheckCheck, icon: "border-violet-200 bg-violet-50 text-violet-600", badge: "bg-violet-50 text-violet-700" };
   if (action === "reopen_order") return { Icon: RotateCcw, icon: "border-amber-200 bg-amber-50 text-amber-600", badge: "bg-amber-50 text-amber-700" };

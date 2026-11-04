@@ -478,7 +478,7 @@ export default function FactoryPaymentsReportPage() {
           </div>
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="text-xs font-bold uppercase text-slate-700">ອໍເດີທີ່ຈ່າຍ</div>
-            <div className="text-xl font-black text-blue-600">{summary.uniqueOrders.toLocaleString()}</div>
+            <div className="text-xl font-black text-sky-600">{summary.uniqueOrders.toLocaleString()}</div>
           </div>
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <div className="text-xs font-bold uppercase text-slate-700">Batch ການຈ່າຍ</div>

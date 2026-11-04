@@ -189,7 +189,7 @@ export default function TransportNotePage() {
 
   return (
     <div ref={pageRef} className="space-y-6 text-slate-900">
-      <section className="rounded-[2rem] bg-gradient-to-br from-sky-950 via-blue-900 to-slate-900 p-6 text-white shadow-xl">
+      <section className="rounded-[2rem] bg-gradient-to-br from-slate-900 to-slate-800 p-6 text-white shadow-xl">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <Link href="/shipments/notes" className="inline-flex items-center gap-2 text-sm font-bold text-sky-100 transition hover:text-white">

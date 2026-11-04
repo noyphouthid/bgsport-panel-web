@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Nunito } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { Noto_Sans_Lao_Looped } from "next/font/google";
@@ -7,13 +7,14 @@ import { themeInitScript } from "@/lib/theme";
 
 
 const laoFont = Noto_Sans_Lao_Looped({
+  variable: "--font-lao",
   subsets: ["lao"],
   weight: ["400", "500", "600", "700"],
 });
 
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const nunito = Nunito({
+  variable: "--font-nunito",
   subsets: ["latin"],
 });
 
@@ -28,7 +29,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0f172a",
+  themeColor: "#1c1f1d",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
@@ -40,8 +41,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="lo" suppressHydrationWarning>
-      <body className={`${laoFont.className} ${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="lo" className={`${nunito.variable} ${laoFont.variable} ${geistMono.variable}`} suppressHydrationWarning>
+      <body>
         <Script id="theme-init" strategy="beforeInteractive">
           {themeInitScript}
         </Script>

@@ -1,4 +1,5 @@
 export const TRANSPORT_COD_RECEIPTS_MIGRATION = "20261103_create_transport_cod_receipts.sql";
+export const TRANSPORT_COD_CANCEL_MIGRATION = "20261107_cod_receipts_settle_order_balance.sql ແລະ 20261108_cancel_transport_cod_receipt.sql";
 
 export type TransportCodItem = {
   source: "note" | "request";
@@ -30,6 +31,13 @@ export type TransportCodList = {
     received_amount: number;
   };
 };
+
+export function getTransportCodCancelError(error: { code?: string; message?: string }) {
+  if (["PGRST202", "42883"].includes(error.code || "")) return `ກະລຸນາລັນ ${TRANSPORT_COD_CANCEL_MIGRATION} ໃນ Supabase SQL Editor ກ່ອນ`;
+  if (error.message?.includes("cod_order_closed")) return "ອໍເດີນີ້ຖືກປິດງານແລ້ວ ກະລຸນາຍົກເລີກການປິດງານກ່ອນ";
+  if (error.message?.includes("cod_cancel_reason_required")) return "ກະລຸນາໃສ່ເຫດຜົນທີ່ຍົກເລີກ";
+  return getTransportCodReceiptError(error);
+}
 
 export function getTransportCodReceiptError(error: { code?: string; message?: string }) {
   if (["PGRST202", "PGRST204", "PGRST205", "42P01", "42703", "42883"].includes(error.code || "")) {

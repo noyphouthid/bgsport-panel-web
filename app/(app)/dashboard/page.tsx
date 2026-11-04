@@ -486,7 +486,7 @@ export default function DashboardPage() {
                 setStartDate(e.target.value);
                 setDateMode("custom");
               }}
-              className="border border-slate-100 bg-slate-50 rounded-full px-3 py-1.5 text-sm font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-[#2563EB]/40"
+              className="border border-slate-100 bg-slate-50 rounded-full px-3 py-1.5 text-sm font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-blue-600/40"
             />
             <span className="text-slate-300 font-black">→</span>
             <input
@@ -496,7 +496,7 @@ export default function DashboardPage() {
                 setEndDate(e.target.value);
                 setDateMode("custom");
               }}
-              className="border border-slate-100 bg-slate-50 rounded-full px-3 py-1.5 text-sm font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-[#2563EB]/40"
+              className="border border-slate-100 bg-slate-50 rounded-full px-3 py-1.5 text-sm font-semibold text-slate-600 outline-none focus:ring-2 focus:ring-blue-600/40"
             />
           </div>
 
@@ -508,7 +508,7 @@ export default function DashboardPage() {
           </button>
 
           <div className="ml-auto flex items-center gap-2 px-3.5 py-2 bg-slate-100 rounded-full">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-blue-600)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
             <span className="text-xs font-bold text-slate-600">{formatDateLao(startDate)} - {formatDateLao(endDate)}</span>
           </div>
         </div>
@@ -527,19 +527,19 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <h2 className="text-sm font-extrabold text-slate-800">ພາບລວມຜົນປະກອບການ</h2>
             <div className="flex items-center gap-4 text-[11px] font-bold text-slate-400">
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]"></span>ລາຍຮັບ</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#2563EB]"></span>ຕົ້ນທຶນໂຮງງານ</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>ລາຍຮັບ</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[var(--foreground)]"></span>ຕົ້ນທຶນໂຮງງານ</span>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-6 mb-6">
             <div>
               <div className="text-[11px] font-bold text-slate-400 uppercase">ລາຍຮັບລວມ</div>
-              <div className="text-lg font-extrabold text-[#22C55E]">{loading ? "..." : formatCurrency(seriesRevenueTotal)}</div>
+              <div className="text-lg font-extrabold text-emerald-600">{loading ? "..." : formatCurrency(seriesRevenueTotal)}</div>
             </div>
             <div>
               <div className="text-[11px] font-bold text-slate-400 uppercase">ຕົ້ນທຶນລວມ</div>
-              <div className="text-lg font-extrabold text-[#2563EB]">{loading ? "..." : formatCurrency(seriesCostTotal)}</div>
+              <div className="text-lg font-extrabold text-[var(--foreground)]">{loading ? "..." : formatCurrency(seriesCostTotal)}</div>
             </div>
             <div>
               <div className="text-[11px] font-bold text-slate-400 uppercase">ກຳໄລລວມ</div>
@@ -564,16 +564,16 @@ export default function DashboardPage() {
               <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-[200px]" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22C55E" stopOpacity="0.18" />
-                    <stop offset="100%" stopColor="#22C55E" stopOpacity="0" />
+                    <stop offset="0%" stopColor="var(--color-emerald-600)" stopOpacity="0.18" />
+                    <stop offset="100%" stopColor="var(--color-emerald-600)" stopOpacity="0" />
                   </linearGradient>
                 </defs>
                 {[0.25, 0.5, 0.75].map((f) => (
-                  <line key={f} x1="0" x2={chartWidth} y1={chartHeight * f} y2={chartHeight * f} stroke="#F1F5F9" strokeWidth="1" />
+                  <line key={f} x1="0" x2={chartWidth} y1={chartHeight * f} y2={chartHeight * f} stroke="var(--color-slate-100)" strokeWidth="1" />
                 ))}
                 <path d={revenueAreaPath} fill="url(#revenueFill)" stroke="none" />
-                <path d={revenuePath} fill="none" stroke="#22C55E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                <path d={costPath} fill="none" stroke="#2563EB" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 5" />
+                <path d={revenuePath} fill="none" stroke="var(--color-emerald-600)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={costPath} fill="none" stroke="var(--foreground)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 5" />
               </svg>
               <div className="flex justify-between mt-2 text-[11px] font-bold text-slate-400">
                 <span>{performanceSeries[0]?.label}</span>
@@ -584,7 +584,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="mt-5 pt-4 border-t border-slate-50 flex flex-wrap items-center gap-2 text-xs font-bold">
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full ${trendUp ? "bg-[#22C55E]/10 text-[#22C55E]" : "bg-[#DC2626]/10 text-[#DC2626]"}`}>
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full ${trendUp ? "bg-emerald-600/10 text-emerald-600" : "bg-red-600/10 text-red-600"}`}>
                   {trendUp ? "▲" : "▼"} {trendLabel}
                 </span>
                 {bestPoint && (
@@ -603,7 +603,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
             <div className="flex items-center justify-between mb-5">
-              <div className="w-11 h-11 bg-[#22C55E]/12 rounded-2xl flex items-center justify-center text-[#22C55E]">
+              <div className="w-11 h-11 bg-emerald-600/12 rounded-2xl flex items-center justify-center text-emerald-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
               </div>
               <span className="text-slate-300"><KebabIcon /></span>
@@ -612,14 +612,14 @@ export default function DashboardPage() {
             <div className="text-[26px] font-extrabold text-slate-900 leading-none mb-2">
               {loading ? "..." : formatCurrency(stats.totalProfit)}
             </div>
-            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#22C55E] bg-[#22C55E]/10 px-2 py-0.5 rounded-full">
+            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-600/10 px-2 py-0.5 rounded-full">
               ຈາກ {formatTotal(stats.completedOrders)} ອໍເດີ້ທີ່ຮັບຮູ້ກຳໄລແລ້ວ
             </div>
           </div>
 
           <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
             <div className="flex items-center justify-between mb-5">
-              <div className="w-11 h-11 bg-[#F59E0B]/12 rounded-2xl flex items-center justify-center text-[#F59E0B]">
+              <div className="w-11 h-11 bg-amber-600/12 rounded-2xl flex items-center justify-center text-amber-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
               </div>
               <span className="text-slate-300"><KebabIcon /></span>
@@ -628,14 +628,14 @@ export default function DashboardPage() {
             <div className="text-[26px] font-extrabold text-slate-900 leading-none mb-2">
               {loading ? "..." : formatCurrency(stats.customerBalance)}
             </div>
-            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#F59E0B] bg-[#F59E0B]/10 px-2 py-0.5 rounded-full">
+            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 bg-amber-600/10 px-2 py-0.5 rounded-full">
               ຍອດທີ່ຕ້ອງເກັບເພີ່ມ
             </div>
           </div>
 
           <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
             <div className="flex items-center justify-between mb-5">
-              <div className="w-11 h-11 bg-[#DC2626]/12 rounded-2xl flex items-center justify-center text-[#DC2626]">
+              <div className="w-11 h-11 bg-red-600/12 rounded-2xl flex items-center justify-center text-red-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 20V9l4-2 4 2 4-2 4 2 4-2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" /><path d="M7 18h0" /><path d="M12 18h0" /><path d="M17 18h0" /><path d="M7 13h0" /><path d="M12 13h0" /><path d="M17 13h0" /></svg>
               </div>
               <span className="text-slate-300"><KebabIcon /></span>
@@ -644,14 +644,14 @@ export default function DashboardPage() {
             <div className="text-[26px] font-extrabold text-slate-900 leading-none mb-2">
               {loading ? "..." : formatCurrency(stats.factoryBalance)}
             </div>
-            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#DC2626] bg-[#DC2626]/10 px-2 py-0.5 rounded-full">
+            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 bg-red-600/10 px-2 py-0.5 rounded-full">
               ຈາກ {formatTotal(stats.inProgressOrders)} ອໍເດີ້ທີ່ຜະລິດ
             </div>
           </div>
 
           <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
             <div className="flex items-center justify-between mb-5">
-              <div className="w-11 h-11 bg-[#3B82F6]/12 rounded-2xl flex items-center justify-center text-[#3B82F6]">
+              <div className="w-11 h-11 bg-sky-600/12 rounded-2xl flex items-center justify-center text-sky-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /><polyline points="3.29 7l9 5.19 9-5.19" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>
               </div>
               <span className="text-slate-300"><KebabIcon /></span>
@@ -660,7 +660,7 @@ export default function DashboardPage() {
             <div className="text-[26px] font-extrabold text-slate-900 leading-none mb-2">
               {loading ? "..." : formatTotal(stats.inProgressOrders)}
             </div>
-            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#3B82F6] bg-[#3B82F6]/10 px-2 py-0.5 rounded-full">
+            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-600 bg-sky-600/10 px-2 py-0.5 rounded-full">
               ອໍເດີ້ທັງໝົດ: {formatTotal(stats.totalOrders)}
             </div>
           </div>
@@ -685,48 +685,48 @@ export default function DashboardPage() {
 
         <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
           <div className="flex items-center justify-between mb-5">
-            <div className="w-11 h-11 bg-[#3B82F6]/12 rounded-2xl flex items-center justify-center text-[#3B82F6]">
+            <div className="w-11 h-11 bg-sky-600/12 rounded-2xl flex items-center justify-center text-sky-600">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10V5a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v5" /><path d="M6 10 3 11.5v3l3 1.5v5a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-5l3-1.5v-3L18 10" /><path d="M12 2v6" /></svg>
             </div>
             <span className="text-slate-300"><KebabIcon /></span>
           </div>
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">ແຂນສັ້ນ</div>
-          <div className="text-[26px] font-extrabold text-[#3B82F6] leading-none mb-2">
+          <div className="text-[26px] font-extrabold text-sky-600 leading-none mb-2">
             {loading ? "..." : formatTotal(stats.shortSleeves)}
           </div>
-          <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#3B82F6] bg-[#3B82F6]/10 px-2 py-0.5 rounded-full">
+          <div className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-600 bg-sky-600/10 px-2 py-0.5 rounded-full">
             ກວມເອົາ {formatTotal(`${shortPct.toFixed(1)}%`)}
           </div>
         </div>
 
         <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
           <div className="flex items-center justify-between mb-5">
-            <div className="w-11 h-11 bg-[#6366F1]/12 rounded-2xl flex items-center justify-center text-[#6366F1]">
+            <div className="w-11 h-11 bg-indigo-600/12 rounded-2xl flex items-center justify-center text-indigo-600">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z" /><path d="M4 10v6" /><path d="M20 10v6" /></svg>
             </div>
             <span className="text-slate-300"><KebabIcon /></span>
           </div>
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">ແຂນຍາວ</div>
-          <div className="text-[26px] font-extrabold text-[#6366F1] leading-none mb-2">
+          <div className="text-[26px] font-extrabold text-indigo-600 leading-none mb-2">
             {loading ? "..." : formatTotal(stats.longSleeves)}
           </div>
-          <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#6366F1] bg-[#6366F1]/10 px-2 py-0.5 rounded-full">
+          <div className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 bg-indigo-600/10 px-2 py-0.5 rounded-full">
             ກວມເອົາ {formatTotal(`${longPct.toFixed(1)}%`)}
           </div>
         </div>
 
         <div className="bg-white p-5 rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50">
           <div className="flex items-center justify-between mb-5">
-            <div className="w-11 h-11 bg-[#EC4899]/12 rounded-2xl flex items-center justify-center text-[#EC4899]">
+            <div className="w-11 h-11 bg-pink-600/12 rounded-2xl flex items-center justify-center text-pink-600">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13" /><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5H12z" /></svg>
             </div>
             <span className="text-slate-300"><KebabIcon /></span>
           </div>
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">ແຖມ</div>
-          <div className="text-[26px] font-extrabold text-[#EC4899] leading-none mb-2">
+          <div className="text-[26px] font-extrabold text-pink-600 leading-none mb-2">
             {loading ? "..." : formatTotal(stats.giveawayShirts)}
           </div>
-          <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#EC4899] bg-[#EC4899]/10 px-2 py-0.5 rounded-full">
+          <div className="inline-flex items-center gap-1 text-[11px] font-bold text-pink-600 bg-pink-600/10 px-2 py-0.5 rounded-full">
             ຈຳນວນທີ່ແຈກຟຣີ ({formatTotal(`${freePct.toFixed(1)}%`)})
           </div>
         </div>
@@ -745,15 +745,15 @@ export default function DashboardPage() {
             <div className="flex items-center gap-6 mb-6">
               <div className="text-center">
                 <div className="text-[11px] font-bold text-slate-400 uppercase">ກຳໄລ</div>
-                <div className="text-lg font-extrabold text-[#22C55E]">{loading ? "..." : formatCurrency(stats.totalProfit)}</div>
+                <div className="text-lg font-extrabold text-emerald-600">{loading ? "..." : formatCurrency(stats.totalProfit)}</div>
               </div>
               <div className="text-center">
                 <div className="text-[11px] font-bold text-slate-400 uppercase">ຄ້າງຮັບ</div>
-                <div className="text-lg font-extrabold text-[#F59E0B]">{loading ? "..." : formatCurrency(stats.customerBalance)}</div>
+                <div className="text-lg font-extrabold text-amber-600">{loading ? "..." : formatCurrency(stats.customerBalance)}</div>
               </div>
               <div className="text-center">
                 <div className="text-[11px] font-bold text-slate-400 uppercase">ຄ້າງຈ່າຍ</div>
-                <div className="text-lg font-extrabold text-[#DC2626]">{loading ? "..." : formatCurrency(stats.factoryBalance)}</div>
+                <div className="text-lg font-extrabold text-red-600">{loading ? "..." : formatCurrency(stats.factoryBalance)}</div>
               </div>
             </div>
 
@@ -761,11 +761,11 @@ export default function DashboardPage() {
               <div>
                 <div className="flex justify-between text-xs font-bold mb-2">
                   <span className="text-slate-400">ກຳລັງຜະລິດ</span>
-                  <span className="text-[#F59E0B]">{formatTotal(stats.inProgressOrders)} / {formatTotal(stats.totalOrders)}</span>
+                  <span className="text-amber-600">{formatTotal(stats.inProgressOrders)} / {formatTotal(stats.totalOrders)}</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                   <div
-                    className={`bg-[#F59E0B] h-full rounded-full ${hideTotals ? "" : "transition-all duration-1000"}`}
+                    className={`bg-amber-600 h-full rounded-full ${hideTotals ? "" : "transition-all duration-1000"}`}
                     style={{ width: hideTotals ? "0%" : `${inProgressPct}%` }}
                   ></div>
                 </div>
@@ -774,11 +774,11 @@ export default function DashboardPage() {
               <div>
                 <div className="flex justify-between text-xs font-bold mb-2">
                   <span className="text-slate-400">ສຳເລັດແລ້ວ</span>
-                  <span className="text-[#22C55E]">{formatTotal(stats.completedOrders)} / {formatTotal(stats.totalOrders)}</span>
+                  <span className="text-emerald-600">{formatTotal(stats.completedOrders)} / {formatTotal(stats.totalOrders)}</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                   <div
-                    className={`bg-[#22C55E] h-full rounded-full ${hideTotals ? "" : "transition-all duration-1000"}`}
+                    className={`bg-emerald-600 h-full rounded-full ${hideTotals ? "" : "transition-all duration-1000"}`}
                     style={{ width: hideTotals ? "0%" : `${completedPct}%` }}
                   ></div>
                 </div>
@@ -797,7 +797,7 @@ export default function DashboardPage() {
               <div
                 className="relative w-40 h-40 rounded-full flex items-center justify-center shrink-0"
                 style={{
-                  background: hideTotals ? "#F1F5F9" : `conic-gradient(#22C55E 0% ${completedPct}%, #F59E0B ${completedPct}% 100%)`,
+                  background: hideTotals ? "var(--color-slate-100)" : `conic-gradient(var(--color-emerald-600) 0% ${completedPct}%, var(--color-amber-600) ${completedPct}% 100%)`,
                 }}
               >
                 <div className="absolute w-28 h-28 bg-white rounded-full flex flex-col items-center justify-center">
@@ -809,21 +809,21 @@ export default function DashboardPage() {
               <div className="space-y-4 flex-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
                     <span className="text-xs font-bold text-slate-500">ສຳເລັດແລ້ວ</span>
                   </div>
                   <span className="text-sm font-extrabold text-slate-800">{formatTotal(stats.completedOrders)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-600"></span>
                     <span className="text-xs font-bold text-slate-500">ກຳລັງຜະລິດ</span>
                   </div>
                   <span className="text-sm font-extrabold text-slate-800">{formatTotal(stats.inProgressOrders)}</span>
                 </div>
                 <div className="border-t border-slate-50 pt-4 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-500">Cash Flow ຄາດການ</span>
-                  <span className={`text-sm font-extrabold ${hideTotals ? "text-slate-800" : cashFlow >= 0 ? "text-[#22C55E]" : "text-[#DC2626]"}`}>
+                  <span className={`text-sm font-extrabold ${hideTotals ? "text-slate-800" : cashFlow >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                     {formatCurrency(cashFlow)}
                   </span>
                 </div>
@@ -838,7 +838,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-3xl shadow-[0_2px_16px_rgba(15,23,42,0.05)] border border-slate-50 overflow-hidden">
           <div className="p-5 flex items-center justify-between">
             <h2 className="text-sm font-extrabold text-slate-800">ລາຍການອໍເດີ້</h2>
-            <Link href="/orders" className="text-xs bg-[#2563EB] px-4 py-1.5 rounded-full text-white hover:bg-[#1D4ED8] font-bold transition-all">
+            <Link href="/orders" className="text-xs bg-blue-600 px-4 py-1.5 rounded-full text-white hover:bg-blue-700 font-bold transition-all">
               ເບິ່ງທັງໝົດ →
             </Link>
           </div>
@@ -868,7 +868,7 @@ export default function DashboardPage() {
                       <td className="p-4 text-slate-500 font-semibold">{formatDateLao(order.order_date)}</td>
                       <td className="p-4">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-8 h-8 rounded-full bg-[#2563EB]/10 text-[#2563EB] flex items-center justify-center text-[11px] font-extrabold">
+                          <span className="w-8 h-8 rounded-full bg-blue-600/10 text-blue-600 flex items-center justify-center text-[11px] font-extrabold">
                             {order.order_code?.slice(0, 2)?.toUpperCase() || "OD"}
                           </span>
                           <span className="font-extrabold text-slate-700 tracking-tight">{order.order_code}</span>
@@ -877,12 +877,12 @@ export default function DashboardPage() {
                       <td className="p-4 text-slate-500 font-medium">{order.fabric_name}</td>
                       <td className="p-4 text-right text-slate-700 font-extrabold">{formatTotal(order.net_total)}</td>
                       <td className="p-4 text-right">
-                        <span className={hideTotals ? "text-slate-700 font-extrabold" : order.balance > 0 ? "text-[#DC2626] font-extrabold" : "text-[#22C55E] font-extrabold"}>
+                        <span className={hideTotals ? "text-slate-700 font-extrabold" : order.balance > 0 ? "text-red-600 font-extrabold" : "text-emerald-600 font-extrabold"}>
                           {hideTotals ? "••••••" : order.balance > 0 ? order.balance.toLocaleString() : "ຊຳລະແລ້ວ"}
                         </span>
                       </td>
                       <td className="p-4 text-center">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${order.status === "completed" ? "bg-[#22C55E]/10 text-[#22C55E]" : order.shipment_status === "shipped" ? "bg-[#14B8A6]/10 text-[#14B8A6]" : "bg-[#F59E0B]/10 text-[#F59E0B]"
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${order.status === "completed" ? "bg-emerald-600/10 text-emerald-600" : order.shipment_status === "shipped" ? "bg-sky-600/10 text-sky-600" : "bg-amber-600/10 text-amber-600"
                           }`}>
                           {order.status === "completed" ? "ສຳເລັດ" : "ກຳລັງຜະລິດ"}
                         </span>
