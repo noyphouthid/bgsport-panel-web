@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2, Database, Wallet, Phone, HandCoins, Truck, ReceiptText, History } from "lucide-react";
+import { ClipboardList, Palette, TrendingUp, UserRound, CalendarCheck2, Database, Wallet, Phone, HandCoins, Truck, ReceiptText, History, PackagePlus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { canAccessPath, type AppRole } from "@/lib/access-control";
 import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
@@ -96,6 +96,13 @@ const cards = [
     desc: "ສະຫຼຸບວຽກອອກແບບ, ຈຳນວນອໍເດີ້ ແລະ ມູນຄ່າງານຕາມ graphic",
     icon: Palette,
     iconBg: "bg-amber-100 text-amber-700",
+  },
+  {
+    href: "/reports/factory-imports",
+    title: "ລາຍງານການນຳເຂົ້າສິນຄ້າ",
+    desc: "ສະຫຼຸບວ່າພະນັກງານຄົນໃດນຳເຂົ້າອໍເດີໃດ ແລະ ຈຳນວນເທົ່າໃດ ເພື່ອໃຊ້ຄິດໄລ່ເງິນເດືອນ",
+    icon: PackagePlus,
+    iconBg: "bg-indigo-100 text-indigo-700",
   },
   {
     href: "/reports/design-phone-status",

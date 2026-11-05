@@ -109,6 +109,21 @@ and, with the local dev server running,
 `node scripts/verify-browser-cod-receipts.mjs /path/to/playwright/test.mjs`.
 Both use isolated fixtures without production writes.
 
+## Factory import report
+
+`/reports/factory-imports` shows how many orders each employee imported and which
+ones, for payroll. It uses the same records as `/factory-receipts/orders`:
+employees come from the receipt's `received_by` name and periods from `received_at`
+in local time. Canceled imports drop out because their receipt items are deleted.
+An order counts once, for its earliest receipt. Names differing only by spacing or
+letter case are merged, but other spellings stay separate because `received_by` is
+free text. The Excel file has summary and order sheets. Access defaults to
+superadmin, manager and accountant. No database migration is required.
+
+Run `node --test tests/factory-import-report.test.mjs tests/user-permissions.test.mjs`.
+With the local dev server running, use
+`node scripts/verify-browser-factory-imports.mjs /path/to/playwright/index.mjs`.
+
 ## Employee page permissions
 
 `/users/permissions` includes the sidebar pages and the static work pages reached
