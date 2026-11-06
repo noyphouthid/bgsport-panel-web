@@ -537,9 +537,9 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
     const confirmed = window.confirm(`ຕ້ອງການລົບຄິວ ${row.order_no} ແທ້ບໍ?`);
     if (!confirmed) return;
 
-    const { error } = await supabase.from("design_queue_entries").delete().eq("id", row.id);
-    if (error) {
-      toast.error(`ລົບຄິວບໍ່ສຳເລັດ: ${error.message}`);
+    const { data: deleted, error } = await supabase.from("design_queue_entries").delete().eq("id", row.id).select("id").maybeSingle();
+    if (error || !deleted) {
+      toast.error(`ລົບຄິວບໍ່ສຳເລັດ: ${error?.message || "ບໍ່ພົບຄິວ ຫຼື ບໍ່ມີສິດລົບ"}`);
       return;
     }
 

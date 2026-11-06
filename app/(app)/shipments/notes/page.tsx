@@ -170,7 +170,7 @@ export default function ShipmentNotesPage() {
   const filteredRows = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return rows.filter((row) => {
-      if (!canManageAllTransportNotes(viewerRole) && row.created_by_user_id !== viewerUserId) return false;
+      if (viewerRole !== "agent" && !canManageAllTransportNotes(viewerRole) && row.created_by_user_id !== viewerUserId) return false;
       if (sourceFilter !== "all" && row.source_type !== sourceFilter) return false;
       if (printFilter === "printed" && !isTransportNotePrinted(row)) return false;
       if (printFilter === "unprinted" && isTransportNotePrinted(row)) return false;

@@ -7,6 +7,7 @@ import { isMissingOrderItemsTableError, type OrderItemRow } from "@/lib/order-it
 import { getTotalShirtQty } from "@/lib/order-quantities";
 import { extractProductionMockupUrls, isImageFileName, ORDER_MEDIA_BUCKET, toDisplayMediaUrl } from "@/lib/order-media";
 import { getQuotationDraftById, type QuotationDraft } from "@/lib/quotation-drafts";
+import { AgentSalesReport } from "@/components/agent-sales-report";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import { OrderPreviewModal } from "../_components/order-preview-modal";
@@ -193,7 +194,7 @@ export default function OrdersPage() {
         .from("users")
         .select("id,full_name,role,auth_user_id")
         .eq("is_active", true)
-        .in("role", ["superadmin", "admin", "manager", "staff"]);
+        .in("role", ["superadmin", "admin", "manager", "staff", "agent"]);
 
       const users = (data ?? []) as UserOption[];
       setAdminOptions(users);
@@ -204,6 +205,7 @@ export default function OrdersPage() {
   }, []);
 
   const isAdminLimited = viewerRole === "admin";
+  const [showAgentReport, setShowAgentReport] = useState(false);
   const canViewOrderPreview = viewerRole === "superadmin" || viewerRole === "admin" || viewerRole === "staff";
 
   const allSelectedOnPage = useMemo(() => {
@@ -421,7 +423,7 @@ export default function OrdersPage() {
 
   return (
     <div className="text-slate-900 antialiased">
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">ອໍເດີ</h1>
         {!isAdminLimited ? (
           <div className="flex flex-wrap gap-2">
@@ -440,6 +442,9 @@ export default function OrdersPage() {
           </div>
         ) : null}
       </div>
+
+      {viewerRole === "agent" && <div className="mb-5"><button className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800" onClick={() => setShowAgentReport(value => !value)}>{showAgentReport ? "ກັບໄປລາຍການອໍເດີ" : "ເບິ່ງຍອດຂາຍ ແລະ ຄ່າຄອມປະຈຳເດືອນ"}</button></div>}
+      {viewerRole === "agent" && showAgentReport && <AgentSalesReport ownOnly />}
 
       {err && (
         <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl text-sm font-medium">
@@ -551,7 +556,7 @@ export default function OrdersPage() {
           <div className="text-sm font-bold text-slate-700 uppercase tracking-widest">ລາຍການອໍເດີທັງໝົດ</div>
           <div className="flex items-center gap-3">
             <div className="text-xs text-slate-500 font-bold">{loading ? "ກຳລັງໂຫຼດ..." : `ສະແດງ ${rows.length} / ${filteredTotal} ລາຍການ`}</div>
-            {!isAdminLimited ? (
+            {!isAdminLimited && viewerRole !== "agent" ? (
               <>
                 <button
                   onClick={markSelectedCompleted}
@@ -577,7 +582,7 @@ export default function OrdersPage() {
             <thead>
               <tr className="text-slate-700 border-b border-slate-100">
                 <th className="p-4 text-center font-bold uppercase text-[14px] tracking-widest">
-                  {!isAdminLimited ? <input type="checkbox" checked={allSelectedOnPage} onChange={toggleSelectAllOnPage} aria-label="select all on page" /> : null}
+                  {!isAdminLimited && viewerRole !== "agent" ? <input type="checkbox" checked={allSelectedOnPage} onChange={toggleSelectAllOnPage} aria-label="select all on page" /> : null}
                 </th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ວັນທີ</th>
                 <th className="p-4 text-left font-bold uppercase text-[14px] tracking-widest">ລະຫັດອໍເດີ</th>
@@ -604,7 +609,7 @@ export default function OrdersPage() {
                 rows.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/80 transition-colors group">
                     <td className="p-4 text-center">
-                      {!isAdminLimited ? <input
+                      {!isAdminLimited && viewerRole !== "agent" ? <input
                         type="checkbox"
                         checked={selectedIds.includes(r.id)}
                         onChange={() => toggleSelectRow(r.id)}
@@ -657,7 +662,7 @@ export default function OrdersPage() {
                         <Link href={`/orders/${r.id}/edit`} className="text-blue-600 font-bold hover:text-blue-800 underline-offset-4 hover:underline transition-all">
                           ແກ້ໄຂ
                         </Link>
-                        {!isAdminLimited && (r.status === "completed" || r.closed_at) ? (
+                        {!isAdminLimited && viewerRole !== "agent" && (r.status === "completed" || r.closed_at) ? (
                           <button
                             onClick={() => cancelCompleted(r)}
                             className="text-rose-600 font-bold hover:text-rose-800 transition-all active:scale-90"
@@ -665,7 +670,7 @@ export default function OrdersPage() {
                             ຍົກເລີກປິດງານ
                           </button>
                         ) : null}
-                        {!isAdminLimited && r.status !== "completed" && !r.closed_at ? (
+                        {!isAdminLimited && viewerRole !== "agent" && r.status !== "completed" && !r.closed_at ? (
                           <button
                             onClick={() => markCompleted(r.id)}
                             className="text-emerald-600 font-bold hover:text-emerald-800 transition-all active:scale-90"

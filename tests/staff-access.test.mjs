@@ -23,8 +23,11 @@ const { canAccessPath } = loadTs("../lib/access-control.ts", {
   "@/lib/user-permissions": permissions,
 });
 const { canManageAllTransportNotes } = loadTs("../lib/transport-notes.ts");
+const { canViewFactoryDepositOrder, canManageAllFactoryDepositOrders } = loadTs("../lib/factory-deposit-orders.ts");
 
 const staffPaths = [
+  "/factory-deposit-orders",
+  "/factory-deposit-orders/new",
   "/factory-receipts",
   "/factory-receipts/orders",
   "/shipments",
@@ -34,11 +37,17 @@ const staffPaths = [
   "/shipments/transport-note",
 ];
 
-test("staff can access all receipt and shipment work pages, including trailing slashes", () => {
+test("staff can access deposit, receipt and shipment work pages, including trailing slashes", () => {
   for (const path of staffPaths) {
     assert.equal(canAccessPath(path, "staff"), true, path);
     assert.equal(canAccessPath(`${path}/`, "staff"), true, `${path}/`);
   }
+});
+
+test("staff can view other users' deposits without becoming deposit administrators", () => {
+  assert.equal(canViewFactoryDepositOrder({ created_by_user_id: "admin", agent_user_id: "agent" }, "staff", "staff"), true);
+  assert.equal(canViewFactoryDepositOrder({ created_by_user_id: null }, "staff", "staff"), true);
+  assert.equal(canManageAllFactoryDepositOrders("staff"), false);
 });
 
 test("staff can manage transport notes created by other users", () => {
@@ -61,6 +70,7 @@ test("staff access stays limited to the existing work pages", () => {
     "/orders/example/edit",
     "/shipments/transport-note-extra",
     "/shipments/transport-note/unknown",
+    "/factory-deposit-orders/new/unknown",
   ]) {
     assert.equal(canAccessPath(path, "staff"), false, path);
   }

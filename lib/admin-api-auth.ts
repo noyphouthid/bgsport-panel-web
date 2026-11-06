@@ -2,7 +2,8 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { normalizeRole } from "@/lib/role-groups";
 
-export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant";
+export type { AppRole } from "@/lib/access-control";
+import type { AppRole } from "@/lib/access-control";
 
 export type AdminActor = {
   authUserId: string;
@@ -25,6 +26,7 @@ function normalizeAppRole(role: string | null | undefined): AppRole | null {
   if (normalized === "graphic" || normalized === "graphics" || normalized === "designer") return "graphic";
   if (normalized === "production" || normalized === "factory-production" || normalized === "production-team") return "production";
   if (normalized === "accountant") return "accountant";
+  if (normalized === "agent") return "agent";
   return null;
 }
 

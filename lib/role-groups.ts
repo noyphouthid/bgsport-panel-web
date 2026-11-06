@@ -1,7 +1,7 @@
 import type { AppRole } from "@/lib/access-control";
 
 export const FACTORY_DEPOSIT_ADMIN_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff"];
-export const ORDER_ASSIGNABLE_USER_ROLES: AppRole[] = ["superadmin", "admin", "graphic"];
+export const ORDER_ASSIGNABLE_USER_ROLES: AppRole[] = ["superadmin", "admin", "graphic", "agent"];
 export const GRAPHIC_ASSIGNABLE_ROLES: AppRole[] = ["superadmin", "graphic"];
 export const PRODUCTION_ASSIGNABLE_ROLES: AppRole[] = ["superadmin", "production"];
 

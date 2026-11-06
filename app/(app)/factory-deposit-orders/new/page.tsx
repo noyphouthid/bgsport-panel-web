@@ -1,6 +1,6 @@
 "use client";
 
-import { getProductionCollarLabel, normalizeProductionCollarCode } from "@/lib/production-collars";
+import { getProductionCollarLabel } from "@/lib/production-collars";
 
 import { ProductionCollarField } from "@/components/production-collar-field";
 import { useProductionCollars } from "@/lib/use-production-collars";
@@ -18,26 +18,57 @@ import toast from "react-hot-toast";
 import Swal from "sweetalert2";
 import { ArrowLeft, Download, Eye, FileImage, FileText, FileUp, Printer, Save, Shirt, Trash2 } from "lucide-react";
 import {
-  buildEmptyPantsOrderItem,
   buildPantsOrderItemPayload,
   buildShirtOrderItemPayload,
   getPantsItemsSummary,
   getPantsLineGross,
   getPantsTotalQty,
   isMissingOrderItemsTableError,
-  type PantsOrderItemDraft,
 } from "@/lib/order-items";
 import { supabase } from "@/lib/supabase";
 import { confirmOrderWorkCategory } from "@/lib/order-work-category-dialog";
-import { sortProductionPlayerRowsBySize } from "@/lib/production-player-rows";
 import type { AppRole } from "@/lib/access-control";
 import { isAdminRole, isGraphicRole } from "@/lib/role-groups";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
+  PRODUCTION_HEM_OPTIONS,
+  PRODUCTION_SIZE_FIELDS,
+  PRODUCTION_SLEEVE_OPTIONS,
+  buildEmptyPantsProductionItem,
+  buildEmptyPlayerRow,
+  buildEmptyProductionItem,
+  ensureProductionItemCount,
+  getFilledPlayerRows,
+  getPantsProductionItemSizeMap,
+  getPantsProductionItemTotal,
+  getPlayerModeCsvLabel,
+  getPlayerModeInstruction,
+  getProductionHemLabel,
+  getProductionItemSizeMap,
+  getProductionItemTotal,
+  getProductionSleeveLabel,
+  mapLegacyCollarType,
+  parsePantsProductionItems,
+  parseProductionItems,
+  playerModeNeedsName,
+  playerModeNeedsNumber,
+  type PantsProductionItem,
+  type ProductionHemType,
+  type ProductionItem,
+  type ProductionPlayerMode,
+  type ProductionPlayerRow,
+  type ProductionPriority,
+  type ProductionSizeKey,
+  type ProductionSleeveType,
+  type ProductionSlotCount,
+} from "@/lib/production-sheet";
+import { ProductionSheetA4 } from "../_components/production-sheet-a4";
+import { ProductionDateField } from "../_components/production-date-field";
+import {
   canApproveFactoryDepositOrder,
   canConvertFactoryDepositOrder,
   canEditFactoryDepositOrder,
-  canManageAllFactoryDepositOrders,
+  canViewFactoryDepositOrder,
   FACTORY_DEPOSIT_ORDER_STATUS_LABELS,
   type FactoryDepositOrderStatus,
 } from "@/lib/factory-deposit-orders";
@@ -129,57 +160,13 @@ type DepositOrderRow = {
   admin_user_id: string | null;
   graphic_user_id: string | null;
   created_by_user_id: string | null;
+  agent_user_id?: string | null;
   team_name?: string | null;
   production_sent_date?: string | null;
   production_items?: unknown;
   production_priority?: "normal" | "urgent" | null;
   urgent_due_date?: string | null;
   pants_items?: unknown;
-};
-
-type ProductionSleeveType = "short" | "long" | "mixed" | "raglan" | "basketball";
-type ProductionCollarType = string;
-type ProductionHemType = "straight" | "curved";
-type ProductionSlotCount = 1 | 2 | 3 | 4 | 5 | 6;
-type ProductionSizeKey = "xs" | "jxs" | "js" | "jm" | "jl" | "jxl" | "j2xl" | "s" | "m" | "l" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl";
-type ProductionPriority = "normal" | "urgent";
-type ProductionPlayerMode = "none" | "name_only" | "number_only" | "name_and_number";
-
-type ProductionSizeMap = Record<ProductionSizeKey, number>;
-
-type ProductionPlayerRow = {
-  id: string;
-  size: ProductionSizeKey | "";
-  player_name: string;
-  jersey_number: string;
-  note: string;
-};
-
-type ProductionItem = {
-  client_id: string;
-  sleeve_type: ProductionSleeveType;
-  collar_type: ProductionCollarType;
-  collar_label?: string;
-  hem_type: ProductionHemType;
-  mockup_url: string | null;
-  mockup_path: string | null;
-  mockup_file_name: string | null;
-  mockup_file: File | null;
-  mockup_preview_url: string | null;
-  sizes: ProductionSizeMap;
-  player_mode: ProductionPlayerMode;
-  player_rows: ProductionPlayerRow[];
-};
-
-type PantsProductionItem = PantsOrderItemDraft & {
-  mockup_url: string | null;
-  mockup_path: string | null;
-  mockup_file_name: string | null;
-  mockup_file: File | null;
-  mockup_preview_url: string | null;
-  sizes: ProductionSizeMap;
-  player_mode: ProductionPlayerMode;
-  player_rows: ProductionPlayerRow[];
 };
 
 type CsvCell = string | number;
@@ -193,20 +180,6 @@ const SIZE_UPCHARGES = {
 } as const;
 const PRODUCTION_MOCKUP_BUCKET = "factory-production-mockups";
 
-const PRODUCTION_SLEEVE_OPTIONS: Array<{ value: ProductionSleeveType; label: string }> = [
-  { value: "short", label: "ແຂນສັ້ນ" },
-  { value: "long", label: "ແຂນຍາວ" },
-  { value: "mixed", label: "ແຂນສັ້ນ/ແຂນຍາວ" },
-  { value: "raglan", label: "ແຂນກິ້ນ" },
-  { value: "basketball", label: "ເສື້ອບາສ" },
-];
-
-
-const PRODUCTION_HEM_OPTIONS: Array<{ value: ProductionHemType; label: string }> = [
-  { value: "straight", label: "ຕີນຊື່" },
-  { value: "curved", label: "ຕີນໂຄ້ງ" },
-];
-
 const PRODUCTION_PLAYER_MODE_OPTIONS: Array<{ value: ProductionPlayerMode; label: string }> = [
   { value: "none", label: "ບໍ່ມີຊື່/ເບີ" },
   { value: "name_only", label: "ມີສະເພາະຊື່" },
@@ -217,25 +190,6 @@ const PRODUCTION_PLAYER_MODE_OPTIONS: Array<{ value: ProductionPlayerMode; label
 const PANTS_PLAYER_MODE_OPTIONS: Array<{ value: ProductionPlayerMode; label: string }> = [
   { value: "none", label: "ມີສະເພາະໄຊສ໌" },
   { value: "number_only", label: "ໄຊສ໌ + ເບີໂສ້ງ" },
-];
-
-const PRODUCTION_SIZE_FIELDS: Array<{ key: ProductionSizeKey; label: string }> = [
-  { key: "xs", label: "XS" },
-  { key: "jxs", label: "JXS" },
-  { key: "js", label: "JS" },
-  { key: "jm", label: "JM" },
-  { key: "jl", label: "JL" },
-  { key: "jxl", label: "JXL" },
-  { key: "j2xl", label: "J2XL" },
-  { key: "s", label: "S" },
-  { key: "m", label: "M" },
-  { key: "l", label: "L" },
-  { key: "xl", label: "XL" },
-  { key: "2xl", label: "2XL" },
-  { key: "3xl", label: "3XL" },
-  { key: "4xl", label: "4XL" },
-  { key: "5xl", label: "5XL" },
-  { key: "6xl", label: "6XL" },
 ];
 
 function getLocalDateInputValue() {
@@ -268,147 +222,6 @@ function buildSafeStorageFileName(fileName: string, prefix: string) {
     .toLowerCase();
   const fallbackBase = readableBase || "file";
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${fallbackBase}.${safeExtension}`;
-}
-
-function toPositiveInt(value: unknown) {
-  return Math.max(0, Number(value) || 0);
-}
-
-function buildEmptySizeMap(): ProductionSizeMap {
-  return {
-    xs: 0,
-    jxs: 0,
-    js: 0,
-    jm: 0,
-    jl: 0,
-    jxl: 0,
-    j2xl: 0,
-    s: 0,
-    m: 0,
-    l: 0,
-    xl: 0,
-    "2xl": 0,
-    "3xl": 0,
-    "4xl": 0,
-    "5xl": 0,
-    "6xl": 0,
-  };
-}
-
-function buildClientId() {
-  return `production-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function buildPlayerRowId() {
-  return `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function buildEmptyPlayerRow(overrides?: Partial<ProductionPlayerRow>): ProductionPlayerRow {
-  return {
-    id: buildPlayerRowId(),
-    size: overrides?.size ?? "",
-    player_name: overrides?.player_name ?? "",
-    jersey_number: overrides?.jersey_number ?? "",
-    note: overrides?.note ?? "",
-  };
-}
-
-function mapLegacyCollarType(value?: string | null): ProductionCollarType {
-  if (value === "polo") return "polo";
-  if (value === "mandarin") return "mandarin";
-  return "crew";
-}
-
-function buildEmptyProductionItem(
-  overrides?: Partial<Omit<ProductionItem, "client_id" | "sizes">> & { sizes?: Partial<ProductionSizeMap> }
-): ProductionItem {
-  return {
-    client_id: buildClientId(),
-    sleeve_type: overrides?.sleeve_type ?? "short",
-    collar_type: overrides?.collar_type ?? "crew",
-    collar_label: overrides?.collar_label,
-    hem_type: overrides?.hem_type ?? "straight",
-    mockup_url: overrides?.mockup_url ?? null,
-    mockup_path: overrides?.mockup_path ?? null,
-    mockup_file_name: overrides?.mockup_file_name ?? null,
-    mockup_file: overrides?.mockup_file ?? null,
-    mockup_preview_url: overrides?.mockup_preview_url ?? null,
-    player_mode: overrides?.player_mode ?? "none",
-    player_rows: overrides?.player_rows ?? [],
-    sizes: {
-      ...buildEmptySizeMap(),
-      ...(overrides?.sizes ?? {}),
-    },
-  };
-}
-
-function getProductionItemTotal(item: ProductionItem) {
-  const sizeMap = getProductionItemSizeMap(item);
-  return PRODUCTION_SIZE_FIELDS.reduce((sum, field) => sum + (Number(sizeMap[field.key]) || 0), 0);
-}
-
-function getFilledPlayerRows(item: { player_rows: ProductionPlayerRow[] }) {
-  return sortProductionPlayerRowsBySize(
-    item.player_rows.filter((row) => row.size || row.player_name.trim() || row.jersey_number.trim() || row.note.trim())
-  );
-}
-
-function getProductionItemSizeMap(item: ProductionItem) {
-  const filledRows = getFilledPlayerRows(item);
-  const derivedSizes = buildEmptySizeMap();
-  let hasSizedRows = false;
-
-  if (item.player_mode !== "none") {
-    for (const row of filledRows) {
-      if (!row.size) continue;
-      derivedSizes[row.size] = (Number(derivedSizes[row.size]) || 0) + 1;
-      hasSizedRows = true;
-    }
-  }
-
-  return hasSizedRows ? derivedSizes : item.sizes;
-}
-
-function playerModeNeedsName(mode: ProductionPlayerMode) {
-  return mode === "name_only" || mode === "name_and_number";
-}
-
-function playerModeNeedsNumber(mode: ProductionPlayerMode) {
-  return mode === "number_only" || mode === "name_and_number";
-}
-
-function getPlayerModeInstruction(mode: ProductionPlayerMode, numberLabel = "ເບີເສື້ອ") {
-  if (mode === "name_only") return "ໄຊສ໌ + ຊື່ Player";
-  if (mode === "number_only") return `ໄຊສ໌ + ${numberLabel}`;
-  return `ໄຊສ໌ + ຊື່ + ${numberLabel}`;
-}
-
-function getPlayerModePreviewTitle(mode: ProductionPlayerMode, numberLabel = "ເບີເສື້ອ") {
-  if (mode === "name_only") return "NAME LIST";
-  if (mode === "number_only") return "LIST";
-  return `ຊື່ ແລະ ${numberLabel}`;
-}
-
-function getPlayerModeCsvLabel(mode: ProductionPlayerMode) {
-  if (mode === "name_only") return "ຊື່";
-  if (mode === "number_only") return "ເບີເສື້ອ";
-  if (mode === "name_and_number") return "ຊື່+ເບີເສື້ອ";
-  return "ຈຳນວນໄຊສ໌";
-}
-
-function getPlayerPreviewTextClass(mode: ProductionPlayerMode) {
-  if (mode === "name_and_number") return "text-[11px] leading-tight tracking-tight";
-  if (mode === "name_only") return "text-[12px] leading-[1.3]";
-  return "text-[13px] leading-snug";
-}
-
-function getProductionSleeveLabel(value: ProductionSleeveType) {
-  return PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === value)?.label || "-";
-}
-
-
-function getProductionHemLabel(value: ProductionHemType) {
-  return PRODUCTION_HEM_OPTIONS.find((option) => option.value === value)?.label || "-";
 }
 
 function buildNameAndNumberValue(name: string, number: string) {
@@ -515,86 +328,6 @@ function buildProductionCsvRowsFromDraft({
   return csvRows;
 }
 
-function parseProductionItems(raw: unknown, fallbackSleeve: ProductionSleeveType, fallbackCollar: ProductionCollarType) {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return [buildEmptyProductionItem({ sleeve_type: fallbackSleeve, collar_type: fallbackCollar })];
-  }
-
-  const items = raw
-    .slice(0, 6)
-    .map((entry) => {
-      const row = typeof entry === "object" && entry ? (entry as Record<string, unknown>) : {};
-      const nestedSizes = typeof row.sizes === "object" && row.sizes ? (row.sizes as Record<string, unknown>) : {};
-      const nestedPlayers = Array.isArray(row.player_rows) ? row.player_rows : [];
-      return buildEmptyProductionItem({
-        sleeve_type:
-          row.sleeve_type === "long" ||
-          row.sleeve_type === "mixed" ||
-          row.sleeve_type === "short" ||
-          row.sleeve_type === "raglan" ||
-          row.sleeve_type === "basketball"
-            ? (row.sleeve_type as ProductionSleeveType)
-            : fallbackSleeve,
-        collar_type: normalizeProductionCollarCode(row.collar_type, fallbackCollar),
-        collar_label: getProductionCollarLabel(normalizeProductionCollarCode(row.collar_type, fallbackCollar), typeof row.collar_label === "string" ? row.collar_label : undefined),
-        hem_type:
-          row.hem_type === "curved" || row.hem_type === "straight"
-            ? (row.hem_type as ProductionHemType)
-            : "straight",
-        mockup_url: typeof row.mockup_url === "string" ? row.mockup_url : null,
-        mockup_path: typeof row.mockup_path === "string" ? row.mockup_path : null,
-        mockup_file_name: typeof row.mockup_file_name === "string" ? row.mockup_file_name : null,
-        player_mode:
-          row.player_mode === "name_only" ||
-          row.player_mode === "number_only" ||
-          row.player_mode === "name_and_number" ||
-          row.player_mode === "none"
-            ? (row.player_mode as ProductionPlayerMode)
-            : "none",
-        player_rows: nestedPlayers
-          .map((player) => {
-            const playerRow = typeof player === "object" && player ? (player as Record<string, unknown>) : {};
-            const sizeValue = typeof playerRow.size === "string" ? playerRow.size : "";
-            const isValidSize = PRODUCTION_SIZE_FIELDS.some((field) => field.key === sizeValue);
-            return buildEmptyPlayerRow({
-              size: isValidSize ? (sizeValue as ProductionSizeKey) : "",
-              player_name: typeof playerRow.player_name === "string" ? playerRow.player_name : "",
-              jersey_number: typeof playerRow.jersey_number === "string" ? playerRow.jersey_number : "",
-              note: typeof playerRow.note === "string" ? playerRow.note : "",
-            });
-          })
-          .filter((player) => player.size || player.player_name.trim() || player.jersey_number.trim() || player.note.trim()),
-        sizes: {
-          xs: toPositiveInt(nestedSizes.xs),
-          jxs: toPositiveInt(nestedSizes.jxs),
-          js: toPositiveInt(nestedSizes.js),
-          jm: toPositiveInt(nestedSizes.jm),
-          jl: toPositiveInt(nestedSizes.jl),
-          jxl: toPositiveInt(nestedSizes.jxl),
-          j2xl: toPositiveInt(nestedSizes.j2xl),
-          s: toPositiveInt(nestedSizes.s),
-          m: toPositiveInt(nestedSizes.m),
-          l: toPositiveInt(nestedSizes.l),
-          xl: toPositiveInt(nestedSizes.xl),
-          "2xl": toPositiveInt(nestedSizes["2xl"]),
-          "3xl": toPositiveInt(nestedSizes["3xl"]),
-          "4xl": toPositiveInt(nestedSizes["4xl"]),
-          "5xl": toPositiveInt(nestedSizes["5xl"]),
-          "6xl": toPositiveInt(nestedSizes["6xl"]),
-        },
-      });
-    })
-    .filter(Boolean);
-
-  return items.length > 0 ? items : [buildEmptyProductionItem({ sleeve_type: fallbackSleeve, collar_type: fallbackCollar })];
-}
-
-function ensureProductionItemCount(items: ProductionItem[], count: ProductionSlotCount) {
-  const next = items.slice(0, count);
-  while (next.length < count) next.push(buildEmptyProductionItem());
-  return next;
-}
-
 function isMissingPantsItemsColumnError(error: { message?: string } | null | undefined) {
   const message = String(error?.message || "").toLowerCase();
   return message.includes("pants_items") && (message.includes("column") || message.includes("schema cache"));
@@ -607,126 +340,6 @@ function getErrorMessage(error: unknown, fallback: string) {
     if (message) return message;
   }
   return fallback;
-}
-
-function buildEmptyPantsProductionItem(overrides?: Partial<PantsProductionItem>): PantsProductionItem {
-  const base = buildEmptyPantsOrderItem(overrides);
-  return {
-    ...base,
-    mockup_url: overrides?.mockup_url ?? null,
-    mockup_path: overrides?.mockup_path ?? null,
-    mockup_file_name: overrides?.mockup_file_name ?? null,
-    mockup_file: overrides?.mockup_file ?? null,
-    mockup_preview_url: overrides?.mockup_preview_url ?? null,
-    player_mode: overrides?.player_mode ?? "none",
-    player_rows: overrides?.player_rows ?? [],
-    sizes: {
-      ...buildEmptySizeMap(),
-      ...(overrides?.sizes ?? {}),
-    },
-  };
-}
-
-function parsePantsProductionItems(raw: unknown) {
-  if (!Array.isArray(raw) || raw.length === 0) return [] as PantsProductionItem[];
-
-  return raw
-    .map((entry, index) => {
-      const row = typeof entry === "object" && entry ? (entry as Record<string, unknown>) : {};
-      const nestedSizes = typeof row.sizes === "object" && row.sizes ? (row.sizes as Record<string, unknown>) : {};
-      const nestedPlayers = Array.isArray(row.player_rows) ? row.player_rows : [];
-      return buildEmptyPantsProductionItem({
-        id: typeof row.id === "string" ? row.id : undefined,
-        clientId:
-          typeof row.clientId === "string"
-            ? row.clientId
-            : typeof row.client_id === "string"
-              ? row.client_id
-              : `pants-production-${index + 1}`,
-        productName:
-          typeof row.productName === "string"
-            ? row.productName
-            : typeof row.product_name === "string"
-              ? row.product_name
-              : undefined,
-        fabricId:
-          typeof row.fabricId === "string"
-            ? row.fabricId
-            : typeof row.fabric_id === "string"
-              ? row.fabric_id
-              : "",
-        qty: Math.max(0, Number(row.qty) || 0),
-        freeQty:
-          typeof row.freeQty !== "undefined"
-            ? Math.max(0, Number(row.freeQty) || 0)
-            : Math.max(0, Number(row.free_qty) || 0),
-        unitPrice:
-          typeof row.unitPrice !== "undefined"
-            ? Math.max(0, Number(row.unitPrice) || 0)
-            : Math.max(0, Number(row.unit_price) || 0),
-        factoryCost:
-          typeof row.factoryCost !== "undefined"
-            ? Math.max(0, Number(row.factoryCost) || 0)
-            : Math.max(0, Number(row.factory_cost) || 0),
-        notes: typeof row.notes === "string" ? row.notes : "",
-        mockup_url: typeof row.mockup_url === "string" ? row.mockup_url : null,
-        mockup_path: typeof row.mockup_path === "string" ? row.mockup_path : null,
-        mockup_file_name: typeof row.mockup_file_name === "string" ? row.mockup_file_name : null,
-        player_mode: row.player_mode === "number_only" ? "number_only" : "none",
-        player_rows: nestedPlayers
-          .map((player) => {
-            const playerRow = typeof player === "object" && player ? (player as Record<string, unknown>) : {};
-            const sizeValue = typeof playerRow.size === "string" ? playerRow.size : "";
-            return buildEmptyPlayerRow({
-              size: PRODUCTION_SIZE_FIELDS.some((field) => field.key === sizeValue) ? (sizeValue as ProductionSizeKey) : "",
-              player_name: "",
-              jersey_number: typeof playerRow.jersey_number === "string" ? playerRow.jersey_number : "",
-              note: typeof playerRow.note === "string" ? playerRow.note : "",
-            });
-          })
-          .filter((player) => player.size || player.player_name.trim() || player.jersey_number.trim() || player.note.trim()),
-        sizes: {
-          xs: toPositiveInt(nestedSizes.xs),
-          jxs: toPositiveInt(nestedSizes.jxs),
-          js: toPositiveInt(nestedSizes.js),
-          jm: toPositiveInt(nestedSizes.jm),
-          jl: toPositiveInt(nestedSizes.jl),
-          jxl: toPositiveInt(nestedSizes.jxl),
-          j2xl: toPositiveInt(nestedSizes.j2xl),
-          s: toPositiveInt(nestedSizes.s),
-          m: toPositiveInt(nestedSizes.m),
-          l: toPositiveInt(nestedSizes.l),
-          xl: toPositiveInt(nestedSizes.xl),
-          "2xl": toPositiveInt(nestedSizes["2xl"]),
-          "3xl": toPositiveInt(nestedSizes["3xl"]),
-          "4xl": toPositiveInt(nestedSizes["4xl"]),
-          "5xl": toPositiveInt(nestedSizes["5xl"]),
-          "6xl": toPositiveInt(nestedSizes["6xl"]),
-        },
-      });
-    })
-    .filter((item) => item.productName.trim() || item.fabricId || getPantsTotalQty(item) > 0);
-}
-
-function getPantsProductionItemTotal(item: PantsProductionItem) {
-  const sizeMap = getPantsProductionItemSizeMap(item);
-  return PRODUCTION_SIZE_FIELDS.reduce((sum, field) => sum + (Number(sizeMap[field.key]) || 0), 0);
-}
-
-function getPantsProductionItemSizeMap(item: PantsProductionItem) {
-  const filledRows = getFilledPlayerRows(item);
-  const derivedSizes = buildEmptySizeMap();
-  let hasSizedRows = false;
-
-  if (item.player_mode !== "none") {
-    for (const row of filledRows) {
-      if (!row.size) continue;
-      derivedSizes[row.size] = (Number(derivedSizes[row.size]) || 0) + 1;
-      hasSizedRows = true;
-    }
-  }
-
-  return hasSizedRows ? derivedSizes : item.sizes;
 }
 
 export default function FactoryDepositOrderFormPage() {
@@ -748,7 +361,7 @@ export default function FactoryDepositOrderFormPage() {
   const [uploadingSlip, setUploadingSlip] = useState(false);
   const [deletingSlipId, setDeletingSlipId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
+  const { markClean, allowNextNavigation, setDirty } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
 
   const [recordId, setRecordId] = useState<string | null>(null);
   const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
@@ -757,6 +370,7 @@ export default function FactoryDepositOrderFormPage() {
   const [quotationDraftId, setQuotationDraftId] = useState<string | null>(draftId);
   const [quotationStatus, setQuotationStatus] = useState<QuotationDraftStatus>("draft");
   const [createdByUserId, setCreatedByUserId] = useState<string | null>(null);
+  const [ownsDeposit, setOwnsDeposit] = useState(false);
   const [status, setStatus] = useState<FactoryDepositOrderStatus>("draft");
   const [depositNo, setDepositNo] = useState("");
   const [depositDate, setDepositDate] = useState(getLocalDateInputValue);
@@ -855,8 +469,9 @@ export default function FactoryDepositOrderFormPage() {
           if (!data) throw new Error("ບໍ່ພົບໃບມັດຈຳສັ່ງຜະລິດ");
 
           const row = data as DepositOrderRow;
-          if (!canManageAllFactoryDepositOrders(currentUser?.role ?? null) && row.created_by_user_id !== currentUser?.id) {
-            toast.error("ທ່ານສາມາດເບິ່ງໄດ້ສະເພາະໃບມັດຈຳທີ່ຕົນເອງສ້າງ");
+          setOwnsDeposit(row.created_by_user_id === currentUser?.id);
+          if (!canViewFactoryDepositOrder(row, currentUser?.role ?? null, currentUser?.id ?? null)) {
+            toast.error("ທ່ານສາມາດເບິ່ງໄດ້ສະເພາະໃບມັດຈຳຂອງຕົນເອງ");
             router.replace("/factory-deposit-orders");
             return;
           }
@@ -1013,7 +628,10 @@ export default function FactoryDepositOrderFormPage() {
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const adminOptions = useMemo(() => users.filter((item) => isAdminRole(item.role)), [users]);
   const plannerOptions = useMemo(() => users.filter((item) => isGraphicRole(item.role)), [users]);
-  const canEdit = canEditWithPermissions(viewerPermissions, "factory_deposit_orders", viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false);
+  const roleCanEdit = viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false;
+  const canEdit = canEditWithPermissions(viewerPermissions, "factory_deposit_orders", roleCanEdit)
+    && (viewerRole !== "agent" || roleCanEdit)
+    && (viewerRole !== "staff" || !editId || ownsDeposit);
   const isSuperAdmin = viewerRole === "superadmin";
   const canApproveHere = !!recordId && !!viewerRole && isSuperAdmin && canApproveFactoryDepositOrder(viewerRole) && status === "submitted";
   const canConvertHere = !!recordId && !!viewerRole && isSuperAdmin && canConvertFactoryDepositOrder(viewerRole) && status === "approved";
@@ -1085,12 +703,6 @@ export default function FactoryDepositOrderFormPage() {
     })),
     [productionItems, productionStyleCount, productionCollars.options]
   );
-  const productionSheetPreviewCardCount = activeProductionItems.length + pantsItems.length;
-  const usesExpandedProductionSheetLayout = productionSheetPreviewCardCount > 4;
-  const priorityBannerText =
-    productionPriority === "urgent"
-      ? `ຕ້ອງການເຄື່ອງດ່ວນ! ກຳນົດສົ່ງບໍ່ເກີນວັນທີ ${urgentDueDate || "../../...."}`
-      : "ງານປົກກະຕິ";
   const assignedProductionQty = useMemo(
     () => activeProductionItems.reduce((sum, item) => sum + getProductionItemTotal(item), 0),
     [activeProductionItems]
@@ -1103,6 +715,21 @@ export default function FactoryDepositOrderFormPage() {
     { label: "ຜູ້ວາງພ້ອມພິມ", name: "" },
     { label: "ຜູ້ສົ່ງໂຮງງານ", name: "" },
   ];
+  const productionSheetProps = {
+    teamName,
+    orderCode,
+    workCategoryLabel: workCategoryLabel || getOrderWorkCategoryLabel(workCategory, documentOptions.workCategories.map(row => ({ value: row.code, label: row.label }))),
+    fabricName: selectedFabric?.name || "",
+    productionSentDate,
+    customerDeliveryDate,
+    shirtQty: totalProductionQty,
+    pantsQty: pantsTotalQty,
+    productionPriority,
+    urgentDueDate,
+    items: activeProductionItems,
+    pantsItems,
+    signatureFields,
+  };
 
   const pendingSlipPreviews = useMemo(
     () =>
@@ -1207,6 +834,8 @@ export default function FactoryDepositOrderFormPage() {
   };
 
   const syncProductionQueue = async (depositOrderId: string, nextStatus: FactoryDepositOrderStatus) => {
+    // Database triggers enqueue agent submissions; agents cannot run a global queue sync.
+    if (viewerRole === "agent") return;
     if (nextStatus === "draft" || nextStatus === "cancelled") {
       await supabase.rpc("sync_factory_production_queue_entries", {
         p_actor_user_id: viewerUserId,
@@ -1637,7 +1266,7 @@ export default function FactoryDepositOrderFormPage() {
         return;
       }
 
-      downloadCsvFile(`${sanitizeCsvFileName(documentCode)}-production-details.csv`, csvRows);
+      downloadCsvFile(`${sanitizeCsvFileName(orderCode.trim() || documentCode)}.csv`, csvRows);
       toast.success("Export CSV ສຳເລັດ");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Export CSV ບໍ່ສຳເລັດ";
@@ -1787,6 +1416,10 @@ export default function FactoryDepositOrderFormPage() {
     setErr(null);
 
     try {
+      if (viewerRole === "agent") {
+        const { data: ready, error } = await supabase.rpc("sales_agent_deposit_editing_enabled");
+        if (error || ready !== true) throw new Error("ກະລຸນາລັນ 20261110_expand_agent_workflow_permissions.sql ໃນ Supabase SQL Editor");
+      }
       let quotationDraft = buildQuotationDraft();
       if (quotationDraftId || draftId) {
         quotationDraft = await saveQuotationDraft(quotationDraft);
@@ -1862,12 +1495,14 @@ export default function FactoryDepositOrderFormPage() {
       const previousStatus = status;
 
       if (recordId) {
-        const updateResult = await supabase.from("factory_deposit_orders").update(payload).eq("id", recordId);
+        const updateResult = await supabase.from("factory_deposit_orders").update(payload).eq("id", recordId).select("id").maybeSingle();
+        if (!updateResult.error && !updateResult.data) throw new Error("ໃບມັດຈຳຖືກປ່ຽນສະຖານະ ຫຼື ບໍ່ມີສິດແກ້ໄຂ ກະລຸນາໂຫຼດໃໝ່");
         if (updateResult.error) {
           if (!isMissingPantsItemsColumnError(updateResult.error)) throw updateResult.error;
           const legacyPayload: Record<string, unknown> = { ...payload };
           delete legacyPayload.pants_items;
-          const legacyUpdateResult = await supabase.from("factory_deposit_orders").update(legacyPayload).eq("id", recordId);
+          const legacyUpdateResult = await supabase.from("factory_deposit_orders").update(legacyPayload).eq("id", recordId).select("id").maybeSingle();
+          if (!legacyUpdateResult.error && !legacyUpdateResult.data) throw new Error("ບໍ່ພົບໃບມັດຈຳທີ່ສາມາດແກ້ໄຂໄດ້");
           if (legacyUpdateResult.error) throw legacyUpdateResult.error;
         }
       } else {
@@ -2019,6 +1654,7 @@ export default function FactoryDepositOrderFormPage() {
       const convertedPantsItems = saved.uploadedPantsItems ?? pantsItems;
 
       const orderPayload = {
+        source_deposit_order_id: saved.depositOrderId,
         order_code: orderCode.trim(),
         order_date: depositDate,
         work_category: selectedWorkCategory,
@@ -2211,7 +1847,9 @@ export default function FactoryDepositOrderFormPage() {
             ກັບໄປລາຍການໃບມັດຈຳ
           </Link>
           <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">
-            {editId ? "ແກ້ໄຂໃບສັ່ງຜະລິດ" : "ສ້າງໃບສັ່ງຜະລິດ"}
+            {editId
+              ? viewerRole === "staff" && !ownsDeposit ? "ລາຍລະອຽດໃບສັ່ງຜະລິດ" : "ແກ້ໄຂໃບສັ່ງຜະລິດ"
+              : "ສ້າງໃບສັ່ງຜະລິດ"}
           </h1>
           <p className="mt-2 text-sm font-medium text-slate-500">
             ບັນທຶກຂໍ້ມູນສົ່ງໂຮງງານ, ກຳນົດຈຳນວນໄຊສ໌ແຍກແຕ່ລະແບບ ແລະ ກວດ preview A4 ກ່ອນພິມ
@@ -2375,11 +2013,29 @@ export default function FactoryDepositOrderFormPage() {
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ວັນທີ່ສົ່ງຜະລິດ</label>
-                <input type="date" value={productionSentDate} onChange={(e) => setProductionSentDate(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+                <ProductionDateField
+                  label="ວັນທີ່ສົ່ງຜະລິດ"
+                  value={productionSentDate}
+                  today={getLocalDateInputValue()}
+                  disabled={!canEdit}
+                  onChange={(date) => {
+                    setProductionSentDate(date);
+                    setDirty(true);
+                  }}
+                />
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ກຳນົດສົ່ງລູກຄ້າວັນທີ</label>
-                <input type="date" value={customerDeliveryDate} onChange={(e) => setCustomerDeliveryDate(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
+                <ProductionDateField
+                  label="ກຳນົດສົ່ງລູກຄ້າວັນທີ"
+                  value={customerDeliveryDate}
+                  today={getLocalDateInputValue()}
+                  disabled={!canEdit}
+                  onChange={(date) => {
+                    setCustomerDeliveryDate(date);
+                    setDirty(true);
+                  }}
+                />
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">ປະເພດງານ</label>
@@ -3354,249 +3010,10 @@ export default function FactoryDepositOrderFormPage() {
               </button>
             </div>
 
-            <div className="production-sheet-a4 mx-auto aspect-[210/297] w-full max-w-[760px] overflow-hidden border border-slate-300 bg-white [font-family:'Noto_Sans_Lao_Looped','Noto_Sans_Lao',Tahoma,Arial,sans-serif] print:max-w-none print:border-0">
-              <div className="flex h-full flex-col bg-white p-5">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-md border border-slate-700 p-4">
-                    <div className="text-[12px] font-black text-slate-700">ຊື່ທີມ:</div>
-                    <div className="mt-1 text-[18px] font-black leading-tight text-slate-900">{teamName || "-"}</div>
-                    <div className="mt-3 text-[15px] font-black text-slate-700">ລະຫັດອໍເດີ້: <span className="font-black text-sky-700">{orderCode || "-"}</span></div>
-                    <div className="mt-1 text-[12px] font-bold text-slate-700">ປະເພດງານ: {workCategoryLabel || getOrderWorkCategoryLabel(workCategory, documentOptions.workCategories.map(row => ({ value: row.code, label: row.label })))}</div>
-                    <div className="mt-1 text-[15px] font-black text-slate-700">ຜ້າ: <span className="font-bold text-slate-900">{selectedFabric?.name || "-"}</span></div>
-                    <div className="mt-1 text-[15px] font-black text-slate-700">
-                      ຕີນເສື້ອ:{" "}
-                      <span className="font-bold text-slate-900">
-                        {Array.from(new Set(activeProductionItems.map((item) => getProductionHemLabel(item.hem_type)))).join(", ") || "-"}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="rounded-md border border-slate-700 p-4">
-                    <div className="text-[15px] font-black text-slate-700">ວັນທີ່ສົ່ງຜະລິດ: <span className="font-black text-slate-900">{productionSentDate || "-"}</span></div>
-                    <div className="mt-1 text-[15px] font-black text-slate-700">ກຳນົດສົ່ງລູກຄ້າ: <span className="font-black text-slate-900">{customerDeliveryDate || "-"}</span></div>
-                    <div className="mt-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-md bg-sky-50 px-3 py-2">
-                        <div className="text-[11px] font-black text-slate-700">ຈຳນວນເສື້ອ</div>
-                        <div className="mt-1 text-[24px] font-black leading-none text-sky-700">{totalProductionQty.toLocaleString()}</div>
-                      </div>
-                      <div className="rounded-md bg-indigo-50 px-3 py-2">
-                        <div className="text-[11px] font-black text-slate-700">ຈຳນວນໂສ້ງ</div>
-                        <div className="mt-1 text-[24px] font-black leading-none text-indigo-700">{pantsTotalQty.toLocaleString()}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  className={`mt-3 rounded-md border px-4 py-2.5 text-center text-[13px] font-black shadow-sm ${
-                    productionPriority === "urgent"
-                      ? "border-rose-200 bg-rose-50 text-rose-700"
-                      : "border-sky-200 bg-sky-50 text-slate-700"
-                  }`}
-                >
-                  <span className="opacity-80">ຄວາມຮີບດ່ວນ:</span>{" "}
-                  <span className={productionPriority === "urgent" ? "text-red-600" : "text-sky-700"}>{priorityBannerText}</span>
-                </div>
-
-                <div className={`mt-4 grid flex-1 gap-3 ${usesExpandedProductionSheetLayout ? "grid-cols-6" : "grid-cols-4"}`}>
-                  {activeProductionItems.map((item, index) => {
-                    const usesWidePreviewCard = item.player_mode === "name_and_number";
-                    const sleeveLabel = PRODUCTION_SLEEVE_OPTIONS.find((option) => option.value === item.sleeve_type)?.label || "-";
-                    const collarLabel = getProductionCollarLabel(item.collar_type, item.collar_label);
-                    const hemLabel = getProductionHemLabel(item.hem_type);
-                    const imageUrl = item.mockup_preview_url || item.mockup_url;
-                    const filledPlayerRows = getFilledPlayerRows(item);
-                    const itemSizeMap = getProductionItemSizeMap(item);
-                    return (
-                      <div key={item.client_id} className={`flex min-h-0 flex-col ${usesWidePreviewCard ? "col-span-2" : ""}`}>
-                        <div className={`rounded-md border border-slate-700 text-center font-black text-slate-700 ${usesExpandedProductionSheetLayout ? "mb-1 px-1.5 py-1 text-[9px]" : "mb-2 px-2 py-1.5 text-[11px]"}`}>
-                          ແບບ {index + 1} • {sleeveLabel} • {collarLabel} • {hemLabel}
-                        </div>
-                        <div className={`${usesWidePreviewCard ? (usesExpandedProductionSheetLayout ? "h-[122px]" : "h-[176px]") : "aspect-square"} overflow-hidden rounded-md border border-slate-700 bg-white`}>
-                          {imageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={imageUrl} alt={`preview-${index + 1}`} className="h-full w-full object-contain bg-white" />
-                          ) : (
-                            <div className="flex h-full items-center justify-center text-center text-[11px] font-bold text-slate-400">
-                              ບໍ່ມີຮູບ Mockup
-                            </div>
-                          )}
-                        </div>
-                        <div className={`flex-1 rounded-md border border-slate-700 ${usesExpandedProductionSheetLayout ? "mt-2 p-2" : "mt-3 p-3"}`}>
-                          {item.player_mode === "none" ? (
-                            <>
-                              <div className={`text-center font-black text-sky-700 ${usesExpandedProductionSheetLayout ? "mb-1 text-[13px]" : "mb-2 text-[17px]"}`}>ຈຳນວນໄຊສ໌</div>
-                              <div className={`space-y-1.5 ${usesExpandedProductionSheetLayout ? "text-[11px] leading-tight" : "text-[18px]"}`}>
-                                {PRODUCTION_SIZE_FIELDS.filter((field) => Number(itemSizeMap[field.key]) > 0).map((field) => (
-                                  <div key={field.key} className="flex items-center justify-between gap-3">
-                                    <span className="font-black text-slate-900">{field.label}:</span>
-                                    <span className={`font-black ${itemSizeMap[field.key] > 0 ? "text-rose-600" : "text-slate-500"}`}>
-                                      {itemSizeMap[field.key] > 0 ? itemSizeMap[field.key].toLocaleString() : ""}
-                                    </span>
-                                  </div>
-                                ))}
-                                {PRODUCTION_SIZE_FIELDS.every((field) => Number(itemSizeMap[field.key]) <= 0) ? (
-                                  <div className="text-center text-[13px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
-                                ) : null}
-                              </div>
-                            </>
-                          ) : null}
-
-                          {item.player_mode !== "none" && filledPlayerRows.length > 0 ? (
-                            <div>
-                              <div className={`text-center font-black text-slate-700 ${usesExpandedProductionSheetLayout ? "mb-1 text-[11px]" : "mb-2 text-[14px]"}`}>
-                                {getPlayerModePreviewTitle(item.player_mode)}
-                              </div>
-                              <div className={`space-y-1 text-slate-900 ${getPlayerPreviewTextClass(item.player_mode)}`}>
-                                {filledPlayerRows.map((row) => {
-                                  const sizeLabel = PRODUCTION_SIZE_FIELDS.find((field) => field.key === row.size)?.label || "-";
-                                  const lineParts = [
-                                    sizeLabel,
-                                    playerModeNeedsName(item.player_mode) ? row.player_name || "-" : null,
-                                    playerModeNeedsNumber(item.player_mode) ? row.jersey_number || "-" : null,
-                                    row.note ? row.note : null,
-                                  ].filter(Boolean);
-                                  return (
-                                    <div key={row.id} className={usesExpandedProductionSheetLayout ? "truncate font-bold" : "whitespace-nowrap font-bold"}>
-                                      {lineParts.join(" | ")}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {pantsItems.length > 0
-                    ? pantsItems.map((item, index) => {
-                        const imageUrl = item.mockup_preview_url || item.mockup_url;
-                        const filledPantsPlayerRows = getFilledPlayerRows(item);
-                        const pantsItemSizeMap = getPantsProductionItemSizeMap(item);
-                        const sizeEntries = PRODUCTION_SIZE_FIELDS.filter((field) => Number(pantsItemSizeMap[field.key]) > 0);
-                        return (
-                          <div key={item.clientId} className="flex min-h-0 flex-col">
-                            <div className={`rounded-md border border-indigo-300 bg-indigo-50 text-center font-black text-indigo-700 ${usesExpandedProductionSheetLayout ? "mb-1 px-1.5 py-1 text-[9px]" : "mb-2 px-2 py-1.5 text-[11px]"}`}>
-                              ໂສ້ງ {index + 1}
-                            </div>
-                            <div className="aspect-square overflow-hidden rounded-md border border-slate-700 bg-white">
-                              {imageUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={imageUrl} alt={`pants-preview-${index + 1}`} className="h-full w-full object-contain bg-white" />
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-center text-[11px] font-bold text-slate-400">
-                                  ບໍ່ມີຮູບ Mockup
-                                </div>
-                              )}
-                            </div>
-                            <div className={`flex-1 rounded-md border border-slate-700 ${usesExpandedProductionSheetLayout ? "mt-2 p-2" : "mt-3 p-3"}`}>
-                              {item.player_mode === "none" ? (
-                                <>
-                                  <div className={`text-center font-black text-sky-700 ${usesExpandedProductionSheetLayout ? "mb-1 text-[13px]" : "mb-2 text-[17px]"}`}>ຈຳນວນໄຊສ໌</div>
-                                  <div className={`space-y-1.5 ${usesExpandedProductionSheetLayout ? "text-[11px] leading-tight" : "text-[18px]"}`}>
-                                    {sizeEntries.map((field) => (
-                                      <div key={`${item.clientId}-${field.key}`} className="flex items-center justify-between gap-3">
-                                        <span className="font-black text-slate-900">{field.label}:</span>
-                                        <span className="font-black text-rose-600">{pantsItemSizeMap[field.key].toLocaleString()}</span>
-                                      </div>
-                                    ))}
-                                    {sizeEntries.length === 0 ? (
-                                      <div className="text-center text-[13px] font-bold text-slate-400">ຍັງບໍ່ມີຈຳນວນໄຊສ໌</div>
-                                    ) : null}
-                                  </div>
-                                </>
-                              ) : null}
-                              {item.player_mode !== "none" && filledPantsPlayerRows.length > 0 ? (
-                                <div>
-                                  <div className={`text-center font-black text-slate-700 ${usesExpandedProductionSheetLayout ? "mb-1 text-[11px]" : "mb-2 text-[14px]"}`}>
-                                    LIST
-                                  </div>
-                                  <div className={`space-y-1 text-slate-900 ${usesExpandedProductionSheetLayout ? "text-[10px] leading-tight" : "text-[13px] leading-snug"}`}>
-                                    {filledPantsPlayerRows.map((row) => {
-                                      const sizeLabel = PRODUCTION_SIZE_FIELDS.find((field) => field.key === row.size)?.label || "-";
-                                      const lineParts = [
-                                        sizeLabel,
-                                        row.jersey_number || "-",
-                                        row.note ? row.note : null,
-                                      ].filter(Boolean);
-                                      return (
-                                        <div key={row.id} className="truncate font-bold">
-                                          {lineParts.join(" | ")}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : null}
-                              {item.notes.trim() ? (
-                                <div className="mt-4 border-t border-slate-200 pt-3 text-[12px] font-bold text-slate-500">
-                                  {item.notes.trim()}
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })
-                    : null}
-                </div>
-
-                <div className="mt-5 grid grid-cols-4 gap-6 px-8 text-center text-[12px] text-slate-900">
-                  {signatureFields.map((field) => (
-                    <div key={field.label}>
-                      <div className="font-black">{field.label}</div>
-                      <div className="mt-1 min-h-[16px] text-[11px] font-bold text-slate-700">{field.name || "\u00A0"}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <ProductionSheetA4 {...productionSheetProps} />
           </aside>
         </div>
       </div>
-
-      <style jsx global>{`
-        @page {
-          size: A4 portrait;
-          margin: 8mm;
-        }
-
-        @media print {
-          html,
-          body {
-            background: #ffffff !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-
-          body * {
-            visibility: hidden;
-          }
-
-          .production-sheet-preview-shell,
-          .production-sheet-preview-shell * {
-            visibility: visible;
-          }
-
-          .production-sheet-preview-shell {
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            border: 0 !important;
-            box-shadow: none !important;
-          }
-
-          .production-sheet-a4 {
-            width: 100% !important;
-            max-width: none !important;
-            aspect-ratio: auto !important;
-            min-height: calc(297mm - 16mm) !important;
-            margin: 0 !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }

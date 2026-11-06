@@ -139,7 +139,9 @@ export default function FactoryReceiptOrdersPage() {
     setViewerRole(currentUser?.role ?? null);
     setViewerUserId(currentUser?.id ?? null);
 
-    let receiptQuery = supabase.from("factory_receipts").select("id,received_at,received_by,note").order("received_at", { ascending: false });
+    let receiptQuery = currentUser?.role === "agent"
+      ? supabase.rpc("sales_agent_factory_receipts").order("received_at", { ascending: false })
+      : supabase.from("factory_receipts").select("id,received_at,received_by,note").order("received_at", { ascending: false });
     const fromDateUtc = getUtcIsoRangeForLocalDate(fromDate, "start");
     const toDateUtc = getUtcIsoRangeForLocalDate(toDate, "end");
     if (fromDateUtc) receiptQuery = receiptQuery.gte("received_at", fromDateUtc);

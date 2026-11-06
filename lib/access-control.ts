@@ -1,6 +1,6 @@
 import { findAccessPermissionKey, getAccessPermissionMode, resolvePermissionMode, type UserPermissionSettings } from "@/lib/user-permissions";
 
-export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant";
+export type AppRole = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant" | "agent";
 
 type RouteRule = {
   prefix: string;
@@ -9,6 +9,7 @@ type RouteRule = {
 
 const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant"];
 const ROLE_LOCKED_PATHS = [
+  "/reports/agent-sales",
   "/factory-production-queue",
   "/reports/admin-sales",
   "/reports/design-phone-status",
@@ -17,6 +18,8 @@ const ROLE_LOCKED_PATHS = [
   "/reports/income-expense",
 ];
 const STAFF_ALLOWED_PATHS = new Set([
+  "/factory-deposit-orders",
+  "/factory-deposit-orders/new",
   "/inventory-qr",
   "/factory-receipts",
   "/factory-receipts/orders",
@@ -29,7 +32,17 @@ const STAFF_ALLOWED_PATHS = new Set([
   "/shipments/orders",
 ]);
 
+// An agent's page boundary cannot be expanded by employee permission overrides.
+const AGENT_ALLOWED_PATHS = new Set([
+  "/orders", "/orders/new", "/order-alerts", "/design-queue",
+  "/design-queue/completed", "/design-queue/assets",
+  "/quotations", "/quotations/new", "/factory-deposit-orders",
+  "/factory-deposit-orders/new",
+  "/factory-receipts/orders", "/shipments", "/shipments/notes",
+]);
+
 const ROUTE_RULES: RouteRule[] = [
+  { prefix: "/reports/agent-sales", roles: ["superadmin", "manager", "accountant"] },
   { prefix: "/users", roles: ["superadmin"] },
   { prefix: "/shipments/approvals", roles: ["superadmin"] },
   { prefix: "/imports", roles: ["superadmin", "manager"] },
@@ -84,6 +97,7 @@ export function isRoleLockedPath(pathname: string) {
 }
 
 export function getDefaultPathForRole(role: AppRole) {
+  if (role === "agent") return "/orders";
   if (role === "staff") return "/inventory-qr";
   if (role === "production") return "/factory-production-queue";
   return "/dashboard";
@@ -92,6 +106,12 @@ export function getDefaultPathForRole(role: AppRole) {
 export function canAccessPath(pathname: string, role: AppRole, permissionSettings?: UserPermissionSettings | null) {
   const normalizedPath = normalizePathname(pathname);
   if (role === "superadmin") return true;
+  if (role === "agent") {
+    const allowed = AGENT_ALLOWED_PATHS.has(normalizedPath) || /^\/orders\/[^/]+\/edit$/.test(normalizedPath);
+    if (!allowed) return false;
+    const key = findAccessPermissionKey(normalizedPath);
+    return !key || getAccessPermissionMode(permissionSettings, key) !== "deny";
+  }
   if (matchesPrefix(normalizedPath, "/shirt-catalog") && !["admin", "manager", "staff", "graphic"].includes(role)) return false;
   const accessKey = findAccessPermissionKey(normalizedPath);
 

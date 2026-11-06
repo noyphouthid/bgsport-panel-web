@@ -115,6 +115,20 @@ export function canManageAllFactoryDepositOrders(
   return role === "superadmin" || role === "admin";
 }
 
+export function canViewAllFactoryDepositOrders(role: AppRole | null) {
+  return canManageAllFactoryDepositOrders(role) || role === "staff";
+}
+
+export function canViewFactoryDepositOrder(
+  order: { created_by_user_id: string | null; agent_user_id?: string | null },
+  role: AppRole | null,
+  viewerUserId: string | null
+) {
+  if (!role || !viewerUserId) return false;
+  if (role === "agent") return order.agent_user_id === viewerUserId;
+  return canViewAllFactoryDepositOrders(role) || order.created_by_user_id === viewerUserId;
+}
+
 export function canApproveFactoryDepositOrder(
   role: AppRole
 ) {
