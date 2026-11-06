@@ -1567,17 +1567,17 @@ export default function FactoryDepositOrdersPage() {
                     </td>
                     <td className="p-3">
                       <div className="flex flex-col items-end gap-1.5">
-                        {viewerRole && canApproveFactoryDepositOrder(viewerRole) && row.status === "submitted" && (
-                          <button onClick={() => handleApprove(row)} disabled={workingId === row.id} className="h-10 whitespace-nowrap rounded-lg bg-emerald-50 px-3 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
-                            {workingId === row.id ? "ກຳລັງອະນຸມັດ..." : "ອະນຸມັດ"}
-                          </button>
-                        )}
                         {viewerRole && canConvertFactoryDepositOrder(viewerRole) && row.status === "approved" && (
                           <button onClick={() => handleConvert(row)} disabled={workingId === row.id} className="h-10 whitespace-nowrap rounded-lg bg-violet-50 px-3 text-xs font-black text-violet-700 transition hover:bg-violet-100 disabled:opacity-50">
                             {workingId === row.id ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກເປັນອໍເດີ"}
                           </button>
                         )}
                         <div className="flex items-center justify-end gap-1.5">
+                          {viewerRole && canApproveFactoryDepositOrder(viewerRole) && row.status === "submitted" && (
+                            <button onClick={() => handleApprove(row)} disabled={workingId === row.id} className="mr-1 h-10 whitespace-nowrap rounded-lg bg-emerald-50 px-3 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
+                              {workingId === row.id ? "ກຳລັງອະນຸມັດ..." : "ອະນຸມັດ"}
+                            </button>
+                          )}
                           <button
                             type="button"
                             title="ດາວໂຫຼດ PDF"

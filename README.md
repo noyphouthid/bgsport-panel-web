@@ -22,6 +22,15 @@ With the local dev server running, use
 to check the table, Excel contents/types, filters, mobile layout and error/empty
 states against mocked backend data without production writes.
 
+## Shop details on quotations
+
+Apply `supabase/migrations/20261112_create_shop_settings.sql` in the Supabase SQL
+Editor before uploading images. `/settings/shop` (ຂໍ້ມູນຮ້ານ) edits the shop name,
+phone, address, logo and QR shown on quotation previews and prints. Without the
+migration, quotations keep rendering the default shop details and no QR. Details
+are not snapshotted, so older quotations show the current values. Logo and QR are
+stored in the public `shop-branding` bucket.
+
 ## Internal quotation and production document settings
 
 Apply `supabase/migrations/20261104_create_internal_document_options.sql` after
