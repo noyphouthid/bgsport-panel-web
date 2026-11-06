@@ -98,6 +98,7 @@ export const APP_NAVIGATION: NavItem[] = [
       { type: "link", href: "/users", label: "ຕັ້ງຄ່າຜູ້ໃຊ້", icon: "Users" },
       { type: "link", href: "/fabric", label: "ລາຄາຜ້າ", icon: "Banknote" },
       { type: "link", href: "/order-code-types", label: "ປະເພດລະຫັດ", icon: "Settings2" },
+      { type: "link", href: "/settings/shop", label: "ຂໍ້ມູນຮ້ານ", icon: "Settings2" },
       { type: "link", href: "/settings/collars", label: "ລາຍການຄໍເສື້ອບວກເພີ່ມ", icon: "Settings2" },
       { type: "link", href: "/settings/production-collars", label: "ເພີ່ມຄໍເສື້ອ", icon: "Settings2" },
       { type: "link", href: "/settings/work-categories", label: "ປະເພດງານ", icon: "Settings2" },

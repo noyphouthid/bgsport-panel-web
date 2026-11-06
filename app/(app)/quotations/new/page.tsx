@@ -3,6 +3,7 @@
 import { InternalCollarField } from "@/components/internal-collar-field";
 import { useInternalDocumentOptions } from "@/lib/use-internal-document-options";
 import { legacyCollarLabel, legacyCollarPrice } from "@/lib/internal-document-options";
+import { useShopSettings } from "@/lib/use-shop-settings";
 
 import { flushSync } from "react-dom";
 import { QueueCustomerSearch } from "../../_components/queue-customer-search";
@@ -10,7 +11,6 @@ import { WorkCategoryField } from "../../orders/_components/work-category-field"
 import { getOrderWorkCategoryLabel, type OrderWorkCategory } from "@/lib/order-work-category";
 import { documentNumberHint, queueOrderCode, type QueueCustomer } from "@/lib/queue-customers";
 import { useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
@@ -118,6 +118,7 @@ type PreviewRow = {
 };
 
 export default function NewQuotationPage() {
+  const shop = useShopSettings();
   const router = useRouter();
   const searchParams = useSearchParams();
   const draftId = searchParams.get("draftId");
@@ -536,7 +537,7 @@ export default function NewQuotationPage() {
   ];
 
   return (
-    <div ref={pageRef} className="pb-8 text-slate-900">
+    <div ref={pageRef} className="pb-8 text-slate-900 print:pb-0">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between print:hidden">
         <div>
           <Link href="/quotations" className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 transition hover:text-slate-700">
@@ -876,21 +877,15 @@ export default function NewQuotationPage() {
               </div>
             </div>
 
-	            <div className='mx-auto aspect-[148/210] w-full max-w-[430px] overflow-hidden border border-slate-300 bg-white print:max-w-none print:border-0 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>
-	              <div className="flex h-full flex-col bg-white p-4 text-slate-900">
+	            <div className='mx-auto aspect-[148/210] w-full max-w-[430px] border border-slate-300 bg-white print:aspect-auto print:max-w-none print:border-0 [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>
+	              <div className="flex min-h-full flex-col bg-white p-4 text-slate-900">
 	                <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3">
 	                  <div>
-	                    <Image
-	                      src={bgSportLogo}
-	                      alt="BG Sport Logo"
-	                      className="h-auto w-[78px]"
-	                      priority
-	                    />
-	                    <div className="text-[18px] font-black text-slate-900">ຮ້ານ ບີຈີ ສປອຮ໌ດ</div>
-	                    <div className="mt-1 max-w-[155px] text-[10px] font-medium leading-4 text-slate-500">
-	                      ບ້ານ ໂພນຕ້ອງສະຫວາດ ມ. ຈັນທະບູລີ ນະຄອນຫຼວງວຽງຈັນ
-                    </div>
-                    <div className="mt-1 text-[10px] font-bold text-slate-600">+856 20 9220 1288</div>
+	                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={shop.logoUrl ?? bgSportLogo.src} alt={`${shop.shop_name} Logo`} className="h-auto max-h-[56px] w-[78px] object-contain object-left" />
+                    <div className="text-[18px] font-black text-slate-900">{shop.shop_name}</div>
+                    <div className="mt-1 max-w-[155px] whitespace-pre-line text-[10px] font-medium leading-4 text-slate-500">{shop.address}</div>
+                    <div className="mt-1 text-[10px] font-bold text-slate-600">{shop.phone}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-[19px] font-black tracking-tight text-sky-700">ໃບປະເມີນລາຄາ</div>
@@ -957,9 +952,11 @@ export default function NewQuotationPage() {
                       {pantsItems.length > 0 ? (
                         <div>ໂສ້ງ: ໄລ່ເງິນ {pantsSummary.billableQty} ຕົວ / ຜະລິດລວມ {(pantsSummary.billableQty + pantsSummary.freeQty).toLocaleString()} ຕົວ</div>
                       ) : null}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {shop.qrUrl ? <img src={shop.qrUrl} alt="QR ຮ້ານ" className="mt-2 h-24 w-24 break-inside-avoid object-contain" /> : null}
                     </div>
                   </div>
-                  <div className="space-y-1.5 rounded-3xl bg-slate-50 p-2 text-[10px]">
+                  <div className="space-y-1.5 self-start rounded-3xl bg-slate-50 p-2 text-[10px]">
                     <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ຍອດລວມ</span><span className="font-bold text-slate-900">{grossTotal.toLocaleString()}</span></div>
                     <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ຫັກຄ່າແບບ</span><span className="font-bold text-amber-700">{designDeposit.toLocaleString()}</span></div>
                     <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ສ່ວນຫຼຸດ</span><span className="font-bold text-rose-600">- {discount.toLocaleString()}</span></div>
@@ -1011,6 +1008,13 @@ export default function NewQuotationPage() {
 
           body {
             background: #ffffff;
+          }
+
+          /* Scroll containers cannot span pages, so long quotations would be cut off. */
+          body,
+          .app-shell {
+            height: auto !important;
+            overflow: visible !important;
           }
         }
       `}</style>

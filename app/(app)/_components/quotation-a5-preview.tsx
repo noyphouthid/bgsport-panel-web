@@ -1,8 +1,8 @@
 import { getOrderWorkCategoryLabel } from "@/lib/order-work-category";
-import Image from "next/image";
 import bgSportLogo from "@/app/BGSPORTLOGO.png";
 import { getPantsItemsSummary, getPantsLineGross } from "@/lib/order-items";
 import type { QuotationDraft } from "@/lib/quotation-drafts";
+import { useShopSettings } from "@/lib/use-shop-settings";
 
 
 const SIZE_UPCHARGES = {
@@ -30,6 +30,7 @@ function formatDate(value: string) {
 }
 
 export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
+  const shop = useShopSettings();
   const billableQty = Math.max(0, draft.shortQty) + Math.max(0, draft.longQty);
   const totalQty = billableQty + Math.max(0, draft.freeQty);
   const collarUnitPrice = draft.collarUnitPrice ?? (draft.collarType === "none" ? 0 : 20000);
@@ -74,16 +75,17 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
   ].filter(Boolean) as PreviewRow[];
 
   return (
-    <div className='mx-auto aspect-[148/210] w-full max-w-[430px] overflow-hidden border border-slate-300 bg-white [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>
-      <div className="flex h-full flex-col bg-white p-4 text-slate-900">
+    <div className='mx-auto aspect-[148/210] w-full max-w-[430px] border border-slate-300 bg-white [font-family:"Noto_Sans_Lao_Looped","Noto_Sans_Lao",Tahoma,Arial,sans-serif]'>
+      <div className="flex min-h-full flex-col bg-white p-4 text-slate-900">
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-3">
           <div>
-            <Image src={bgSportLogo} alt="BG Sport Logo" className="h-auto w-[78px]" priority />
-            <div className="text-[18px] font-black text-slate-900">ຮ້ານ ບີຈີ ສປອຮ໌ດ</div>
-            <div className="mt-1 max-w-[155px] text-[10px] font-medium leading-4 text-slate-500">
-              ບ້ານ ສາຍນ້ຳເງິນ ເມືອງ ໄຊທານີ ນະຄອນຫຼວງວຽງຈັນ
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={shop.logoUrl ?? bgSportLogo.src} alt={`${shop.shop_name} Logo`} className="h-auto max-h-[56px] w-[78px] object-contain object-left" />
+            <div className="text-[18px] font-black text-slate-900">{shop.shop_name}</div>
+            <div className="mt-1 max-w-[155px] whitespace-pre-line text-[10px] font-medium leading-4 text-slate-500">
+              {shop.address}
             </div>
-            <div className="mt-1 text-[10px] font-bold text-slate-600">20 9220 1288 - 20 9258 2288</div>
+            <div className="mt-1 text-[10px] font-bold text-slate-600">{shop.phone}</div>
           </div>
           <div className="text-right">
             <div className="text-[19px] font-black tracking-tight text-sky-700">ໃບປະເມີນລາຄາ</div>
@@ -150,9 +152,11 @@ export function QuotationA5Preview({ draft }: { draft: QuotationDraft }) {
               {draft.pantsItems.length > 0 ? (
                 <div>ໂສ້ງ: ໄລ່ເງິນ {pantsSummary.billableQty} ຕົວ / ຜະລິດລວມ {(pantsSummary.billableQty + pantsSummary.freeQty).toLocaleString()} ຕົວ</div>
               ) : null}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {shop.qrUrl ? <img src={shop.qrUrl} alt="QR ຮ້ານ" className="mt-2 h-24 w-24 break-inside-avoid object-contain" /> : null}
             </div>
           </div>
-          <div className="space-y-1.5 rounded-3xl bg-slate-50 p-2 text-[10px]">
+          <div className="space-y-1.5 self-start rounded-3xl bg-slate-50 p-2 text-[10px]">
             <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ຍອດລວມ</span><span className="font-bold text-slate-900">{grossTotal.toLocaleString()}</span></div>
             <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ຫັກຄ່າແບບ</span><span className="font-bold text-amber-700">{draft.designDeposit.toLocaleString()}</span></div>
             <div className="flex items-center justify-between"><span className="font-medium text-slate-500">ສ່ວນຫຼຸດ</span><span className="font-bold text-rose-600">- {draft.discount.toLocaleString()}</span></div>
