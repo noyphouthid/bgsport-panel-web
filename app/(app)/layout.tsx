@@ -39,8 +39,18 @@ import { APP_NAVIGATION as nav, type NavItem, type NavGroupItem } from "@/lib/ap
 import ThemeToggle from "@/components/theme-toggle";
 import { supabase } from "@/lib/supabase";
 import { AppRole, canAccessPath, getDefaultPathForRole } from "@/lib/access-control";
-import { type NavBadgeCounts, type NavBadgePath } from "@/lib/nav-badge-counts";
+import {
+  buildSeenQueryValue,
+  getActiveBadgePath,
+  getVisibleBadgeCount,
+  mergeSeenMarkers,
+  NAV_BADGE_PATHS,
+  type NavBadgeCounts,
+  type NavBadgePath,
+  type SeenMarkers,
+} from "@/lib/nav-badge-seen";
 import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
+import { ViewerProfileContext } from "@/lib/viewer-profile";
 
 type UserProfile = {
   id: string;
@@ -82,14 +92,13 @@ function formatNavBadgeCount(count: number) {
 
 function NavCountBadge({ count }: { count: number }) {
   return (
-    <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full border border-rose-200 bg-rose-500 px-1.5 py-0.5 text-[10px] font-black leading-none text-white shadow-sm">
+    <span
+      aria-label={`${count.toLocaleString()} ລາຍການໃໝ່`}
+      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[11px] font-black leading-none text-white shadow-sm ring-2 ring-white"
+    >
       {formatNavBadgeCount(count)}
     </span>
   );
-}
-
-function isNavBadgeRouteActive(pathname: string, href: string) {
-  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 function isNavLinkActive(pathname: string, href: string) {
@@ -98,17 +107,17 @@ function isNavLinkActive(pathname: string, href: string) {
 }
 
 function getSeenNavBadgeStorageKey(userId: string) {
-  return `bgsport:seen-nav-badges:${userId}`;
+  return `bgsport:seen-nav-badges:v2:${userId}`;
 }
 
-async function fetchNavBadgeCountsViaApi() {
+async function fetchNavBadgeCountsViaApi(seen: SeenMarkers) {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
   if (!token) {
     throw new Error("no_session");
   }
 
-  const response = await fetch("/api/nav-badge-counts", {
+  const response = await fetch(`/api/nav-badge-counts?seen=${encodeURIComponent(buildSeenQueryValue(seen))}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -130,7 +139,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [authChecking, setAuthChecking] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [navBadgeCounts, setNavBadgeCounts] = useState<NavBadgeCounts>({});
-  const [seenNavBadgeSignatures, setSeenNavBadgeSignatures] = useState<Partial<Record<NavBadgePath, string>>>({});
+  const [seenNavBadges, setSeenNavBadges] = useState<SeenMarkers>({});
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -144,7 +153,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       if (!session) {
         if (active) {
           setProfile(null);
-          setSeenNavBadgeSignatures({});
+          setSeenNavBadges({});
           setAuthChecking(false);
         }
         router.replace("/login");
@@ -157,7 +166,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         if (active) {
           setProfile(null);
-          setSeenNavBadgeSignatures({});
+          setSeenNavBadges({});
           setAuthChecking(false);
         }
         router.replace("/login");
@@ -174,7 +183,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         if (active) {
           setProfile(null);
-          setSeenNavBadgeSignatures({});
+          setSeenNavBadges({});
           setAuthChecking(false);
         }
         toast.error("ເກີດຂໍ້ຜິດພາດການກວດສອບຜູ້ໃຊ້");
@@ -206,7 +215,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         await supabase.auth.signOut();
         if (active) {
           setProfile(null);
-          setSeenNavBadgeSignatures({});
+          setSeenNavBadges({});
           setAuthChecking(false);
         }
         toast.error("ບັນຊີນີ້ບໍ່ມີສິດເຂົ້າໃຊ້ລະບົບ");
@@ -215,10 +224,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       }
 
       if (active) {
-        let storedSeenBadges: Partial<Record<NavBadgePath, string>> = {};
+        let storedSeenBadges: SeenMarkers = {};
         try {
           const raw = window.localStorage.getItem(getSeenNavBadgeStorageKey((userRow as UserProfile).id));
-          storedSeenBadges = raw ? ((JSON.parse(raw) as Partial<Record<NavBadgePath, string>>) || {}) : {};
+          storedSeenBadges = raw ? ((JSON.parse(raw) as SeenMarkers) || {}) : {};
         } catch {
           storedSeenBadges = {};
         }
@@ -227,7 +236,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           ...(userRow as UserProfile),
           permission_settings: normalizeUserPermissionSettings((userRow as UserProfile).permission_settings),
         });
-        setSeenNavBadgeSignatures(storedSeenBadges);
+        setSeenNavBadges(storedSeenBadges);
         setAuthChecking(false);
       }
     };
@@ -237,7 +246,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     const { data: authState } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
         setProfile(null);
-        setSeenNavBadgeSignatures({});
+        setSeenNavBadges({});
         router.replace("/login");
       }
     });
@@ -263,19 +272,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
     const loadNavBadgeCounts = async () => {
       try {
-        const nextCounts = await fetchNavBadgeCountsViaApi();
+        const nextCounts = await fetchNavBadgeCountsViaApi(seenNavBadges);
         if (active) {
-          const activeEntry = (Object.keys(nextCounts) as NavBadgePath[]).find((href) => isNavBadgeRouteActive(pathname, href));
-          if (activeEntry) {
-            const activeSignature = nextCounts[activeEntry]?.signature || "";
-            if (activeSignature && seenNavBadgeSignatures[activeEntry] !== activeSignature) {
-              const nextSeen = {
-                ...seenNavBadgeSignatures,
-                [activeEntry]: activeSignature,
-              };
-              setSeenNavBadgeSignatures(nextSeen);
-              window.localStorage.setItem(getSeenNavBadgeStorageKey(profile.id), JSON.stringify(nextSeen));
-            }
+          const nextSeen = mergeSeenMarkers(seenNavBadges, nextCounts, getActiveBadgePath(pathname));
+          if (nextSeen !== seenNavBadges) {
+            setSeenNavBadges(nextSeen);
+            window.localStorage.setItem(getSeenNavBadgeStorageKey(profile.id), JSON.stringify(nextSeen));
           }
           setNavBadgeCounts(nextCounts);
         }
@@ -305,7 +307,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", handleVisibilityRefresh);
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
-  }, [pathname, profile?.id, profile?.role, seenNavBadgeSignatures]);
+  }, [pathname, profile?.id, profile?.role, seenNavBadges]);
 
   const availableNav = useMemo(() => {
     if (!profile) return [];
@@ -333,14 +335,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     return parts.map((part) => part[0]?.toUpperCase() || "").join("") || "BG";
   }, [profile]);
 
-  const getNavBadgeCount = (href: string) => {
-    const path = href as NavBadgePath;
-    const entry = navBadgeCounts[path];
-    if (!entry || entry.count <= 0) return 0;
-    if (isNavBadgeRouteActive(pathname, href)) return 0;
-    if (seenNavBadgeSignatures[path] === entry.signature) return 0;
-    return entry.count;
-  };
+  const activeBadgePath = getActiveBadgePath(pathname);
+  const getNavBadgeCount = (href: string) => getVisibleBadgeCount(href as NavBadgePath, navBadgeCounts[href as NavBadgePath], seenNavBadges, activeBadgePath);
+  const totalNavBadgeCount = NAV_BADGE_PATHS.reduce((sum, path) => sum + getNavBadgeCount(path), 0);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -455,14 +452,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 >
                   <div className="relative flex items-center justify-center">
                     <Icon size={18} style={active ? undefined : { color: "var(--app-sidebar-muted)" }} />
-                    {sidebarCollapsed && badgeCount > 0 ? (
+                    {badgeCount > 0 ? (
                       <span className="absolute -right-2.5 -top-2.5">
                         <NavCountBadge count={badgeCount} />
                       </span>
                     ) : null}
                   </div>
                   <span className={`flex-1 ${sidebarCollapsed ? "md:hidden" : ""}`}>{item.label}</span>
-                  {!sidebarCollapsed && badgeCount > 0 ? <NavCountBadge count={badgeCount} /> : null}
                 </Link>
               );
             }
@@ -562,11 +558,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-lg border text-[var(--theme-foreground)] transition hover:bg-[var(--theme-surface-muted)]"
+              className="relative md:hidden inline-flex items-center justify-center w-9 h-9 rounded-lg border text-[var(--theme-foreground)] transition hover:bg-[var(--theme-surface-muted)]"
               style={{ borderColor: "var(--theme-border)" }}
               aria-label="Open navigation"
             >
               <Menu size={18} />
+              {totalNavBadgeCount > 0 ? (
+                <span className="absolute -right-2 -top-2">
+                  <NavCountBadge count={totalNavBadgeCount} />
+                </span>
+              ) : null}
             </button>
             <button
               type="button"
@@ -599,7 +600,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="app-main min-w-0 flex-1 overflow-x-hidden p-4 overscroll-none md:overflow-auto md:p-6">{children}</main>
+        <main className="app-main min-w-0 flex-1 overflow-x-hidden p-4 overscroll-none md:overflow-auto md:p-6"><ViewerProfileContext.Provider value={profile}>{children}</ViewerProfileContext.Provider></main>
       </div>
       <Toaster
         position="top-right"

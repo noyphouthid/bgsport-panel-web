@@ -32,6 +32,7 @@ const ROLES = [
   { value: "graphic", label: "Graphic" },
   { value: "production", label: "ຝ່າຍວາງຜະລິດ" },
   { value: "accountant", label: "Accountant" },
+  { value: "agent", label: "ຕົວແທນຮ້ານ (Agent)" },
 ] as const;
 
 export default function UsersPage() {

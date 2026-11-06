@@ -3,6 +3,8 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import * as orderAlerts from "../lib/order-alerts.ts";
+import * as navBadgeSeen from "../lib/nav-badge-seen.ts";
+import * as reportQuery from "../lib/report-query.ts";
 import {
   fetchOrderAlertOrdersWithClient,
   getOrderAlertEndDate,
@@ -92,9 +94,12 @@ test("navigation badge counts overdue and upcoming orders using the same cutoff 
   const compiled = { exports: {} };
   const dependencies = {
     "@/lib/order-alerts": { ...orderAlerts, getOrderAlertToday: () => today },
-    "@/lib/factory-deposit-orders": { canManageAllFactoryDepositOrders: () => true },
+    "@/lib/factory-deposit-orders": { canViewAllFactoryDepositOrders: () => true },
     "@/lib/transport-notes": { canManageAllTransportNotes: () => true },
     "@/lib/supabase": {},
+    "@/lib/access-control": { canAccessPath: path => path === "/order-alerts" },
+    "@/lib/nav-badge-seen": navBadgeSeen,
+    "@/lib/report-query": reportQuery,
   };
   new Function("require", "module", "exports", outputText)(name => dependencies[name], compiled, compiled.exports);
   const deposits = ["2026-10-26", today, "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-10-28", "2026-10-29"]
@@ -123,6 +128,7 @@ test("navigation badge counts overdue and upcoming orders using the same cutoff 
   };
   const badges = await compiled.exports.fetchNavBadgeCountsWithClient(client, { id: "qa", role: "superadmin" });
   assert.equal(badges["/order-alerts"].count, 5);
-  for (let index = 0; index < 5; index++) assert.ok(badges["/order-alerts"].signature.includes(`deposit-${index}:`));
-  for (let index = 5; index < 8; index++) assert.equal(badges["/order-alerts"].signature.includes(`deposit-${index}:`), false);
+  assert.equal(badges["/order-alerts"].mode, "signature");
+  for (let index = 0; index < 5; index++) assert.ok(badges["/order-alerts"].marker.includes(`deposit-${index}:`));
+  for (let index = 5; index < 8; index++) assert.equal(badges["/order-alerts"].marker.includes(`deposit-${index}:`), false);
 });

@@ -3,7 +3,7 @@ import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
-type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant";
+type Role = import("@/lib/access-control").AppRole;
 
 type UpdateUserBody = {
   full_name?: string;
@@ -16,7 +16,7 @@ type UpdateUserBody = {
   permission_settings?: UserPermissionSettings;
 };
 
-const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant"]);
+const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant", "agent"]);
 
 async function findAuthUserIdByEmail(
   supabaseAdmin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
@@ -73,6 +73,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   if (!fullName) return NextResponse.json({ error: "missing_full_name" }, { status: 400 });
   if (!ALLOWED_ROLES.has(role)) return NextResponse.json({ error: "invalid_role" }, { status: 400 });
+  if (role === "agent") {
+    const { data: ready, error } = await supabaseAdmin.rpc("sales_agents_enabled");
+    if (error || ready !== true) return NextResponse.json({ error: "Apply 20261109_add_sales_agents.sql before assigning the agent role" }, { status: 400 });
+  }
   if (password && password.length < 6) return NextResponse.json({ error: "password_too_short" }, { status: 400 });
   if (password && !email) return NextResponse.json({ error: "missing_email_for_password_reset" }, { status: 400 });
 

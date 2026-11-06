@@ -246,6 +246,7 @@ export default function EditOrderPage() {
   const [err, setErr] = useState<string | null>(null);
   const [viewerPermissions, setViewerPermissions] = useState<UserPermissionSettings>({});
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
+  const [isAgentViewer, setIsAgentViewer] = useState(false);
   const [orderHistory, setOrderHistory] = useState<OrderHistoryEntry[]>([]);
   const [loadingOrderHistory, setLoadingOrderHistory] = useState(true);
   const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
@@ -876,7 +877,8 @@ export default function EditOrderPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const authUserId = sessionData.session?.user.id;
       if (!authUserId) return;
-      const { data } = await supabase.from("users").select("id,permission_settings").eq("auth_user_id", authUserId).maybeSingle();
+      const { data } = await supabase.from("users").select("id,role,permission_settings").eq("auth_user_id", authUserId).maybeSingle();
+      setIsAgentViewer(data?.role === "agent");
       setViewerUserId((data as { id?: string | null } | null)?.id ?? null);
       setViewerPermissions(normalizeUserPermissionSettings((data as { permission_settings?: UserPermissionSettings | null } | null)?.permission_settings));
     };
@@ -1582,7 +1584,7 @@ export default function EditOrderPage() {
           <div className="text-sm text-slate-800 font-medium">ສ້າງເມື່ອ: {new Date(order.created_at).toLocaleString("en-US")}</div>
         </div>
         <div className="flex flex-wrap gap-2.5">
-          {!isReadOnlyAdmin ? (
+          {!isReadOnlyAdmin && !isAgentViewer ? (
             <button
               onClick={handleCancelImport}
               disabled={cancelingImport || !order.production_completed_at}
@@ -1596,7 +1598,7 @@ export default function EditOrderPage() {
             <ArrowLeft size={16} />
             ກັບຄືນ
           </Link>
-          {!isReadOnlyAdmin ? (
+          {!isReadOnlyAdmin && !isAgentViewer ? (
             <button
               onClick={handleMarkProductionCompleted}
               className={`${actionButtonClassName} border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}
@@ -1605,7 +1607,7 @@ export default function EditOrderPage() {
               ຜະລິດສຳເລັດ
             </button>
           ) : null}
-          {!isReadOnlyAdmin ? (
+          {!isReadOnlyAdmin && !isAgentViewer ? (
             order.status === "completed" || order.closed_at ? (
               <button
                 onClick={handleReopenOrder}
@@ -1633,7 +1635,7 @@ export default function EditOrderPage() {
               ບັນທຶກ
             </button>
           ) : null}
-          {!isReadOnlyAdmin ? (
+          {!isReadOnlyAdmin && !isAgentViewer ? (
             <button
               onClick={handleDelete}
               className={`${actionButtonClassName} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`}
@@ -2241,7 +2243,7 @@ export default function EditOrderPage() {
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between border-b pb-2 border-slate-100">
               <div className="font-black text-slate-900">ປະຫວັດການຊຳລະຂອງລູກຄ້າ</div>
-              {!isReadOnlyAdmin ? <button onClick={() => setShowCustomerPayModal(true)} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-black text-white hover:bg-blue-700">ຮັບເງິນຊຳລະ</button> : null}
+              {!isReadOnlyAdmin && !isAgentViewer ? <button onClick={() => setShowCustomerPayModal(true)} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-black text-white hover:bg-blue-700">ຮັບເງິນຊຳລະ</button> : null}
             </div>
             <div className="space-y-2">
               {customerPayments.length === 0 ? <div className="text-sm text-slate-800 py-2 font-medium">ບໍ່ມີລາຍການ.</div> : customerPayments.map((p) => (

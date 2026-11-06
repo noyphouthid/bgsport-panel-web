@@ -3,7 +3,7 @@ import { getAdminActorFromAuthHeader } from "@/lib/admin-api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { buildDefaultPermissionSettings, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
 
-type Role = "superadmin" | "admin" | "manager" | "staff" | "graphic" | "production" | "accountant";
+type Role = import("@/lib/access-control").AppRole;
 
 type CreateUserBody = {
   full_name?: string;
@@ -16,7 +16,7 @@ type CreateUserBody = {
   permission_settings?: UserPermissionSettings;
 };
 
-const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant"]);
+const ALLOWED_ROLES = new Set<Role>(["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant", "agent"]);
 
 export async function POST(req: NextRequest) {
   const supabaseAdmin = getSupabaseAdmin();
@@ -52,6 +52,11 @@ export async function POST(req: NextRequest) {
   }
   if (!role || !ALLOWED_ROLES.has(role)) {
     return NextResponse.json({ error: "invalid_role" }, { status: 400 });
+  }
+
+  if (role === "agent") {
+    const { data: ready, error } = await supabaseAdmin.rpc("sales_agents_enabled");
+    if (error || ready !== true) return NextResponse.json({ error: "Apply 20261109_add_sales_agents.sql before creating an agent account" }, { status: 400 });
   }
 
   const { data: dupProfile } = await supabaseAdmin
