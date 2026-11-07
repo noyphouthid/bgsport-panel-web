@@ -22,6 +22,27 @@ With the local dev server running, use
 to check the table, Excel contents/types, filters, mobile layout and error/empty
 states against mocked backend data without production writes.
 
+## Sign-in audit log
+
+Apply `supabase/migrations/20261113_create_login_audit.sql` in the Supabase SQL
+Editor, then `20261114_login_events_location.sql`. Every sign-in attempt on
+`/login` is recorded with the IP address, browser and OS. City/region/country
+come from Netlify's `x-nf-geo` header, and ipinfo.io adds the ISP (cached per IP
+for 30 days, 2.5 s timeout). Set `IPINFO_TOKEN` in Netlify's environment
+variables (free at ipinfo.io) to avoid the anonymous rate limit. IP locations
+are city-level only. Clicking sign-in also asks the browser for GPS location;
+refusing does not block sign-in, and the answer (map link with accuracy, or
+refused / no answer) is attached to the event once the browser responds.
+Browsers cannot reveal a computer's real name, so each browser gets a random
+device key in localStorage; a superadmin names it (e.g. "ຄອມແຄັດເຊຍ 1") on
+`/users/login-history` (ປະຫວັດການເຂົ້າລະບົບ, linked from ຈັດການຜູ້ໃຊ້). Rows are
+flagged when an account signs in from a device or IP it has never used before.
+Clearing site data or a private window shows up as a new device. Failed
+attempts are reported by the browser and capped at 30 per IP per 10 minutes.
+The tables are only reachable through the superadmin API routes.
+
+Run `node --test tests/login-audit.test.mjs tests/user-permissions.test.mjs`.
+
 ## Shop details on quotations
 
 Apply `supabase/migrations/20261112_create_shop_settings.sql` in the Supabase SQL

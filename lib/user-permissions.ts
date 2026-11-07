@@ -43,6 +43,7 @@ const ADDITIONAL_ACCESS_ITEMS: AccessPermissionItem[] = [
   { key: "/quotations/new", label: "ສ້າງໃບປະເມີນລາຄາ", group: "ອໍເດີ" },
   { key: "/shipments/transport-note", label: "ສ້າງໃບຝາກເຄື່ອງ", group: "ຄັງ/ຂົນສົ່ງ" },
   { key: "/users/permissions", label: "ກຳນົດສິດພະນັກງານ", group: "ຕັ້ງຄ່າ" },
+  { key: "/users/login-history", label: "ປະຫວັດການເຂົ້າລະບົບ", group: "ຕັ້ງຄ່າ" },
 ];
 
 // A new sidebar link automatically becomes an employee access-permission option.

@@ -399,12 +399,20 @@ export default function UsersPage() {
             <h1 className="text-2xl font-black text-slate-800 tracking-tight">ຈັດການຜູ້ໃຊ້</h1>
             <div className="text-sm font-medium text-slate-500">ເພີ່ມ, ແກ້ໄຂ, ລຶບຜູ້ໃຊ້ງານລະບົບ</div>
           </div>
-          <Link
-            href="/users/permissions"
-            className="inline-flex items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-black text-sky-700 transition hover:bg-sky-100"
-          >
-            ກຳນົດສິດພະນັກງານ
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/users/login-history"
+              className="inline-flex items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-black text-indigo-700 transition hover:bg-indigo-100"
+            >
+              ປະຫວັດການເຂົ້າລະບົບ
+            </Link>
+            <Link
+              href="/users/permissions"
+              className="inline-flex items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-black text-sky-700 transition hover:bg-sky-100"
+            >
+              ກຳນົດສິດພະນັກງານ
+            </Link>
+          </div>
         </div>
 
         {err && (
