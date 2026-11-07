@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Barcode, Camera, CameraOff, LoaderCircle } from "lucide-react";
 import type { IScannerControls } from "@zxing/browser";
 
 type Props = {
   onDetected: (value: string) => Promise<void>;
   disabled?: boolean;
+  // Shown under the instructions, e.g. the choice of which barcodes to accept.
+  children?: ReactNode;
 };
 
 function cameraErrorMessage(error: unknown) {
@@ -17,7 +19,7 @@ function cameraErrorMessage(error: unknown) {
   return "ບໍ່ສາມາດເປີດກ້ອງໄດ້ ກະລຸນາລອງອີກຄັ້ງ ຫຼື ພິມລະຫັດແທນ";
 }
 
-export function FactoryBarcodeScanner({ onDetected, disabled = false }: Props) {
+export function FactoryBarcodeScanner({ onDetected, disabled = false, children }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const onDetectedRef = useRef(onDetected);
   const [opened, setOpened] = useState(false);
@@ -139,8 +141,9 @@ export function FactoryBarcodeScanner({ onDetected, disabled = false }: Props) {
         </button>
       </div>
       <p className="text-sm font-medium leading-relaxed text-slate-500">
-        ກົດເປີດກ້ອງ ແລະ ອະນຸຍາດໃຫ້ໃຊ້ກ້ອງ. ຫັນກ້ອງຫຼັງໄປຫາ Barcode ແບບເສັ້ນທີ່ຢູ່ຂ້າງ QR ໃນໃບໂຮງງານ ເຊັ່ນ <span className="font-mono font-bold text-slate-900">26-184019</span>.
+        ກົດເປີດກ້ອງ ແລະ ອະນຸຍາດໃຫ້ໃຊ້ກ້ອງ. ຫັນກ້ອງຫຼັງໄປຫາ Barcode ແບບເສັ້ນ ທີ່ເລືອກໄວ້ລຸ່ມນີ້:
       </p>
+      {children}
       {scanning ? (
         <div id="factory-barcode-camera" className="relative overflow-hidden rounded-3xl bg-slate-950">
           <video ref={videoRef} autoPlay playsInline muted className="aspect-[4/3] w-full object-contain" />

@@ -16,7 +16,7 @@ function compile(path) {
   new Function("module", "exports", "require", outputText)(compiled, compiled.exports, require);
   return compiled.exports;
 }
-const { normalizeFactoryBarcode, findFactoryBarcodeOrder } = compile("../lib/factory-receipt-barcode.ts");
+const { normalizeFactoryBarcode, findFactoryBarcodeOrder, normalizeReceiptBarcodeSources, describeReceiptBarcodeSources } = compile("../lib/factory-receipt-barcode.ts");
 const { getFactoryBarcodeHints } = compile("../lib/factory-barcode-reader.ts");
 
 test("factory barcode preserves the complete printed code and accepts scanner suffixes and AIM identifiers", () => {
@@ -34,6 +34,7 @@ function mockClient(rows, error = null) {
   const query = {
     from(value) { calls.push(["from", value]); return this; },
     select(value) { calls.push(["select", value]); return this; },
+    or(value) { calls.push(["or", value]); return this; },
     eq(key, value) { calls.push(["eq", key, value]); return this; },
     async limit(value) { calls.push(["limit", value]); return { data: rows, error }; },
   };
@@ -46,8 +47,36 @@ test("scanned codes resolve only an exact factory bill match, keeping the year a
   assert.deepEqual(await findFactoryBarcodeOrder(client, "26-184019\r\n", "id,order_code,factory_bill_code"), order);
   assert.deepEqual(calls, [
     ["from", "orders"], ["select", "id,order_code,factory_bill_code"],
-    ["eq", "factory_bill_code", "26-184019"], ["limit", 2],
+    ["or", "factory_bill_code.eq.26-184019,order_code.eq.26-184019"], ["limit", 2],
   ]);
+});
+
+test("the shop order code printed on the production sheet resolves the same way", async () => {
+  const order = { id: "order-id", order_code: "RK26-11013", factory_bill_code: "26-184019" };
+  const { client, calls } = mockClient([order]);
+  assert.deepEqual(await findFactoryBarcodeOrder(client, "]C0RK26-11013\r", "id"), order);
+  assert.deepEqual(calls[2], ["or", "factory_bill_code.eq.RK26-11013,order_code.eq.RK26-11013"]);
+});
+
+test("choosing one barcode type searches only that column", async () => {
+  const factoryOnly = mockClient([]);
+  await findFactoryBarcodeOrder(factoryOnly.client, "26-184019", "id", ["factory"]);
+  assert.deepEqual(factoryOnly.calls[2], ["eq", "factory_bill_code", "26-184019"]);
+
+  const shopOnly = mockClient([]);
+  await findFactoryBarcodeOrder(shopOnly.client, "RK26-11013", "id", ["shop"]);
+  assert.deepEqual(shopOnly.calls[2], ["eq", "order_code", "RK26-11013"]);
+});
+
+test("barcode type selection is cleaned and never empty", () => {
+  assert.deepEqual(normalizeReceiptBarcodeSources("shop"), ["shop"]);
+  assert.deepEqual(normalizeReceiptBarcodeSources("shop,factory,junk"), ["factory", "shop"]);
+  assert.deepEqual(normalizeReceiptBarcodeSources(["shop"]), ["shop"]);
+  assert.deepEqual(normalizeReceiptBarcodeSources(""), ["factory", "shop"]);
+  assert.deepEqual(normalizeReceiptBarcodeSources(null), ["factory", "shop"]);
+  assert.deepEqual(normalizeReceiptBarcodeSources([]), ["factory", "shop"]);
+  assert.equal(describeReceiptBarcodeSources(["shop"]), "ລະຫັດອໍເດີຮ້ານ");
+  assert.equal(describeReceiptBarcodeSources(["factory", "shop"]), "ລະຫັດບິນໂຮງງານ ຫຼື ລະຫັດອໍເດີຮ້ານ");
 });
 
 test("unknown, ambiguous, invalid and failed barcode lookups cannot silently choose an order", async () => {
@@ -65,7 +94,7 @@ function decodePixels(pixels, width, height) {
 }
 
 test("the camera decoder reads real Code 128 bars with the full factory bill code", () => {
-  for (const code of ["26-184019", "00184019", "184019"]) {
+  for (const code of ["26-184019", "00184019", "184019", "RK26-11013"]) {
     const target = {};
     JsBarcode(target, code, { format: "CODE128", displayValue: false });
     const bars = target.encodings.map((encoding) => encoding.data).join("");

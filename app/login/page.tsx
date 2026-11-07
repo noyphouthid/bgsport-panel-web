@@ -9,6 +9,7 @@ import { Toaster } from "react-hot-toast";
 import { supabase } from "@/lib/supabase";
 import { AppRole, getDefaultPathForRole } from "@/lib/access-control";
 import ThemeToggle from "@/components/theme-toggle";
+import { attachGpsToLoginEvent, recordLoginEvent, requestGpsLocation } from "@/lib/login-audit-client";
 
 type UserProfile = {
   id: string;
@@ -94,12 +95,15 @@ export default function LoginPage() {
     }
 
     setLoading(true);
+    // Asked on the click so the browser shows its location prompt; signing in never waits for it.
+    const gpsPromise = requestGpsLocation();
     const { data, error } = await supabase.auth.signInWithPassword({
       email: inputEmail,
       password,
     });
 
     if (error || !data.user) {
+      void recordLoginEvent({ success: false, email: inputEmail, reason: "wrong_password" });
       setLoading(false);
       toast.error(error?.message || "ເຂົ້າສູ່ລະບົບບໍ່ສຳເລັດ");
       return;
@@ -109,6 +113,7 @@ export default function LoginPage() {
     try {
       profile = await findActiveProfile(data.user.id, inputEmail);
     } catch {
+      void recordLoginEvent({ success: false, email: inputEmail, reason: "profile_check_failed" });
       await supabase.auth.signOut();
       setLoading(false);
       toast.error("ກວດສອບບໍ່ສຳເລັດ");
@@ -116,12 +121,15 @@ export default function LoginPage() {
     }
 
     if (!profile) {
+      void recordLoginEvent({ success: false, email: inputEmail, reason: "inactive_account" });
       await supabase.auth.signOut();
       setLoading(false);
       toast.error("ບັນຊີນີ້ບໍ່ມີສິດໃຊ້ງານລະບົບ");
       return;
     }
 
+    const accessToken = data.session?.access_token;
+    if (accessToken) attachGpsToLoginEvent(accessToken, recordLoginEvent({ success: true, accessToken }), gpsPromise);
     toast.success(`ຍິນດີຕໍ່ຮັບ ${profile.full_name}`);
     setLoading(false);
     router.replace(getDefaultPathForRole(profile.role));
@@ -176,6 +184,9 @@ export default function LoginPage() {
           >
             {loading ? "ກຳລັງເຂົ້າສູ່ລະບົບ..." : "ເຂົ້າສູ່ລະບົບ"}
           </button>
+          <p className="text-center text-[11px] font-medium leading-relaxed text-slate-500">
+            ລະບົບຈະບັນທຶກ IP, ອຸປະກອນ ແລະ ຂໍສິດເຂົ້າເຖິງຕຳແໜ່ງ ເພື່ອຄວາມປອດໄພຂອງບັນຊີ
+          </p>
         </form>
 
         <div className="rounded-xl border border-emerald-200/50 bg-emerald-50/80 p-3 text-center">
