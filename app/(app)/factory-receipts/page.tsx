@@ -20,7 +20,15 @@ import {
 import { WhatsappMessageModal } from "../_components/whatsapp-message-modal";
 import { buildProductionCompletedWhatsappMessage, getWhatsappContactOptions } from "@/lib/whatsapp";
 import { FactoryBarcodeScanner } from "../_components/factory-barcode-scanner";
-import { findFactoryBarcodeOrder, normalizeFactoryBarcode } from "@/lib/factory-receipt-barcode";
+import {
+  RECEIPT_BARCODE_SOURCES,
+  describeReceiptBarcodeSources,
+  findFactoryBarcodeOrder,
+  getReceiptBarcodeSourceLabel,
+  normalizeFactoryBarcode,
+  type ReceiptBarcodeSource,
+} from "@/lib/factory-receipt-barcode";
+import { useReceiptBarcodeSources } from "@/lib/use-receipt-barcode-sources";
 
 type QueueItem = QrLabelRow & {
   customer_phone: string | null;
@@ -127,12 +135,19 @@ async function searchSimilarOrders(rawValue: string) {
   }));
 }
 
+const RECEIPT_BARCODE_SOURCE_HINTS: Record<ReceiptBarcodeSource, { title: string; example: string }> = {
+  factory: { title: "ໃບໂຮງງານ · ລະຫັດບິນໂຮງງານ (ຂ້າງ QR)", example: "26-184019" },
+  shop: { title: "ໃບສັ່ງຜະລິດຂອງຮ້ານ · ລະຫັດອໍເດີ", example: "RK26-11013" },
+};
+
 export default function FactoryReceiptsPage() {
   const [scannerInput, setScannerInput] = useState("");
   const [barcodeInput, setBarcodeInput] = useState("");
+  const { sources: barcodeSources, toggleSource: toggleBarcodeSource } = useReceiptBarcodeSources();
+  const barcodeSourceText = describeReceiptBarcodeSources(barcodeSources);
   const [lookingUp, setLookingUp] = useState(false);
   const lookupLockRef = useRef(false);
-  const [lastBarcode, setLastBarcode] = useState<{ code: string; message: string; success: boolean } | null>(null);
+  const [lastBarcode, setLastBarcode] = useState<{ code: string; kind?: string; message: string; success: boolean } | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [receivedAt, setReceivedAt] = useState(() => toLocalDateTimeInputValue());
   const [receivedBy, setReceivedBy] = useState("");
@@ -301,7 +316,7 @@ export default function FactoryReceiptsPage() {
 
   const findOrderByInput = async (rawValue: string, factoryBarcodeOnly = false) => {
     if (factoryBarcodeOnly) {
-      const order = await findFactoryBarcodeOrder(supabase, rawValue, ORDER_SELECT);
+      const order = await findFactoryBarcodeOrder(supabase, rawValue, ORDER_SELECT, barcodeSources);
       if (!order) return null;
       const { data, error } = await supabase
         .from("order_qr_labels")
@@ -521,7 +536,7 @@ export default function FactoryReceiptsPage() {
       const resolved = await findOrderByInput(input, factoryBarcodeOnly);
       if (!resolved) {
         if (factoryBarcodeOnly) {
-          throw new Error(`ບໍ່ພົບອໍເດີທີ່ມີລະຫັດບິນໂຮງງານ ${normalizeFactoryBarcode(input)}`);
+          throw new Error(`ບໍ່ພົບອໍເດີທີ່ມີ${barcodeSourceText} ${normalizeFactoryBarcode(input)}`);
         }
         const nearby = await searchSimilarOrders(input);
         setSuggestions(nearby);
@@ -533,8 +548,10 @@ export default function FactoryReceiptsPage() {
       const added = await addResolvedOrderToQueue(resolved);
       if (factoryBarcodeOnly) {
         const alreadyQueued = queue.some((item) => item.order_id === resolved.order.id);
+        const scannedCode = normalizeFactoryBarcode(input) || input;
         setLastBarcode({
-          code: resolved.order.factory_bill_code || input,
+          code: scannedCode,
+          kind: getReceiptBarcodeSourceLabel(barcodeSources.includes("shop") && scannedCode === resolved.order.order_code ? "shop" : "factory"),
           message: added
             ? `ເພີ່ມ ${resolved.order.order_code} ເຂົ້າລາຍການແລ້ວ`
             : alreadyQueued
@@ -830,7 +847,7 @@ export default function FactoryReceiptsPage() {
             </div>
             <h1 className="mt-4 text-2xl font-black tracking-tight sm:text-3xl">ສະແກນ Barcode ຮັບສິນຄ້າເຂົ້າ</h1>
             <p className="mt-2 max-w-2xl text-sm font-medium text-emerald-50">
-              ໃຊ້ກ້ອງຫຼັງໂທລະສັບຂອງພະນັກງານ ສະແກນ Barcode ໃນໃບໂຮງງານເພື່ອເພີ່ມອໍເດີ. ສະແກນໃຫ້ຄົບ ແລ້ວກວດສອບ ແລະ ກົດນຳເຂົ້າທັງໝົດ.
+              ໃຊ້ກ້ອງຫຼັງໂທລະສັບຂອງພະນັກງານ ສະແກນ Barcode ໃນໃບໂຮງງານ ຫຼື ໃບສັ່ງຜະລິດຂອງຮ້ານເພື່ອເພີ່ມອໍເດີ. ສະແກນໃຫ້ຄົບ ແລ້ວກວດສອບ ແລະ ກົດນຳເຂົ້າທັງໝົດ.
             </p>
           </div>
           <div className="rounded-3xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-emerald-50">ສຳລັບກ້ອງໂທລະສັບພະນັກງານ</div>
@@ -840,7 +857,40 @@ export default function FactoryReceiptsPage() {
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
           <div className="rounded-[2rem] border border-emerald-100 bg-white p-5 shadow-sm">
-            <FactoryBarcodeScanner onDetected={(value) => lookupLabel(value, true)} disabled={saving} />
+            <FactoryBarcodeScanner onDetected={(value) => lookupLabel(value, true)} disabled={saving}>
+              <fieldset>
+                <legend className="mb-2 text-xs font-black text-slate-500">ສະແກນຈາກ Barcode ໃດແດ່ (ເລືອກໄດ້ຫຼາຍອັນ)</legend>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {RECEIPT_BARCODE_SOURCES.map((source) => {
+                    const checked = barcodeSources.includes(source);
+                    const lastChecked = checked && barcodeSources.length === 1;
+                    return (
+                      <label
+                        key={source}
+                        title={lastChecked ? "ຕ້ອງເລືອກຢ່າງໜ້ອຍ 1 ແບບ" : undefined}
+                        className={`flex min-h-12 cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2 transition ${
+                          checked ? "border-indigo-300 bg-indigo-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                        } ${lastChecked ? "cursor-not-allowed" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={saving || lastChecked}
+                          onChange={() => toggleBarcodeSource(source)}
+                          className="mt-1 h-4 w-4 accent-indigo-600"
+                        />
+                        <span>
+                          <span className={`block text-xs font-black ${checked ? "text-indigo-700" : "text-slate-500"}`}>
+                            {RECEIPT_BARCODE_SOURCE_HINTS[source].title}
+                          </span>
+                          <span className="mt-0.5 block font-mono text-sm font-black text-slate-900">{RECEIPT_BARCODE_SOURCE_HINTS[source].example}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            </FactoryBarcodeScanner>
             <details className="mt-5 border-t border-slate-100 pt-4">
               <summary className="cursor-pointer py-2 text-sm font-bold text-slate-600">ສະແກນບໍ່ໄດ້? ພິມລະຫັດດ້ວຍຕົນເອງ</summary>
               <form
@@ -850,13 +900,13 @@ export default function FactoryReceiptsPage() {
                   void lookupLabel(barcodeInput, true);
                 }}
               >
-                <label htmlFor="factory-barcode-input" className="text-sm font-bold text-slate-700">ລະຫັດບິນໂຮງງານ</label>
+                <label htmlFor="factory-barcode-input" className="text-sm font-bold text-slate-700">{barcodeSourceText}</label>
                 <div className="mt-2 flex flex-col gap-3 sm:flex-row">
                   <input
                     id="factory-barcode-input"
                     value={barcodeInput}
                     onChange={(event) => setBarcodeInput(event.target.value)}
-                    placeholder="26-184019"
+                    placeholder={barcodeSources.map((source) => RECEIPT_BARCODE_SOURCE_HINTS[source].example).join(" ຫຼື ")}
                     autoComplete="off"
                     autoCapitalize="off"
                     spellCheck={false}
@@ -874,7 +924,10 @@ export default function FactoryReceiptsPage() {
             <div aria-live="polite" role="status" className="mt-4">
               {lookingUp ? <div className="text-sm font-bold text-emerald-700">ກຳລັງກວດສອບອໍເດີ...</div> : lastBarcode ? (
                 <div className={`rounded-2xl border p-3 ${lastBarcode.success ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
-                  <div className="break-all font-mono text-base font-black">{lastBarcode.code}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="break-all font-mono text-base font-black">{lastBarcode.code}</span>
+                    {lastBarcode.kind ? <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-black">{lastBarcode.kind}</span> : null}
+                  </div>
                   <div className="mt-1 text-sm font-bold">{lastBarcode.message}</div>
                 </div>
               ) : null}

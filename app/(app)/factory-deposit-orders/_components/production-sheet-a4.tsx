@@ -1,5 +1,8 @@
 "use client";
 
+import JsBarcode from "jsbarcode";
+import { useEffect, useRef } from "react";
+import { normalizeFactoryBarcode } from "@/lib/factory-receipt-barcode";
 import { getProductionCollarLabel } from "@/lib/production-collars";
 import {
   PRODUCTION_SIZE_FIELDS,
@@ -33,6 +36,35 @@ export type ProductionSheetA4Props = {
   signatureFields: Array<{ label: string; name: string }>;
 };
 
+// Code 128 of the shop order code, scanned on /factory-receipts when goods come back.
+function OrderCodeBarcode({ value }: { value: string }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    if (!svgRef.current) return;
+    try {
+      JsBarcode(svgRef.current, value, {
+        format: "CODE128",
+        displayValue: false,
+        width: 1.2,
+        height: 40,
+        margin: 6,
+        background: "#ffffff",
+        lineColor: "#000000",
+      });
+    } catch {
+      svgRef.current.innerHTML = "";
+    }
+  }, [value]);
+
+  return (
+    <div className="shrink-0 text-center" data-order-code-barcode>
+      <svg ref={svgRef} className="block" aria-label={`Barcode ${value}`} />
+      <div className="font-mono text-[10px] font-bold leading-none tracking-wider text-slate-900">{value}</div>
+    </div>
+  );
+}
+
 export function ProductionSheetA4({
   teamName,
   orderCode,
@@ -60,9 +92,15 @@ export function ProductionSheetA4({
           <div className="flex h-full flex-col bg-white p-5">
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-md border border-slate-700 p-4">
-                <div className="text-[12px] font-black text-slate-700">ຊື່ທີມ:</div>
-                <div className="mt-1 text-[18px] font-black leading-tight text-slate-900">{teamName || "-"}</div>
-                <div className="mt-3 text-[15px] font-black text-slate-700">ລະຫັດອໍເດີ້: <span className="font-black text-sky-700">{orderCode || "-"}</span></div>
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12px] font-black text-slate-700">ຊື່ທີມ:</div>
+                    <div className="mt-1 break-words text-[18px] font-black leading-tight text-slate-900">{teamName || "-"}</div>
+                  </div>
+                  {/* Only codes the receipt scanner accepts get a barcode (no spaces or Lao text). */}
+                  {normalizeFactoryBarcode(orderCode) ? <OrderCodeBarcode value={normalizeFactoryBarcode(orderCode)} /> : null}
+                </div>
+                <div className="mt-2 text-[15px] font-black text-slate-700">ລະຫັດອໍເດີ້: <span className="font-black text-sky-700">{orderCode || "-"}</span></div>
                 <div className="mt-1 text-[12px] font-bold text-slate-700">ປະເພດງານ: {workCategoryLabel}</div>
                 <div className="mt-1 text-[15px] font-black text-slate-700">ຜ້າ: <span className="font-bold text-slate-900">{fabricName || "-"}</span></div>
                 <div className="mt-1 text-[15px] font-black text-slate-700">
