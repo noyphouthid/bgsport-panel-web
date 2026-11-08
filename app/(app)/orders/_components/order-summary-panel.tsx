@@ -26,6 +26,8 @@ type OrderSummaryPanelProps = {
   customerBillTotal: number;
   totalFactoryCost?: number;
   profitPreview?: number;
+  // The order is a sponsorship or remake: its profit is not counted in reports.
+  profitExcluded?: boolean;
   showProfitDetails?: boolean;
   footerNote?: string;
 };
@@ -167,6 +169,7 @@ export function OrderSummaryPanel({
   customerBillTotal,
   totalFactoryCost,
   profitPreview,
+  profitExcluded = false,
   showProfitDetails = false,
   footerNote,
 }: OrderSummaryPanelProps) {
@@ -233,10 +236,15 @@ export function OrderSummaryPanel({
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="font-bold text-slate-600">ກຳໄລເບື້ອງຕົ້ນ</span>
-              <span className={joinClassNames("font-black", (profitPreview || 0) >= 0 ? "text-blue-700" : "text-red-700")}>
+              <span className={joinClassNames("font-black", profitExcluded ? "text-slate-400 line-through" : (profitPreview || 0) >= 0 ? "text-blue-700" : "text-red-700")}>
                 {formatMoney(profitPreview || 0)}
               </span>
             </div>
+            {profitExcluded ? (
+              <div className="rounded-lg bg-slate-800 px-2.5 py-1.5 text-[11px] font-bold text-white">
+                ອໍເດີນີ້ຍົກເວັ້ນກຳໄລ: ບໍ່ນັບໃນຍອດຂາຍ ແລະ ກຳໄລຂອງລາຍງານ
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

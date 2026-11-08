@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { profitDateKey,profitPeriodDates,isProfitInPeriod,profitTimestampRange,recognizedProfit,profitRecognitionError } from '../lib/profit-recognition.ts';
+import * as profit from '../lib/profit-recognition.ts';
 
 test('a shipped COD order without a receipt never falls back to its delivery or order date',()=>{
   const pending={net_total:1000000,factory_cost:600000,profit_recognized_at:null,shipment_completed_at:'2026-10-15',order_date:'2026-10-01'};
@@ -25,4 +26,22 @@ test('recognition keeps losses and supports end-exclusive dashboard queries',()=
 });
 test('unmigrated reports show the required migration instead of recognizing unpaid COD',()=>{
   assert.match(profitRecognitionError({code:'42703',message:'column profit_recognized_at does not exist'}),/20261106_cod_profit_recognition.sql/);
+});
+
+test("orders excluded from profit never count, whatever their recognition date", () => {
+  const order = { profit_recognized_at: "2026-11-05T03:00:00Z", net_total: 900, factory_cost: 400 };
+  assert.equal(profit.countsTowardProfit(order), true);
+  assert.equal(profit.isProfitInPeriod(order, 2026, 11), true);
+  assert.equal(profit.recognizedProfit(order, 2026, 11), 500);
+
+  const excluded = { ...order, exclude_profit: true };
+  assert.equal(profit.countsTowardProfit(excluded), false);
+  assert.equal(profit.isProfitInPeriod(excluded, 2026, 11), false);
+  assert.equal(profit.isProfitInPeriod(excluded, 2026, "ALL"), false);
+  assert.equal(profit.recognizedProfit(excluded), 0);
+  assert.equal(profit.recognizedProfit(excluded, 2026, 11), 0);
+});
+
+test("a missing exclude_profit column asks for its migration", () => {
+  assert.match(profit.profitRecognitionError({ message: "column orders.exclude_profit does not exist" }), /20261116_order_exclude_profit\.sql/);
 });

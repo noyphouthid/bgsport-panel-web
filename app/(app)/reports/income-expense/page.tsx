@@ -30,7 +30,7 @@ import {
 import { buildPayrollExpenseRows, fetchPayrollExpenseRuns } from "@/lib/payroll-expenses";
 import { payrollHistoryMigration } from "@/lib/payroll-history";
 import { fetchAllReportRows } from "@/lib/report-query";
-import { profitDateKey, profitRecognitionError, type ProfitRecognitionFields } from "@/lib/profit-recognition";
+import { countsTowardProfit, profitDateKey, profitRecognitionError, type ProfitRecognitionFields } from "@/lib/profit-recognition";
 import { supabase } from "@/lib/supabase";
 import { exportReportDocumentAsPdf, openReportPrintWindow } from "../_lib";
 
@@ -345,7 +345,7 @@ export default function IncomeExpenseReportPage() {
         .order("paid_at", { ascending: false }),
       fetchAllReportRows<OrderLite>((from,to) => supabase
         .from("orders")
-        .select("id,order_code,customer_phone,factory_bill_code,net_total,factory_cost,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,shipment_status")
+        .select("id,order_code,customer_phone,factory_bill_code,net_total,factory_cost,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,shipment_status,exclude_profit")
         .order("created_at", { ascending: false }).order("id").range(from,to)),
       supabase
         .from("income_expense_entries")
@@ -516,7 +516,7 @@ export default function IncomeExpenseReportPage() {
     const deliveredProfit = orders
       .filter((order) => {
         const deliveredAt = order.profit_recognized_at;
-        if (!deliveredAt) return false;
+        if (!deliveredAt || !countsTowardProfit(order)) return false;
         const dayKey = profitDateKey(deliveredAt);
         if (fromDate && dayKey < fromDate) return false;
         if (toDate && dayKey > toDate) return false;
@@ -525,7 +525,7 @@ export default function IncomeExpenseReportPage() {
       .reduce((sum, order) => sum + ((Number(order.net_total) || 0) - (Number(order.factory_cost) || 0)), 0);
     const deliveredOrdersCount = orders.filter((order) => {
       const deliveredAt = order.profit_recognized_at;
-      if (!deliveredAt) return false;
+      if (!deliveredAt || !countsTowardProfit(order)) return false;
       const dayKey = profitDateKey(deliveredAt);
       if (fromDate && dayKey < fromDate) return false;
       if (toDate && dayKey > toDate) return false;

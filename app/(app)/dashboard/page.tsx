@@ -258,7 +258,9 @@ export default function DashboardPage() {
       }>((from,to) => {
         let profitQuery = supabase.from("orders")
           .select("id,net_total,factory_cost,profit_recognized_at")
-          .not("profit_recognized_at", "is", null);
+          .not("profit_recognized_at", "is", null)
+          // Sponsorship and remake orders never count as profit.
+          .eq("exclude_profit", false);
         if (profitRange.start) profitQuery = profitQuery.gte("profit_recognized_at",profitRange.start);
         if (profitRange.endExclusive) profitQuery = profitQuery.lt("profit_recognized_at",profitRange.endExclusive);
         return profitQuery.order("profit_recognized_at").order("id").range(from,to);

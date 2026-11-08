@@ -60,6 +60,8 @@ export const ORDER_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   production_completed: "ຜະລິດສຳເລັດ",
   close_order: "ປິດອໍເດີ",
   reopen_order: "ຍົກເລີກປິດອໍເດີ",
+  exclude_profit: "ຍົກເວັ້ນກຳໄລ",
+  include_profit: "ນັບກຳໄລຄືນ",
   cancel_factory_receipt: "ຍົກເລີກນຳເຂົ້າ",
   cancel_factory_receipt_approved: "ອະນຸມັດຍົກເລີກນຳເຂົ້າ",
   cancel_shipment: "ຍົກເລີກຈັດສົ່ງ",
@@ -76,6 +78,8 @@ const DETAIL_LABELS: Record<string, string> = {
   "Marked production completed": "ບັນທຶກຜະລິດສຳເລັດ",
   "Closed order": "ປິດອໍເດີ",
   "Reopened order": "ຍົກເລີກປິດອໍເດີ",
+  "Excluded from profit": "ຍົກເວັ້ນອໍເດີນີ້ອອກຈາກກຳໄລ",
+  "Included in profit": "ນັບອໍເດີນີ້ໃນກຳໄລຄືນ",
   "Canceled imported stock from edit page": "ຍົກເລີກນຳເຂົ້າຈາກໜ້າແກ້ໄຂອໍເດີ",
 };
 
