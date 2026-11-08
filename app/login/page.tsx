@@ -1,8 +1,6 @@
 ﻿"use client";
 
-import { STOREFRONT_TRACKING_URL } from "@/lib/storefront-url";
 import { FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Toaster } from "react-hot-toast";
@@ -184,17 +182,7 @@ export default function LoginPage() {
           >
             {loading ? "ກຳລັງເຂົ້າສູ່ລະບົບ..." : "ເຂົ້າສູ່ລະບົບ"}
           </button>
-          <p className="text-center text-[11px] font-medium leading-relaxed text-slate-500">
-            ລະບົບຈະບັນທຶກ IP, ອຸປະກອນ ແລະ ຂໍສິດເຂົ້າເຖິງຕຳແໜ່ງ ເພື່ອຄວາມປອດໄພຂອງບັນຊີ
-          </p>
         </form>
-
-        <div className="rounded-xl border border-emerald-200/50 bg-emerald-50/80 p-3 text-center">
-          <div className="text-xs font-bold uppercase tracking-wider text-emerald-700">Customer Tracking</div>
-          <Link href={STOREFRONT_TRACKING_URL} className="mt-1 inline-block text-sm font-black text-emerald-900 hover:text-emerald-700">
-            ເປີດໜ້າຕິດຕາມສະຖານະສຳລັບລູກຄ້າ
-          </Link>
-        </div>
       </div>
       <Toaster
         position="top-right"
