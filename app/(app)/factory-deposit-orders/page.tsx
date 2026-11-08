@@ -691,6 +691,8 @@ export default function FactoryDepositOrdersPage() {
       const shell = sheetShellRef.current;
       if (!shell) return;
       await waitForSheetAssets(shell);
+      // Let sheets re-split pages after late fonts or images before printing or capturing.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       if (cancelled) return;
 
       if (sheetJob.action === "print") {
@@ -700,9 +702,12 @@ export default function FactoryDepositOrdersPage() {
       }
 
       try {
-        const sheets = Array.from(shell.querySelectorAll<HTMLElement>(".production-sheet-a4"));
+        const documents = Array.from(shell.querySelectorAll<HTMLElement>(".production-sheet-document"));
         await downloadSheetsAsPdf(
-          sheets.map((sheet, index) => ({ sheet, code: sheetJob.rows[index].order_code?.trim() || getPrimaryDocumentCode(sheetJob.rows[index]) })),
+          documents.map((document, index) => ({
+            pages: Array.from(document.querySelectorAll<HTMLElement>(".production-sheet-a4")),
+            code: sheetJob.rows[index].order_code?.trim() || getPrimaryDocumentCode(sheetJob.rows[index]),
+          })),
           setSheetProgress
         );
         if (!cancelled) toast.success("ດາວໂຫຼດ PDF ສຳເລັດ");
