@@ -34,6 +34,8 @@ export type ProductionSheetA4Props = {
   items: ProductionItem[];
   pantsItems: PantsProductionItem[];
   signatureFields: Array<{ label: string; name: string }>;
+  // Shown on agent deposits so the factory and shipping can tell whose job it is.
+  agentName?: string;
 };
 
 // Code 128 of the shop order code, scanned on /factory-receipts when goods come back.
@@ -104,6 +106,7 @@ export function ProductionSheetA4({
   items,
   pantsItems,
   signatureFields,
+  agentName,
 }: ProductionSheetA4Props) {
   const usesExpandedProductionSheetLayout = items.length + pantsItems.length > 4;
   const priorityBannerText =
@@ -271,6 +274,7 @@ export function ProductionSheetA4({
     () =>
       JSON.stringify([
         measuredWidth,
+        agentName,
         fontsVersion,
         items,
         pantsItems,
@@ -284,7 +288,7 @@ export function ProductionSheetA4({
         productionPriority,
         urgentDueDate,
       ]),
-    [measuredWidth, fontsVersion, items, pantsItems, signatureFields, teamName, orderCode, workCategoryLabel, fabricName, productionSentDate, customerDeliveryDate, productionPriority, urgentDueDate]
+    [measuredWidth, agentName, fontsVersion, items, pantsItems, signatureFields, teamName, orderCode, workCategoryLabel, fabricName, productionSentDate, customerDeliveryDate, productionPriority, urgentDueDate]
   );
   const [pageSplit, setPageSplit] = useState<PageSplit | null>(null);
   const rowCount = rows.length;
@@ -358,6 +362,9 @@ export function ProductionSheetA4({
                       {normalizeFactoryBarcode(orderCode) ? <OrderCodeBarcode value={normalizeFactoryBarcode(orderCode)} /> : null}
                     </div>
                     <div className="mt-2 text-[15px] font-black text-slate-700">ລະຫັດອໍເດີ້: <span className="font-black text-sky-700">{orderCode || "-"}</span></div>
+                    {agentName ? (
+                      <div className="mt-1 inline-block rounded border border-indigo-300 bg-indigo-50 px-1.5 text-[12px] font-black text-indigo-700">ຕົວແທນ: {agentName}</div>
+                    ) : null}
                     <div className="mt-1 text-[12px] font-bold text-slate-700">ປະເພດງານ: {workCategoryLabel}</div>
                     <div className="mt-1 text-[15px] font-black text-slate-700">ຜ້າ: <span className="font-bold text-slate-900">{fabricName || "-"}</span></div>
                     <div className="mt-1 text-[15px] font-black text-slate-700">
@@ -396,7 +403,10 @@ export function ProductionSheetA4({
                   </>
                 ) : (
                   <div className="flex items-center justify-between border-b border-slate-300 pb-1.5 text-[11px] font-black text-slate-500">
-                    <span>{teamName || "-"}</span>
+                    <span>
+                      {teamName || "-"}
+                      {agentName ? ` • ຕົວແທນ: ${agentName}` : ""}
+                    </span>
                     <span>
                       {orderCode || "-"} • ໜ້າ {pageIndex + 1}/{pages.length}
                     </span>

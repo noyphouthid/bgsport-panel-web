@@ -106,6 +106,8 @@ export function canEditFactoryDepositOrder(
   role: AppRole
 ) {
   if (role === "superadmin" || role === "accountant" || role === "admin") return status !== "converted";
+  // Once an agent sends a deposit, BG SPORT reviews it; changes go through "send back for edits".
+  if (role === "agent") return status === "draft";
   return status === "draft" || status === "submitted";
 }
 
@@ -129,16 +131,30 @@ export function canViewFactoryDepositOrder(
   return canViewAllFactoryDepositOrders(role) || order.created_by_user_id === viewerUserId;
 }
 
+export function isAgentDepositOrder(order: { agent_user_id?: string | null }) {
+  return Boolean(order.agent_user_id);
+}
+
+// Agent deposits are checked (quantities and transfer slips) by a superadmin before approval.
 export function canApproveFactoryDepositOrder(
-  role: AppRole
+  role: AppRole,
+  order?: { agent_user_id?: string | null }
 ) {
+  if (order && isAgentDepositOrder(order)) return role === "superadmin";
   return role === "superadmin" || role === "accountant";
 }
 
 export function canConvertFactoryDepositOrder(
   role: AppRole
 ) {
-  return role === "superadmin" || role === "accountant";
+  return role === "superadmin";
+}
+
+// Sends a reviewed deposit back to draft so its owner can correct it.
+export function canReturnFactoryDepositOrder(
+  role: AppRole
+) {
+  return role === "superadmin";
 }
 
 export function canDeleteFactoryDepositOrder(

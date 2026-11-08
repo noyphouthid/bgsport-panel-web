@@ -5,6 +5,7 @@ import { getTotalShirtQty } from "@/lib/order-quantities";
 export type OrderSummary = {
   id: string;
   order_code: string;
+  agent_user_id?: string | null;
   customer_phone?: string | null;
   customer_whatsapp?: string | null;
   factory_bill_code: string | null;

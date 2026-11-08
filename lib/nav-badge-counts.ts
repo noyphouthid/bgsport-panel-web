@@ -72,6 +72,8 @@ async function fetchFeedEntry(source: FeedSource, column: string, seen: string |
 
 async function fetchFactoryDepositOrderBadge(client: SupabaseClient, profile: NavBadgeProfile, seen?: string) {
   let query = client.from("factory_deposit_orders").select("id,updated_at").eq("status", "submitted");
+  // Staff see agent deposits on their own review page, so they are not counted here.
+  if (profile.role !== "agent") query = query.is("agent_user_id", null);
   if (profile.role !== "agent" && !canViewAllFactoryDepositOrders(profile.role)) {
     query = query.eq("created_by_user_id", profile.id);
   }
@@ -151,6 +153,17 @@ async function fetchFactoryReceiptOrdersBadge(client: SupabaseClient, seen?: str
     openOrders.filter((row) => receivedOrderIds.has(row.id)).map((row) => getLatestMarker([row.updated_at, latestItemByOrderId.get(row.id)])),
     seen
   );
+}
+
+// Agent deposits waiting for a superadmin to check quantities and transfer slips.
+async function fetchAgentDepositReviewBadge(client: SupabaseClient, seen?: string) {
+  const { data, error } = await client
+    .from("factory_deposit_orders")
+    .select("updated_at")
+    .eq("status", "submitted")
+    .not("agent_user_id", "is", null);
+  if (error) throw error;
+  return buildQueueEntry(((data ?? []) as Array<{ updated_at: string | null }>).map((row) => row.updated_at), seen);
 }
 
 async function fetchShipmentNotesBadge(client: SupabaseClient, profile: NavBadgeProfile, seen?: string) {
@@ -244,6 +257,7 @@ export async function fetchNavBadgeCountsWithClient(client: SupabaseClient, prof
     "/design-queue": () => fetchDesignQueueBadge(client, profile, seen["/design-queue"]),
     "/quotations": () => simpleFeed(client, "quotation_drafts", "updated_at", seen["/quotations"]),
     "/factory-deposit-orders": () => fetchFactoryDepositOrderBadge(client, profile, seen["/factory-deposit-orders"]),
+    "/factory-deposit-orders/agents": () => fetchAgentDepositReviewBadge(client, seen["/factory-deposit-orders/agents"]),
     "/factory-production-queue": () => fetchFactoryProductionQueueBadge(client, profile, seen["/factory-production-queue"]),
     "/factory-production-queue/records": () => fetchProductionRecordsBadge(client, profile, seen["/factory-production-queue/records"]),
     "/payments": () => simpleFeed(client, "payment_transactions", "created_at", seen["/payments"]),

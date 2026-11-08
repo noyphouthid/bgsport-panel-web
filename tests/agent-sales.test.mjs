@@ -63,11 +63,16 @@ test("agent deposit ownership follows the selling agent even when staff created 
   assert.equal(deposits.canViewFactoryDepositOrder({ created_by_user_id: "a" }, "staff", "a"), true);
   assert.equal(deposits.canViewFactoryDepositOrder({ created_by_user_id: "b" }, "admin", "a"), true);
   assert.equal(deposits.canEditFactoryDepositOrder("draft", "agent"), true);
-  assert.equal(deposits.canEditFactoryDepositOrder("submitted", "agent"), true);
+  assert.equal(deposits.canEditFactoryDepositOrder("submitted", "agent"), false);
   assert.equal(deposits.canEditFactoryDepositOrder("approved", "agent"), false);
   assert.equal(deposits.canEditFactoryDepositOrder("converted", "agent"), false);
   assert.equal(deposits.canApproveFactoryDepositOrder("agent"), false);
   assert.equal(deposits.canConvertFactoryDepositOrder("agent"), false);
+  assert.equal(deposits.canConvertFactoryDepositOrder("accountant"), false);
+  assert.equal(deposits.canConvertFactoryDepositOrder("superadmin"), true);
+  assert.equal(deposits.canApproveFactoryDepositOrder("accountant", { agent_user_id: null }), true);
+  assert.equal(deposits.canApproveFactoryDepositOrder("accountant", { agent_user_id: "a" }), false);
+  assert.equal(deposits.canApproveFactoryDepositOrder("superadmin", { agent_user_id: "a" }), true);
   assert.equal(deposits.canDeleteFactoryDepositOrder("agent"), false);
 });
 

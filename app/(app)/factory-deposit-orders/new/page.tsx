@@ -370,6 +370,7 @@ export default function FactoryDepositOrderFormPage() {
   const [quotationDraftId, setQuotationDraftId] = useState<string | null>(draftId);
   const [quotationStatus, setQuotationStatus] = useState<QuotationDraftStatus>("draft");
   const [createdByUserId, setCreatedByUserId] = useState<string | null>(null);
+  const [agentUserId, setAgentUserId] = useState<string | null>(null);
   const [ownsDeposit, setOwnsDeposit] = useState(false);
   const [status, setStatus] = useState<FactoryDepositOrderStatus>("draft");
   const [depositNo, setDepositNo] = useState("");
@@ -480,6 +481,7 @@ export default function FactoryDepositOrderFormPage() {
           setLinkedOrderId(row.order_id || null);
           setQuotationDraftId(row.quotation_draft_id || null);
           setCreatedByUserId(row.created_by_user_id || currentUser?.id || null);
+          setAgentUserId(row.agent_user_id || null);
           setStatus(row.status);
           setDepositNo(row.deposit_no);
           setDepositDate(row.deposit_date);
@@ -729,6 +731,7 @@ export default function FactoryDepositOrderFormPage() {
     items: activeProductionItems,
     pantsItems,
     signatureFields,
+    agentName: agentUserId ? usersById.get(agentUserId)?.full_name || "ຕົວແທນ" : "",
   };
 
   const pendingSlipPreviews = useMemo(
