@@ -33,9 +33,9 @@ function buildUniquePdfFileName(code: string, usedNames: Set<string>) {
   return name;
 }
 
-// Long player lists can outgrow the sheet, so capture the full height and fit it on one A4 page.
-async function renderSheetAsA4Pdf(sheet: HTMLElement) {
-  const [{ toJpeg }, { default: jsPDF }] = await Promise.all([import("html-to-image"), import("jspdf")]);
+// A row taller than a whole page can still outgrow its sheet, so capture the full height and fit it on the A4 page.
+async function renderPageAsJpeg(sheet: HTMLElement) {
+  const { toJpeg } = await import("html-to-image");
   const width = SHEET_RENDER_WIDTH_PX;
   const height = Math.max(Math.ceil((width * 297) / 210), sheet.scrollHeight);
 
@@ -56,12 +56,22 @@ async function renderSheetAsA4Pdf(sheet: HTMLElement) {
     },
   });
 
+  return { dataUrl, width, height };
+}
+
+// Continuation pages of one order go into the same PDF, one A4 page each.
+async function renderSheetAsA4Pdf(pages: HTMLElement[]) {
+  const { default: jsPDF } = await import("jspdf");
   const pdf = new jsPDF("p", "mm", "a4");
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
-  const scale = Math.min((pageWidth - A4_MARGIN_MM * 2) / width, (pageHeight - A4_MARGIN_MM * 2) / height);
-  const imageWidth = width * scale;
-  pdf.addImage(dataUrl, "JPEG", (pageWidth - imageWidth) / 2, A4_MARGIN_MM, imageWidth, height * scale);
+  for (const [index, page] of pages.entries()) {
+    const { dataUrl, width, height } = await renderPageAsJpeg(page);
+    if (index > 0) pdf.addPage("a4", "p");
+    const scale = Math.min((pageWidth - A4_MARGIN_MM * 2) / width, (pageHeight - A4_MARGIN_MM * 2) / height);
+    const imageWidth = width * scale;
+    pdf.addImage(dataUrl, "JPEG", (pageWidth - imageWidth) / 2, A4_MARGIN_MM, imageWidth, height * scale);
+  }
   return pdf;
 }
 
@@ -76,12 +86,12 @@ function saveBlob(blob: Blob, fileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export type SheetPdfEntry = { sheet: HTMLElement; code: string };
+export type SheetPdfEntry = { pages: HTMLElement[]; code: string };
 
 // One sheet downloads as a PDF. Several become one ZIP, because browsers block bursts of downloads.
 export async function downloadSheetsAsPdf(entries: SheetPdfEntry[], onProgress?: (done: number) => void) {
   if (entries.length === 1) {
-    const pdf = await renderSheetAsA4Pdf(entries[0].sheet);
+    const pdf = await renderSheetAsA4Pdf(entries[0].pages);
     pdf.save(buildProductionSheetPdfFileName(entries[0].code));
     return;
   }
@@ -90,7 +100,7 @@ export async function downloadSheetsAsPdf(entries: SheetPdfEntry[], onProgress?:
   const files: Record<string, Uint8Array> = {};
   const usedNames = new Set<string>();
   for (const [index, entry] of entries.entries()) {
-    const pdf = await renderSheetAsA4Pdf(entry.sheet);
+    const pdf = await renderSheetAsA4Pdf(entry.pages);
     files[buildUniquePdfFileName(entry.code, usedNames)] = new Uint8Array(pdf.output("arraybuffer"));
     onProgress?.(index + 1);
   }
