@@ -48,3 +48,14 @@ test("agents edit only drafts; staff keep editing sent deposits", () => {
   assert.equal(deposits.canEditFactoryDepositOrder("submitted", "agent"), false);
   assert.equal(deposits.canEditFactoryDepositOrder("submitted", "staff"), true);
 });
+
+test("an agent can take back a sent deposit until it becomes an order", () => {
+  assert.equal(deposits.canAgentWithdrawFactoryDepositOrder("agent", { status: "submitted", order_id: null }), true);
+  assert.equal(deposits.canAgentWithdrawFactoryDepositOrder("agent", { status: "approved", order_id: null }), true);
+  assert.equal(deposits.canAgentWithdrawFactoryDepositOrder("agent", { status: "draft", order_id: null }), false);
+  assert.equal(deposits.canAgentWithdrawFactoryDepositOrder("agent", { status: "converted", order_id: "o1" }), false);
+  assert.equal(deposits.canAgentWithdrawFactoryDepositOrder("agent", { status: "approved", order_id: "o1" }), false);
+  assert.equal(deposits.canAgentWithdrawFactoryDepositOrder("staff", { status: "submitted", order_id: null }), false);
+  assert.match(deposits.agentWithdrawErrorMessage("Production has already started"), /Pattern/);
+  assert.match(deposits.agentWithdrawErrorMessage("Could not find the function public.agent_withdraw_factory_deposit in the schema cache"), /20261117_agent_withdraw_deposit\.sql/);
+});

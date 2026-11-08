@@ -150,6 +150,23 @@ export function canConvertFactoryDepositOrder(
   return role === "superadmin";
 }
 
+// An agent may take back a sent deposit to fix it until BG SPORT turns it into an order.
+export function canAgentWithdrawFactoryDepositOrder(
+  role: AppRole | null,
+  order: { status: FactoryDepositOrderStatus; order_id?: string | null }
+) {
+  return role === "agent" && (order.status === "submitted" || order.status === "approved") && !order.order_id;
+}
+
+export const AGENT_WITHDRAW_MIGRATION = "20261117_agent_withdraw_deposit.sql";
+
+export function agentWithdrawErrorMessage(message: string) {
+  if (/Production has already started/.test(message)) return "ໂຮງງານເລີ່ມວາງ Pattern ຫຼື ພິມແລ້ວ ຖອນຄືນບໍ່ໄດ້. ກະລຸນາຕິດຕໍ່ BG SPORT";
+  if (/not orders yet/.test(message)) return "ໃບນີ້ບັນທຶກເປັນອໍເດີແລ້ວ ຫຼື ບໍ່ໄດ້ຢູ່ໃນສະຖານະສົ່ງແລ້ວ. ກະລຸນາໂຫຼດໃໝ່";
+  if (/agent_withdraw_factory_deposit|schema cache/.test(message)) return `ກະລຸນາລັນ ${AGENT_WITHDRAW_MIGRATION} ໃນ Supabase SQL Editor`;
+  return message;
+}
+
 // Sends a reviewed deposit back to draft so its owner can correct it.
 export function canReturnFactoryDepositOrder(
   role: AppRole

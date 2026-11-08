@@ -24,6 +24,8 @@ import {
   canApproveFactoryDepositOrder,
   canConvertFactoryDepositOrder,
   canReturnFactoryDepositOrder,
+  canAgentWithdrawFactoryDepositOrder,
+  agentWithdrawErrorMessage,
   canDeleteFactoryDepositOrder,
   canEditFactoryDepositOrder,
   canViewFactoryDepositOrder,
@@ -123,6 +125,7 @@ const HISTORY_ACTION_LABELS: Record<string, string> = {
   convert_to_order: "ບັນທຶກເປັນອໍເດີ",
   cancel_convert_to_order: "ຍົກເລີກການບັນທຶກອໍເດີ",
   return_to_draft: "ສົ່ງກັບໃຫ້ແກ້ໄຂ",
+  agent_withdraw: "ຕົວແທນຖອນຄືນມາແກ້ໄຂ",
   cancel: "ຍົກເລີກ",
   delete: "ລົບ",
 };
@@ -1167,6 +1170,37 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
     }
   };
 
+  const handleAgentWithdraw = async (row: DepositRow) => {
+    if (!canAgentWithdrawFactoryDepositOrder(viewerRole, row)) return toast.error("ຖອນຄືນບໍ່ໄດ້");
+    const result = await Swal.fire({
+      icon: "question",
+      title: "ຖອນຄືນມາແກ້ໄຂ?",
+      text: `${getRowLabel(row)} ຈະກັບເປັນຮ່າງ ແລະ ອອກຈາກຄິວຜະລິດ. ແກ້ໄຂແລ້ວ ໃຫ້ກົດສົ່ງໃໝ່ອີກຄັ້ງ`,
+      input: "text",
+      inputPlaceholder: "ເຫດຜົນ (ບໍ່ບັງຄັບ) ເຊັ່ນ: ລູກຄ້າປ່ຽນຈຳນວນ",
+      showCancelButton: true,
+      confirmButtonText: "ຖອນຄືນ",
+      cancelButtonText: "ຍົກເລີກ",
+      reverseButtons: true,
+    });
+    if (!result.isConfirmed) return;
+
+    setWorkingId(row.id);
+    try {
+      const { error } = await supabase.rpc("agent_withdraw_factory_deposit", {
+        p_deposit_id: row.id,
+        p_reason: String(result.value || "").trim() || null,
+      });
+      if (error) throw new Error(agentWithdrawErrorMessage(error.message));
+      toast.success("ຖອນຄືນແລ້ວ ແກ້ໄຂ ແລະ ສົ່ງໃໝ່ໄດ້");
+      await load();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "ຖອນຄືນບໍ່ສຳເລັດ"));
+    } finally {
+      setWorkingId(null);
+    }
+  };
+
   const handleOpenHistory = async (row: DepositRow) => {
     setHistoryRow(row);
     setHistoryRows(null);
@@ -1537,6 +1571,9 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
         href: `/factory-deposit-orders/new?id=${row.id}`,
       },
       { key: "history", label: "ປະຫວັດການດຳເນີນການ", icon: <History size={14} />, onSelect: () => void handleOpenHistory(row) },
+      ...(canAgentWithdrawFactoryDepositOrder(viewerRole, row)
+        ? [{ key: "withdraw", label: "ຖອນຄືນມາແກ້ໄຂ", icon: <RotateCcw size={14} />, separatorBefore: true, disabled: busy, onSelect: () => void handleAgentWithdraw(row) }]
+        : []),
       ...(canReturn
         ? [{ key: "return", label: "ສົ່ງກັບໃຫ້ແກ້ໄຂ", icon: <RotateCcw size={14} />, separatorBefore: true, disabled: busy, onSelect: () => void handleReturnToDraft(row) }]
         : []),
@@ -1963,7 +2000,7 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
                           <span className="font-medium text-slate-400"> · {getStatusLabel(entry.from_status)} → {getStatusLabel(entry.to_status)}</span>
                         ) : null}
                       </div>
-                      {entry.action === "return_to_draft" && entry.detail ? (
+                      {(entry.action === "return_to_draft" || entry.action === "agent_withdraw") && entry.detail ? (
                         <div className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">ເຫດຜົນ: {entry.detail}</div>
                       ) : null}
                     </li>
