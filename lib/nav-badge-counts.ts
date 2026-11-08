@@ -83,18 +83,23 @@ async function fetchFactoryDepositOrderBadge(client: SupabaseClient, profile: Na
 async function fetchOrderAlertsBadge(client: SupabaseClient): Promise<NavBadgeEntry> {
   const today = getOrderAlertToday();
 
-  const { data: depositData, error: depositError } = await client
-    .from("factory_deposit_orders")
-    .select("id,status,order_id,production_sent_date,delivery_date,updated_at")
-    .eq("status", "converted")
-    .not("order_id", "is", null)
-    .not("production_sent_date", "is", null)
-    .not("delivery_date", "is", null)
-    .lte("production_sent_date", today)
-    .lte("delivery_date", getOrderAlertEndDate(today));
+  // Matching deposits exceed the API's 1000-row cap, so read every page.
+  const { data: depositData, error: depositError } = await fetchAllReportRows<OrderAlertDepositRow>((from, to) =>
+    client
+      .from("factory_deposit_orders")
+      .select("id,status,order_id,production_sent_date,delivery_date,updated_at")
+      .eq("status", "converted")
+      .not("order_id", "is", null)
+      .not("production_sent_date", "is", null)
+      .not("delivery_date", "is", null)
+      .lte("production_sent_date", today)
+      .lte("delivery_date", getOrderAlertEndDate(today))
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
   if (depositError) throw depositError;
 
-  const deposits = (depositData ?? []) as OrderAlertDepositRow[];
+  const deposits = depositData ?? [];
   const orderIds = Array.from(new Set(deposits.map((row) => row.order_id).filter((value): value is string => Boolean(value))));
   if (orderIds.length === 0) return { count: 0, marker: null, mode: "signature" };
 
