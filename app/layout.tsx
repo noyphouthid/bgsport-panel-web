@@ -1,26 +1,27 @@
 import type { Metadata, Viewport } from "next";
-import { Geist_Mono, Nunito } from "next/font/google";
+import localFont from "next/font/local";
 import Script from "next/script";
 import "./globals.css";
-import { Noto_Sans_Lao_Looped } from "next/font/google";
 import { themeInitScript } from "@/lib/theme";
 
 
-const laoFont = Noto_Sans_Lao_Looped({
+// Fonts are bundled from app/fonts so builds never depend on fetching Google Fonts.
+const laoFont = localFont({
+  src: "./fonts/NotoSansLaoLooped-Lao.woff2",
   variable: "--font-lao",
-  subsets: ["lao"],
-  weight: ["400", "500", "600", "700"],
+  weight: "100 900",
 });
 
-
-const nunito = Nunito({
+const nunito = localFont({
+  src: "./fonts/Nunito-Latin.woff2",
   variable: "--font-nunito",
-  subsets: ["latin"],
+  weight: "200 1000",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/GeistMono-Latin.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: "100 900",
 });
 
 export const metadata: Metadata = {
