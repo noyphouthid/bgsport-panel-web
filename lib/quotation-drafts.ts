@@ -57,7 +57,7 @@ export type QuotationDraft = {
 export type QuotationDraftSummary = Pick<QuotationDraft,
   "quoteNo" | "quoteDate" | "orderCode" | "customerName" | "customerPhone" |
   "customerWhatsapp" | "fabricName" | "deposit" | "status"
-> & { id: string };
+> & { id: string; agentUserId: string | null };
 
 type QuotationDraftDbRow = {
   id: string;
@@ -251,10 +251,10 @@ export async function getQuotationDraftSummaries(): Promise<QuotationDraftSummar
   type SummaryDbRow = Pick<QuotationDraftDbRow,
     "id" | "quote_no" | "quote_date" | "order_code" | "customer_name" |
     "customer_phone" | "customer_whatsapp" | "fabric_name" | "deposit" | "status"
-  >;
+  > & { agent_user_id: string | null };
   const { data, error } = await fetchAllReportRows<SummaryDbRow>((from, to) =>
     supabase.from("quotation_drafts")
-      .select("id,quote_no,quote_date,order_code,customer_name,customer_phone,customer_whatsapp,fabric_name,deposit,status")
+      .select("id,quote_no,quote_date,order_code,customer_name,customer_phone,customer_whatsapp,fabric_name,deposit,status,agent_user_id")
       .order("updated_at", { ascending: false })
       .order("id", { ascending: false })
       .range(from, to)
@@ -271,6 +271,7 @@ export async function getQuotationDraftSummaries(): Promise<QuotationDraftSummar
     fabricName: row.fabric_name || "",
     deposit: Number(row.deposit) || 0,
     status: row.status || "draft",
+    agentUserId: row.agent_user_id || null,
   }));
 }
 

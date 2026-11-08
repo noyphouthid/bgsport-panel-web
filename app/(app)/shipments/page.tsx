@@ -23,6 +23,7 @@ import {
   type OrderSummary,
   type QrLabelRow,
 } from "@/lib/inventory-qr";
+import { AgentOwnerBadge, useAgentDirectory } from "../_components/agent-owner";
 import {
   getShipmentAttachments,
   type ShipmentAttachment,
@@ -47,10 +48,14 @@ type ShipmentInfo = {
   existingShipmentBy: string | null;
 };
 
+// The owning agent is shown so an agent's goods are never handed over as BG SPORT's.
+const SHIPMENT_ORDER_SELECT = `${ORDER_QR_ORDER_SELECT},agent_user_id`;
+
 type ShipmentRow = {
   id: string;
   order_id: string;
   order_code: string | null;
+  agent_user_id?: string | null;
   shipped_at: string;
   shipped_by: string;
   collected_amount: number;
@@ -119,6 +124,7 @@ export default function ShipmentsPage() {
   const [cancelReason, setCancelReason] = useState("");
   const [active, setActive] = useState<ShipmentInfo | null>(null);
   const [recentShipments, setRecentShipments] = useState<ShipmentRow[]>([]);
+  const agentDirectory = useAgentDirectory();
   const [saving, setSaving] = useState(false);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
@@ -177,18 +183,20 @@ export default function ShipmentsPage() {
     const shipmentRows = (data ?? []) as ShipmentRow[];
     const orderIds = Array.from(new Set(shipmentRows.map((row) => row.order_id).filter(Boolean)));
     const orderCodes = new Map<string, string>();
+    const orderAgents = new Map<string, string | null>();
 
     if (orderIds.length > 0) {
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
-        .select("id,order_code")
+        .select("id,order_code,agent_user_id")
         .in("id", orderIds);
 
       if (orderError) {
         toast.error(`ໂຫຼດລະຫັດອໍເດີຂອງປະຫວັດຈັດສົ່ງບໍ່ສຳເລັດ: ${orderError.message}`);
       } else {
-        for (const row of (orderData ?? []) as Array<{ id: string; order_code: string }>) {
+        for (const row of (orderData ?? []) as Array<{ id: string; order_code: string; agent_user_id: string | null }>) {
           orderCodes.set(row.id, row.order_code);
+          orderAgents.set(row.id, row.agent_user_id);
         }
       }
     }
@@ -197,6 +205,7 @@ export default function ShipmentsPage() {
       shipmentRows.map((row) => ({
         ...row,
         order_code: orderCodes.get(row.order_id) || null,
+        agent_user_id: orderAgents.get(row.order_id) ?? null,
       }))
     );
   };
@@ -286,13 +295,13 @@ export default function ShipmentsPage() {
 
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
-        .select(ORDER_QR_ORDER_SELECT)
+        .select(SHIPMENT_ORDER_SELECT)
         .eq("id", existingLabel.order_id)
         .maybeSingle();
       if (orderError) throw new Error(orderError.message);
       order = (orderData as OrderSummary | null) || null;
     } else {
-      let orderQuery = supabase.from("orders").select(ORDER_QR_ORDER_SELECT).limit(1);
+      let orderQuery = supabase.from("orders").select(SHIPMENT_ORDER_SELECT).limit(1);
       if ((parsed.kind === "factory_qr" || parsed.kind === "factory_bill_code") && parsed.factoryBillCode) {
         orderQuery = orderQuery.eq("factory_bill_code", parsed.factoryBillCode);
       } else {
@@ -939,6 +948,7 @@ export default function ShipmentsPage() {
                 <div className="min-w-0">
                   <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{active.label.label_status}</div>
                   <div className="mt-2 break-words text-3xl font-black tracking-tight text-slate-900">{active.order.order_code}</div>
+                  <AgentOwnerBadge agentUserId={active.order.agent_user_id} directory={agentDirectory} showInternal className="mt-1 text-xs" />
                   <div className="mt-1 break-words text-sm font-semibold text-slate-500">ລະຫັດບິນໂຮງງານ: {active.order.factory_bill_code?.trim() || "-"}</div>
                 </div>
                 <div className="w-full rounded-3xl border border-amber-100 bg-amber-50 px-4 py-3 text-left sm:w-auto sm:text-right">
@@ -1313,6 +1323,7 @@ export default function ShipmentsPage() {
             <div key={shipment.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">ຈັດສົ່ງແລ້ວ</div>
               <div className="mt-2 text-lg font-black text-slate-900">{shipment.order_code || "-"}</div>
+              <AgentOwnerBadge agentUserId={shipment.agent_user_id} directory={agentDirectory} />
               <div className="mt-1 text-xs font-black uppercase tracking-[0.2em] text-slate-400">{formatDateTime(shipment.shipped_at)}</div>
               <div className="mt-1 text-sm font-semibold text-slate-500">{shipment.shipped_by}</div>
               <div className="mt-3 text-sm font-black text-slate-900">{formatCurrency(shipment.collected_amount)}</div>

@@ -10,6 +10,7 @@ type RouteRule = {
 const ALL_ROLES: AppRole[] = ["superadmin", "admin", "manager", "staff", "graphic", "production", "accountant"];
 const ROLE_LOCKED_PATHS = [
   "/reports/agent-sales",
+  "/factory-deposit-orders/agents",
   "/factory-production-queue",
   "/reports/admin-sales",
   "/reports/design-phone-status",
@@ -43,6 +44,8 @@ const AGENT_ALLOWED_PATHS = new Set([
 
 const ROUTE_RULES: RouteRule[] = [
   { prefix: "/reports/agent-sales", roles: ["superadmin", "manager", "accountant"] },
+  // Only a superadmin reviews, approves and converts agent deposits.
+  { prefix: "/factory-deposit-orders/agents", roles: ["superadmin"] },
   { prefix: "/users", roles: ["superadmin"] },
   { prefix: "/shipments/approvals", roles: ["superadmin"] },
   { prefix: "/imports", roles: ["superadmin", "manager"] },

@@ -18,11 +18,13 @@ import {
   isTransportNotePrinted,
   type TransportNoteRow,
 } from "@/lib/transport-notes";
+import { AgentOwnerBadge, matchesOwnerFilter, OwnerFilterSelect, showsAgentOwnership, useAgentDirectory, type OwnerFilter } from "../../_components/agent-owner";
 
 type OrderRow = {
   id: string;
   order_code: string;
   factory_bill_code: string | null;
+  agent_user_id: string | null;
 };
 
 type UserRow = {
@@ -116,6 +118,8 @@ export default function ShipmentNotesPage() {
   const [currentPrinter, setCurrentPrinter] = useState("");
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [viewerRole, setViewerRole] = useState<AppRole | null>(null);
+  const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>("all");
+  const agentDirectory = useAgentDirectory();
 
   const load = async () => {
     setLoading(true);
@@ -139,7 +143,7 @@ export default function ShipmentNotesPage() {
     if (orderIds.length > 0) {
       const { data: orderData, error: orderError } = await supabase
         .from("orders")
-        .select("id,order_code,factory_bill_code")
+        .select("id,order_code,factory_bill_code,agent_user_id")
         .in("id", orderIds);
       if (!orderError) {
         setOrdersById(Object.fromEntries(((orderData ?? []) as OrderRow[]).map((item) => [item.id, item])));
@@ -177,6 +181,7 @@ export default function ShipmentNotesPage() {
       if (depositFilter === "deposited" && !isTransportNoteDeposited(row)) return false;
       if (depositFilter === "pending" && isTransportNoteDeposited(row)) return false;
       if (adminFilter !== "all" && row.created_by_user_id !== adminFilter) return false;
+      if (!matchesOwnerFilter(row.order_id ? ordersById[row.order_id]?.agent_user_id : null, ownerFilter)) return false;
 
       const printedDate = toDateOnly(row.last_printed_at || row.created_at);
       if (fromDate && (!printedDate || printedDate < fromDate)) return false;
@@ -201,7 +206,7 @@ export default function ShipmentNotesPage() {
         .toLowerCase()
         .includes(keyword);
     });
-  }, [adminFilter, depositFilter, fromDate, ordersById, printFilter, query, rows, sourceFilter, toDate, usersById, viewerRole, viewerUserId]);
+  }, [adminFilter, depositFilter, fromDate, ordersById, ownerFilter, printFilter, query, rows, sourceFilter, toDate, usersById, viewerRole, viewerUserId]);
 
   const adminOptions = useMemo(() => {
     const usedIds = new Set(rows.map((row) => row.created_by_user_id).filter((value): value is string => Boolean(value)));
@@ -390,7 +395,13 @@ export default function ShipmentNotesPage() {
       </section>
 
       <section className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-[1.4fr_180px_180px_180px_180px_160px_160px]">
+        <div
+          className={`grid gap-4 ${
+            showsAgentOwnership(agentDirectory)
+              ? "md:grid-cols-[1.4fr_180px_180px_180px_180px_180px_160px_160px]"
+              : "md:grid-cols-[1.4fr_180px_180px_180px_180px_160px_160px]"
+          }`}
+        >
           <label className="relative block">
             <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
@@ -415,6 +426,7 @@ export default function ShipmentNotesPage() {
             <option value="deposited">ຢືນຢັນການຈັດສົ່ງແລ້ວ</option>
             <option value="pending">ຍັງບໍ່ທັນຢືນຢັນ</option>
           </select>
+          <OwnerFilterSelect value={ownerFilter} onChange={setOwnerFilter} directory={agentDirectory} className="rounded-2xl! py-3! font-bold text-slate-700" />
           {canManageAllTransportNotes(viewerRole) ? (
             <select value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500">
               <option value="all">ທຸກຜູ້ສ້າງ</option>
@@ -487,6 +499,7 @@ export default function ShipmentNotesPage() {
                       <td className="p-4">
                         <div className="font-black text-slate-900">{order?.order_code || "-"}</div>
                         <div className="mt-1 text-xs font-medium text-slate-500">{order?.factory_bill_code?.trim() || "-"}</div>
+                        <AgentOwnerBadge agentUserId={order?.agent_user_id} directory={agentDirectory} className="mt-1" />
                       </td>
                       <td className="p-4">
                         <div className="font-semibold text-slate-700">{row.receiver_name}</div>

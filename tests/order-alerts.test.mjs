@@ -120,7 +120,7 @@ test("navigation badge counts overdue and upcoming orders using the same cutoff 
           return Promise.resolve({ data, error: null }).then(resolve);
         },
       };
-      for (const method of ["eq", "not", "lte", "in", "neq"]) {
+      for (const method of ["eq", "not", "lte", "in", "neq", "order", "range"]) {
         query[method] = (...args) => { filters.push([method, ...args]); return query; };
       }
       return query;

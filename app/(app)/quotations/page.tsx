@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { ChevronLeft, ChevronRight, FilePlus2, PencilLine, Printer, Search, Trash2 } from "lucide-react";
+import { AgentOwnerBadge, matchesOwnerFilter, OwnerFilterSelect, showsAgentOwnership, useAgentDirectory, type OwnerFilter } from "../_components/agent-owner";
 import { deleteQuotationDraft, getQuotationDraftSummaries, type QuotationDraftSummary } from "@/lib/quotation-drafts";
 
 const PAGE_SIZE = 20;
@@ -27,6 +28,8 @@ export default function QuotationsPage() {
   const [toDate, setToDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>("all");
+  const agentDirectory = useAgentDirectory();
 
   const loadRows = async () => {
     setLoading(true);
@@ -48,13 +51,14 @@ export default function QuotationsPage() {
     return rows.filter((row) => {
       if (fromDate && row.quoteDate < fromDate) return false;
       if (toDate && row.quoteDate > toDate) return false;
+      if (!matchesOwnerFilter(row.agentUserId, ownerFilter)) return false;
       if (!keyword) return true;
       return [row.quoteNo, row.orderCode || "", row.customerName, row.customerPhone, row.customerWhatsapp, row.fabricName]
         .join(" ")
         .toLowerCase()
         .includes(keyword);
     });
-  }, [fromDate, query, rows, toDate]);
+  }, [fromDate, query, rows, toDate, ownerFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -99,7 +103,7 @@ export default function QuotationsPage() {
         </div>
 
         <div className="border-b border-slate-100 p-4">
-          <div className="grid gap-3 md:grid-cols-[180px,180px,minmax(0,1fr)]">
+          <div className={`grid gap-3 ${showsAgentOwnership(agentDirectory) ? "md:grid-cols-[180px_180px_200px_minmax(0,1fr)]" : "md:grid-cols-[180px_180px_minmax(0,1fr)]"}`}>
             <input
               type="date"
               aria-label="ວັນທີເລີ່ມຕົ້ນ"
@@ -119,6 +123,14 @@ export default function QuotationsPage() {
                 setPage(1);
               }}
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-900 outline-none transition focus:ring-2 focus:ring-emerald-500"
+            />
+            <OwnerFilterSelect
+              value={ownerFilter}
+              onChange={(value) => {
+                setOwnerFilter(value);
+                setPage(1);
+              }}
+              directory={agentDirectory}
             />
             <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -166,7 +178,11 @@ export default function QuotationsPage() {
                 pageRows.map((row) => (
                   <tr key={row.id} className="transition-colors hover:bg-slate-50/60">
                     <td className="p-4 font-medium text-slate-700">{row.quoteDate}</td>
-                    <td className="p-4 font-black text-slate-900">{row.quoteNo}<div className="mt-1 text-xs text-slate-500">{row.orderCode}</div></td>
+                    <td className="p-4 font-black text-slate-900">
+                      {row.quoteNo}
+                      <div className="mt-1 text-xs text-slate-500">{row.orderCode}</div>
+                      <AgentOwnerBadge agentUserId={row.agentUserId} directory={agentDirectory} className="mt-1" />
+                    </td>
                     <td className="p-4">
                       <div className="font-bold text-slate-900">{row.customerName || "-"}</div>
                       <div className="mt-1 text-xs text-slate-500">{row.customerPhone || "-"}</div>

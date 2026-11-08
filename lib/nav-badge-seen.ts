@@ -4,6 +4,7 @@ export const NAV_BADGE_PATHS = [
   "/design-queue",
   "/quotations",
   "/factory-deposit-orders",
+  "/factory-deposit-orders/agents",
   "/factory-production-queue",
   "/factory-production-queue/records",
   "/payments",

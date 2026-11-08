@@ -58,6 +58,7 @@ export const APP_NAVIGATION: NavItem[] = [
   },
   { type: "link", href: "/quotations", label: "ໃບປະເມີນລາຄາ", icon: "ReceiptText" },
   { type: "link", href: "/factory-deposit-orders", label: "ມັດຈຳສັ່ງຜະລິດ", icon: "ReceiptText" },
+  { type: "link", href: "/factory-deposit-orders/agents", label: "ມັດຈຳຈາກຕົວແທນ", icon: "ReceiptText" },
   { type: "link", href: "/factory-production-queue", label: "ຄິວວາງຜະລິດ", icon: "Factory" },
   { type: "link", href: "/factory-production-queue/records", label: "ລາຍການວາງຜະລິດ", icon: "ClipboardList" },
   { type: "link", href: "/factory-production-queue/activity", label: "ສະຫຼຸບການວາງຜະລິດ", icon: "FileSpreadsheet" },

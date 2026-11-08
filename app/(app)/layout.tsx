@@ -103,6 +103,7 @@ function NavCountBadge({ count }: { count: number }) {
 
 function isNavLinkActive(pathname: string, href: string) {
   if (href === "/factory-production-queue" && (pathname.startsWith("/factory-production-queue/records") || pathname.startsWith("/factory-production-queue/activity"))) return false;
+  if (href === "/factory-deposit-orders" && pathname.startsWith("/factory-deposit-orders/agents")) return false;
   return pathname === href || (href !== "/shirt-catalog" && pathname.startsWith(`${href}/`));
 }
 
