@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { Download, FileDown, Printer } from "lucide-react";
 import { fetchAllReportRows } from "@/lib/report-query";
 import { buildProfitChannelMap, getProfitChannel, PROFIT_CHANNELS, PROFIT_CHANNEL_LABELS, type ProfitChannel, type ProfitChannelFilter, type ProfitChannelRequest, type ProfitChannelNote } from "@/lib/profit-channels";
-import { isProfitInPeriod, profitDateKey, profitRecognitionError, recognizedProfit, type ProfitRecognitionFields } from "@/lib/profit-recognition";
+import { countsTowardProfit, isProfitInPeriod, profitDateKey, profitRecognitionError, recognizedProfit, type ProfitRecognitionFields } from "@/lib/profit-recognition";
 import { supabase } from "@/lib/supabase";
 import type { AppRole } from "@/lib/access-control";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
@@ -125,7 +125,7 @@ export default function SalesProfitReportPage() {
     const [{ data: orderData, error: orderError }, { data: userData, error: userError }, { data: requestData, error: requestError }, { data: noteData, error: noteError }] = await Promise.all([
       fetchAllReportRows<ReportOrder>((from, to) => supabase
         .from("orders")
-        .select("id,order_code,order_date,status,closed_at,production_completed_at,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,shipment_status,admin_user_id,short_qty,long_qty,free_qty,net_total,factory_cost,customer_phone,customer_whatsapp,factory_bill_code,factory_production_is_rush")
+        .select("id,order_code,order_date,status,closed_at,production_completed_at,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,shipment_status,admin_user_id,short_qty,long_qty,free_qty,net_total,factory_cost,customer_phone,customer_whatsapp,factory_bill_code,factory_production_is_rush,exclude_profit")
         .order("profit_recognized_at", { ascending: false, nullsFirst: false }).order("id").range(from,to)),
       supabase
         .from("users")
@@ -178,6 +178,8 @@ export default function SalesProfitReportPage() {
   const filteredRows = useMemo(() => {
     const { start, endExclusive } = periodRange(year, month);
     return rows.filter((row) => {
+      // Sponsorship and remake orders stay out of sales and profit totals entirely.
+      if (!countsTowardProfit(row)) return false;
       if (dateField === "profit_recognized_at") {
         if (!isProfitInPeriod(row,year,month)) return false;
       } else {
@@ -196,6 +198,17 @@ export default function SalesProfitReportPage() {
       return true;
     });
   }, [rows, month, year, dateField, selectedPrefixes, adminFilter, searchTerm, workflowStatus, factoryCostFilter, rushFilter, channelFilter, channels]);
+
+  // Shown so a lower total is not mistaken for missing data.
+  const excludedCount = useMemo(() => {
+    const { start, endExclusive } = periodRange(year, month);
+    return rows.filter((row) => {
+      if (countsTowardProfit(row)) return false;
+      if (dateField === "profit_recognized_at") return isProfitInPeriod({ ...row, exclude_profit: false }, year, month);
+      const effectiveDate = getComparableDate(row[dateField], dateField);
+      return Boolean(effectiveDate && effectiveDate >= start && effectiveDate < endExclusive);
+    }).length;
+  }, [rows, year, month, dateField]);
 
   const summary = useMemo(() => {
     const totalSales = filteredRows.reduce((sum, row) => sum + (Number(row.net_total) || 0), 0);
@@ -440,6 +453,9 @@ export default function SalesProfitReportPage() {
         <div className="space-y-3">
           <div className="text-sm font-black text-slate-800">ກຳໄລແຍກຕາມຊ່ອງທາງ</div>
           <p className="text-xs text-slate-500">ກຳໄລອໍເດີຕາມໄລຍະຮັບຮູ້ກຳໄລ; COD ນັບຕາມວັນຮັບເງິນ. ອໍເດີທີ່ມີຫຼາຍການສົ່ງມອບໃຊ້ຊ່ອງທາງສົ່ງມອບລ່າສຸດ ແລະ ນັບກຳໄລຄັ້ງດຽວ.</p>
+          {excludedCount > 0 ? (
+            <p className="text-xs font-bold text-slate-500">ອໍເດີທີ່ຍົກເວັ້ນກຳໄລໃນໄລຍະນີ້: {excludedCount} ລາຍການ (ບໍ່ລວມໃນຍອດ)</p>
+          ) : null}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {visibleChannels.map((channel) => (
               <div key={channel} className="rounded-xl border border-sky-100 bg-sky-50/50 p-3">

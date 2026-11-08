@@ -16,7 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import Swal from "sweetalert2";
-import { ArrowLeft, Download, Eye, FileImage, FileText, FileUp, Printer, Save, Shirt, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Eye, FileImage, FileText, FileUp, Printer, Save, Shirt, Trash2, Undo2 } from "lucide-react";
 import {
   buildPantsOrderItemPayload,
   buildShirtOrderItemPayload,
@@ -68,6 +68,8 @@ import {
   canApproveFactoryDepositOrder,
   canConvertFactoryDepositOrder,
   canEditFactoryDepositOrder,
+  canAgentWithdrawFactoryDepositOrder,
+  agentWithdrawErrorMessage,
   canViewFactoryDepositOrder,
   FACTORY_DEPOSIT_ORDER_STATUS_LABELS,
   type FactoryDepositOrderStatus,
@@ -357,7 +359,7 @@ export default function FactoryDepositOrderFormPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
-  const [workingAction, setWorkingAction] = useState<"approve" | "convert" | null>(null);
+  const [workingAction, setWorkingAction] = useState<"approve" | "convert" | "withdraw" | null>(null);
   const [uploadingSlip, setUploadingSlip] = useState(false);
   const [deletingSlipId, setDeletingSlipId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -1607,6 +1609,37 @@ export default function FactoryDepositOrderFormPage() {
     });
   };
 
+  const handleAgentWithdraw = async () => {
+    if (!recordId || !canAgentWithdrawFactoryDepositOrder(viewerRole, { status, order_id: linkedOrderId })) return toast.error("ຖອນຄືນບໍ່ໄດ້");
+    const result = await Swal.fire({
+      icon: "question",
+      title: "ຖອນຄືນມາແກ້ໄຂ?",
+      text: "ໃບນີ້ຈະກັບເປັນຮ່າງ ແລະ ອອກຈາກຄິວຜະລິດ. ແກ້ໄຂແລ້ວ ໃຫ້ກົດ \"ບັນທຶກ ແລະ ສົ່ງ\" ອີກຄັ້ງ",
+      input: "text",
+      inputPlaceholder: "ເຫດຜົນ (ບໍ່ບັງຄັບ) ເຊັ່ນ: ລູກຄ້າປ່ຽນຈຳນວນ",
+      showCancelButton: true,
+      confirmButtonText: "ຖອນຄືນ",
+      cancelButtonText: "ຍົກເລີກ",
+      reverseButtons: true,
+    });
+    if (!result.isConfirmed) return;
+
+    setWorkingAction("withdraw");
+    try {
+      const { error } = await supabase.rpc("agent_withdraw_factory_deposit", {
+        p_deposit_id: recordId,
+        p_reason: String(result.value || "").trim() || null,
+      });
+      if (error) throw new Error(agentWithdrawErrorMessage(error.message));
+      setStatus("draft");
+      toast.success("ຖອນຄືນແລ້ວ ແກ້ໄຂ ແລະ ສົ່ງໃໝ່ໄດ້");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "ຖອນຄືນບໍ່ສຳເລັດ");
+    } finally {
+      setWorkingAction(null);
+    }
+  };
+
   const handleApprove = async () => {
     if (!recordId) return toast.error("ບໍ່ພົບໃບມັດຈຳ");
     if (!viewerRole || !canApproveFactoryDepositOrder(viewerRole) || !isSuperAdmin) return toast.error("ທ່ານບໍ່ມີສິດອະນຸມັດ");
@@ -1898,6 +1931,17 @@ export default function FactoryDepositOrderFormPage() {
             <Save size={16} />
             {saving ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກ ແລະ ສົ່ງ"}
           </button>
+          {recordId && canAgentWithdrawFactoryDepositOrder(viewerRole, { status, order_id: linkedOrderId }) && (
+            <button
+              type="button"
+              onClick={handleAgentWithdraw}
+              disabled={saving || uploadingSlip || workingAction !== null}
+              className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+            >
+              <Undo2 size={16} />
+              {workingAction === "withdraw" ? "ກຳລັງຖອນ..." : "ຖອນຄືນມາແກ້ໄຂ"}
+            </button>
+          )}
           {canApproveHere && (
             <button
               type="button"

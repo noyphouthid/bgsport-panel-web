@@ -45,7 +45,11 @@ type OrderRow = {
   qty_4xl: number;
   qty_5xl: number;
   admin_user_id: string | null;
+  exclude_profit?: boolean | null;
 };
+
+const ORDER_LIST_COLUMNS =
+  "id,order_code,order_date,customer_phone,customer_whatsapp,factory_bill_code,order_image_url,fabric_name,net_total,design_deposit,initial_deposit,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,updated_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,admin_user_id";
 
 type UserOption = {
   id: string;
@@ -95,35 +99,37 @@ export default function OrdersPage() {
     setLoading(true);
     setErr(null);
 
-    let q = supabase
-      .from("orders")
-      .select(
-        "id,order_code,order_date,customer_phone,customer_whatsapp,factory_bill_code,order_image_url,fabric_name,net_total,design_deposit,initial_deposit,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at,closed_at,updated_at,short_qty,long_qty,free_qty,qty_3xl,qty_4xl,qty_5xl,admin_user_id",
-        { count: "exact" }
-      )
-      .order("order_date", { ascending: false })
-      .order("created_at", { ascending: false });
+    const buildQuery = (columns: string) => {
+      let q = supabase
+        .from("orders")
+        .select(columns, { count: "exact" })
+        .order("order_date", { ascending: false })
+        .order("created_at", { ascending: false });
 
-    if (fromDate) q = q.gte("order_date", fromDate);
-    if (toDate) q = q.lte("order_date", toDate);
-    if (adminFilter !== "all") q = q.eq("admin_user_id", adminFilter);
+      if (fromDate) q = q.gte("order_date", fromDate);
+      if (toDate) q = q.lte("order_date", toDate);
+      if (adminFilter !== "all") q = q.eq("admin_user_id", adminFilter);
 
-    const s = query.trim();
-    if (s) {
-      const escaped = s.replace(/%/g, "\\%").replace(/_/g, "\\_");
-      q = q.or(
-        `order_code.ilike.%${escaped}%,factory_bill_code.ilike.%${escaped}%,customer_phone.ilike.%${escaped}%,customer_whatsapp.ilike.%${escaped}%`
-      );
-    }
+      const s = query.trim();
+      if (s) {
+        const escaped = s.replace(/%/g, "\\%").replace(/_/g, "\\_");
+        q = q.or(
+          `order_code.ilike.%${escaped}%,factory_bill_code.ilike.%${escaped}%,customer_phone.ilike.%${escaped}%,customer_whatsapp.ilike.%${escaped}%`
+        );
+      }
+      return q;
+    };
 
-    const { data, error } = await q;
+    let { data, error } = await buildQuery(`${ORDER_LIST_COLUMNS},exclude_profit`);
+    // Before 20261116_order_exclude_profit.sql runs, the list still loads without the badge.
+    if (error?.message.includes("exclude_profit")) ({ data, error } = await buildQuery(ORDER_LIST_COLUMNS));
     if (error) {
       setErr(error.message);
       setRows([]);
       setPantsQtyByOrder({});
       setFilteredTotal(0);
     } else {
-      const filteredRows = ((data ?? []) as OrderRow[]).filter((row) => {
+      const filteredRows = ((data ?? []) as unknown as OrderRow[]).filter((row) => {
         const hasFactoryBillCode = Boolean(row.factory_bill_code?.trim());
         const hasFactoryCost = Number(row.factory_cost) > 0;
         if (factoryBillFilter === "has_code" && !hasFactoryBillCode) return false;
@@ -617,7 +623,12 @@ export default function OrdersPage() {
                       /> : null}
                     </td>
                     <td className="p-4 text-slate-600 font-medium">{r.order_date}</td>
-                    <td className="p-4 font-bold text-slate-600">{r.order_code}</td>
+                    <td className="p-4 font-bold text-slate-600">
+                      {r.order_code}
+                      {r.exclude_profit ? (
+                        <div className="mt-1 w-fit whitespace-nowrap rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-black text-white">ບໍ່ນັບກຳໄລ</div>
+                      ) : null}
+                    </td>
                     <td className="p-4 text-slate-500">{r.factory_bill_code?.trim() ? r.factory_bill_code : "-"}</td>
                     <td className="p-4">
                       <div className="flex flex-wrap items-center gap-2">

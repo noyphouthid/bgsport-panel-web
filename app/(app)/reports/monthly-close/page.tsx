@@ -110,7 +110,7 @@ export default function MonthlyClosePage() {
     const tasks = [
       fetchAllReportRows<OrderRow>((from, to) => supabase
         .from("orders")
-        .select("id,order_code,order_date,status,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,net_total,factory_cost,balance")
+        .select("id,order_code,order_date,status,shipment_completed_at,profit_recognized_at,has_transport_cod,cod_pending_count,net_total,factory_cost,balance,exclude_profit")
         .order("profit_recognized_at", { ascending: false, nullsFirst: false }).order("id").range(from,to)),
       supabase
         .from("monthly_closings")

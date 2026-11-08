@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { ArrowLeft, CheckCheck, Save, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, Ban, CheckCheck, Save, Trash2, Undo2 } from "lucide-react";
 import { OrderActivityPanel, type OrderHistoryEntry } from "../../_components/order-activity-panel";
 import { OrderSummaryPanel } from "../../_components/order-summary-panel";
 import { WorkCategoryField } from "../../_components/work-category-field";
@@ -87,6 +87,7 @@ type OrderDetail = {
   balance: number;
   status: "in_progress" | "completed";
   production_completed_at: string | null;
+  exclude_profit?: boolean | null;
   shipment_status?: "pending" | "shipped";
   shipment_completed_at?: string | null;
   customer_remaining_due_at: string | null;
@@ -247,6 +248,7 @@ export default function EditOrderPage() {
   const [viewerPermissions, setViewerPermissions] = useState<UserPermissionSettings>({});
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [isAgentViewer, setIsAgentViewer] = useState(false);
+  const [viewerRole, setViewerRole] = useState<string | null>(null);
   const [orderHistory, setOrderHistory] = useState<OrderHistoryEntry[]>([]);
   const [loadingOrderHistory, setLoadingOrderHistory] = useState(true);
   const { markClean, allowNextNavigation } = useUnsavedChangesGuard({ scopeRef: pageRef, enabled: !loading });
@@ -879,6 +881,7 @@ export default function EditOrderPage() {
       if (!authUserId) return;
       const { data } = await supabase.from("users").select("id,role,permission_settings").eq("auth_user_id", authUserId).maybeSingle();
       setIsAgentViewer(data?.role === "agent");
+      setViewerRole(data?.role ?? null);
       setViewerUserId((data as { id?: string | null } | null)?.id ?? null);
       setViewerPermissions(normalizeUserPermissionSettings((data as { permission_settings?: UserPermissionSettings | null } | null)?.permission_settings));
     };
@@ -940,6 +943,8 @@ export default function EditOrderPage() {
   const canEditOrders = canEditWithPermissions(viewerPermissions, "orders", true);
   const isReadOnlyAdmin = !canEditOrders;
   const canViewProfitDetails = canEditOrders;
+  // Matches the database guard (guard_order_exclude_profit): only superadmin/manager may flip it.
+  const canManageProfitExclusion = canEditOrders && (viewerRole === "superadmin" || viewerRole === "manager");
   const latestShipmentDeliveryDate = shipmentMedia?.delivery_scheduled_at ? toDateInput(shipmentMedia.delivery_scheduled_at) : "";
   const oldFactoryFallbackImageUrl = useMemo(() => {
     if (savedOrderImageUrls.length > 0 || pendingOrderImagePreviewUrls.length > 0 || (linkedDepositMedia?.mockup_urls.length || 0) > 0) return null;
@@ -1370,6 +1375,31 @@ export default function EditOrderPage() {
     await reloadAll();
   };
 
+  const handleToggleExcludeProfit = async () => {
+    if (!order || !canManageProfitExclusion) return;
+    const next = !order.exclude_profit;
+    const ok = window.confirm(
+      next
+        ? "ຍົກເວັ້ນກຳໄລອໍເດີນີ້?\n\nໃຊ້ສຳລັບງານທີ່ບໍ່ຫວັງກຳໄລ ເຊັ່ນ ເສື້ອສະປອນເຊີ ຫຼື ແກ້ໄຂງານຜິດ. ອໍເດີຈະບໍ່ຖືກນັບໃນຍອດຂາຍ ແລະ ກຳໄລ ແຕ່ຍັງບັນທຶກບິນ, ຕົ້ນທຶນ ແລະ ການຈ່າຍໂຮງງານໄດ້ຕາມປົກກະຕິ."
+        : "ນັບກຳໄລອໍເດີນີ້ຄືນ?\n\nອໍເດີນີ້ຈະກັບມາຖືກນັບໃນຍອດຂາຍ ແລະ ກຳໄລ."
+    );
+    if (!ok) return;
+    const { error } = await supabase.from("orders").update({ exclude_profit: next }).eq("id", orderId);
+    if (error) {
+      toast.error(
+        error.message.includes("Only managers")
+          ? "ສະເພາະ Superadmin ຫຼື ຜູ້ຈັດການທີ່ປ່ຽນໄດ້"
+          : error.message.includes("exclude_profit")
+            ? "ກະລຸນາລັນ 20261116_order_exclude_profit.sql ໃນ Supabase SQL Editor"
+            : error.message
+      );
+      return;
+    }
+    await safeInsertAction(next ? "exclude_profit" : "include_profit", next ? "Excluded from profit" : "Included in profit");
+    toast.success(next ? "ຍົກເວັ້ນກຳໄລອໍເດີນີ້ແລ້ວ" : "ນັບກຳໄລອໍເດີນີ້ຄືນແລ້ວ");
+    await reloadAll();
+  };
+
   const handleMarkProductionCompleted = async () => {
     if (isReadOnlyAdmin) return;
     if (!productionCompletedDate) return alert("ກະລຸນາເລືອກວັນທີຜະລິດສຳເລັດ");
@@ -1581,6 +1611,12 @@ export default function EditOrderPage() {
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h1 className="text-2xl font-black text-slate-900">ແກ້ໄຂອໍເດີ: {order.order_code}</h1>
+          {order.exclude_profit ? (
+            <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-slate-800 px-3 py-1 text-xs font-black text-white">
+              <Ban size={12} />
+              ບໍ່ນັບກຳໄລ
+            </div>
+          ) : null}
           <div className="text-sm text-slate-800 font-medium">ສ້າງເມື່ອ: {new Date(order.created_at).toLocaleString("en-US")}</div>
         </div>
         <div className="flex flex-wrap gap-2.5">
@@ -1625,6 +1661,15 @@ export default function EditOrderPage() {
                 ປິດງານແລ້ວ
               </button>
             )
+          ) : null}
+          {canManageProfitExclusion ? (
+            <button
+              onClick={handleToggleExcludeProfit}
+              className={`${actionButtonClassName} ${order.exclude_profit ? "border-slate-300 bg-slate-700 text-white hover:bg-slate-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
+            >
+              <Ban size={16} />
+              {order.exclude_profit ? "ນັບກຳໄລຄືນ" : "ຍົກເວັ້ນກຳໄລ"}
+            </button>
           ) : null}
           {!isReadOnlyAdmin ? (
             <button
@@ -2292,6 +2337,7 @@ export default function EditOrderPage() {
             customerBillTotal={customerBillTotal}
             totalFactoryCost={totalFactoryCost}
             profitPreview={profitPreview}
+            profitExcluded={Boolean(order.exclude_profit)}
             showProfitDetails={canViewProfitDetails}
             footerNote={`ລາຍການລວມ ${totalOrderQty.toLocaleString()} ໂຕ`}
           />
