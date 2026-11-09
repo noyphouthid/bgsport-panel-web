@@ -1281,6 +1281,11 @@ export default function FactoryDepositOrderFormPage() {
     }
   };
 
+  const isDepositFieldChangeLogEnabled = async () => {
+    const { data, error } = await supabase.rpc("deposit_field_change_log_enabled");
+    return !error && data === true;
+  };
+
   const persistDepositOrder = async ({
     nextStatus,
     action,
@@ -1560,7 +1565,10 @@ export default function FactoryDepositOrderFormPage() {
         if (legacySyncResult.error) throw legacySyncResult.error;
       }
 
-      await insertHistory(
+      // With 20261119 applied, the database logs each edit with its changed values,
+      // so a plain save would only add a duplicate entry without details.
+      const fieldChangesLoggedByDatabase = await isDepositFieldChangeLogEnabled();
+      if (!(recordId && !action && previousStatus === nextStatus && fieldChangesLoggedByDatabase)) await insertHistory(
         depositOrderId,
         action || (recordId ? "update" : "create"),
         detail || (nextStatus === "submitted" ? "submit deposit order" : "save draft deposit order"),
