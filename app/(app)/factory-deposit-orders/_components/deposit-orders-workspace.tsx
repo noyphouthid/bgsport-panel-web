@@ -41,6 +41,7 @@ import { fetchAllReportRows } from "@/lib/report-query";
 import { getDepositSubmitBlocker, mapLegacyCollarType, parsePantsProductionItems, parseProductionItems } from "@/lib/production-sheet";
 import { downloadSheetsAsPdf, waitForSheetAssets } from "@/lib/production-sheet-export";
 import { canEditWithPermissions, normalizeUserPermissionSettings, type UserPermissionSettings } from "@/lib/user-permissions";
+import { describeDepositFieldChange, parseDepositFieldChanges } from "@/lib/deposit-change-log";
 import { ProductionSheetA4, type ProductionSheetA4Props } from "./production-sheet-a4";
 import { RowActionMenu, type RowActionMenuItem } from "./row-action-menu";
 
@@ -115,6 +116,7 @@ type DepositHistoryRow = {
   to_status: string | null;
   action_by_user_id: string | null;
   action_at: string;
+  changes?: unknown;
 };
 
 const HISTORY_ACTION_LABELS: Record<string, string> = {
@@ -1204,17 +1206,17 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
   const handleOpenHistory = async (row: DepositRow) => {
     setHistoryRow(row);
     setHistoryRows(null);
-    const { data, error } = await supabase
-      .from("factory_deposit_order_history")
-      .select("id,action,detail,from_status,to_status,action_by_user_id,action_at")
-      .eq("deposit_order_id", row.id)
-      .order("action_at", { ascending: false });
+    const loadHistory = (columns: string) =>
+      supabase.from("factory_deposit_order_history").select(columns).eq("deposit_order_id", row.id).order("action_at", { ascending: false });
+    let { data, error } = await loadHistory("id,action,detail,from_status,to_status,action_by_user_id,action_at,changes");
+    // Before 20261119_log_deposit_field_changes.sql runs there is no changes column.
+    if (error?.message.includes("changes")) ({ data, error } = await loadHistory("id,action,detail,from_status,to_status,action_by_user_id,action_at"));
     if (error) {
       toast.error(getErrorMessage(error, "ໂຫຼດປະຫວັດບໍ່ສຳເລັດ"));
       setHistoryRow(null);
       return;
     }
-    setHistoryRows((data ?? []) as DepositHistoryRow[]);
+    setHistoryRows((data ?? []) as unknown as DepositHistoryRow[]);
   };
 
   const handleApprove = async (row: DepositRow) => {
@@ -2000,6 +2002,30 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
                           <span className="font-medium text-slate-400"> · {getStatusLabel(entry.from_status)} → {getStatusLabel(entry.to_status)}</span>
                         ) : null}
                       </div>
+                      {(() => {
+                        const changes = parseDepositFieldChanges(entry.changes);
+                        if (changes.length === 0) return null;
+                        return (
+                          <details className="group mt-1.5 border-t border-slate-100 pt-1.5">
+                            <summary className="flex w-fit cursor-pointer list-none items-center gap-2 text-xs font-black text-slate-700 [&::-webkit-details-marker]:hidden">
+                              <ChevronRight size={14} className="text-slate-400 transition group-open:rotate-90" />
+                              ລາຍລະອຽດການປ່ຽນແປງ
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-600">{changes.length}</span>
+                            </summary>
+                            <ul className="mt-1.5 space-y-1 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs">
+                              {changes.map((change) => {
+                                const { label, text } = describeDepositFieldChange(change, userNamesById);
+                                return (
+                                  <li key={change.field} className="flex flex-wrap gap-x-1.5">
+                                    <span className="font-bold text-slate-500">{label}:</span>
+                                    <span className="font-semibold text-slate-800">{text}</span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </details>
+                        );
+                      })()}
                       {(entry.action === "return_to_draft" || entry.action === "agent_withdraw") && entry.detail ? (
                         <div className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">ເຫດຜົນ: {entry.detail}</div>
                       ) : null}
