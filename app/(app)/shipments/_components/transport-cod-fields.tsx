@@ -16,7 +16,14 @@ export function TransportCodFields({ enabled, amount, disabled, onChange }: {
       </label>
       {enabled ? <label className="block text-sm font-bold text-slate-700">
         ຈຳນວນເງິນ COD (ກີບ)
-        <input type="number" min="0.01" max="9999999999999.99" step="0.01" value={amount || ""} onChange={event => onChange(true, Number(event.target.value))} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="0"
+          value={amount ? Math.round(amount).toLocaleString("en-US") : ""}
+          // Kip has no decimals, so treat "." and "," as thousands separators: "127.000" means 127000, not 127.
+          onChange={event => onChange(true, Number(event.target.value.replace(/\D/g, "").slice(0, 13)) || 0)}
+          className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
       </label> : null}
       <p className="text-xs text-slate-600">ເບີຮ້ານໃນໃບບິນ: <strong>{getTransportNoteContactPhone(enabled)}</strong></p>
     </fieldset>
