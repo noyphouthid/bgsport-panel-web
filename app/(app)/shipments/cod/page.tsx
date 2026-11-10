@@ -124,7 +124,7 @@ export default function TransportCodPage() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold"><Banknote className="text-emerald-600"/>ລາຍການ COD ທັງໝົດ</h1>
-          <p className="mt-2 text-sm text-[var(--theme-muted)]">ຕິດຕາມຍອດເກັບເງິນປາຍທາງ. ກຳໄລ COD ຈະນັບໃນເດືອນທີ່ກົດຮັບເງິນຄົບຂອງອໍເດີ.</p>
+          <p className="mt-2 text-sm text-[var(--theme-muted)]">ຕິດຕາມຍອດເກັບເງິນປາຍທາງ. ກຳໄລ COD ຈະນັບໃນເດືອນທີ່ກົດຮັບເງິນຄົບຂອງອໍເດີ. ລາຍການຈະຂຶ້ນຢູ່ນີ້ຫຼັງຈາກ<Link href="/shipments/deposits/scan" className="font-bold underline">ສະແກນຢືນຢັນຝາກ</Link>ແລ້ວເທົ່ານັ້ນ.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/shipments/notes" className="rounded-xl border px-4 py-2 text-sm">ໃບຝາກເຄື່ອງ</Link>

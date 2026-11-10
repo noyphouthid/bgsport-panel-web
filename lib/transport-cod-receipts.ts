@@ -44,6 +44,7 @@ export function getTransportCodReceiptError(error: { code?: string; message?: st
     return `ກະລຸນາລັນ 20261102_add_transport_cod.sql ແລະ ${TRANSPORT_COD_RECEIPTS_MIGRATION} ໃນ Supabase SQL Editor ກ່ອນ`;
   }
   if (error.code === "42501" || error.message?.includes("cod_forbidden")) return "ທ່ານບໍ່ມີສິດຈັດການລາຍການ COD";
+  if (error.message?.includes("cod_not_deposited")) return "ລາຍການນີ້ຍັງບໍ່ໄດ້ສະແກນຢືນຢັນຝາກຂົນສົ່ງ ກະລຸນາສະແກນທີ່ໜ້າຢືນຢັນຝາກກ່ອນ";
   if (error.message?.includes("cod_amount_changed")) return "ຍອດ COD ຖືກປ່ຽນແປງ ກະລຸນາໂຫຼດລາຍການໃໝ່ກ່ອນຮັບຍອດ";
   if (error.code === "P0002") return "ບໍ່ພົບລາຍການ COD ນີ້ ກະລຸນາໂຫຼດລາຍການໃໝ່";
   return error.message || "ດຳເນີນການ COD ບໍ່ສຳເລັດ";
