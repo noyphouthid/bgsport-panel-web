@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fetchFactoryOrderStatuses, parseFactoryOrderStatus } from "../lib/factory-order-status.ts";
+import { describeFactoryOrderStatus, fetchFactoryOrderStatuses, parseFactoryOrderStatus } from "../lib/factory-order-status.ts";
 
 const sample = {
   status: "in_progress",
@@ -48,4 +48,15 @@ test("each bill code is requested once and failures are reported per code", asyn
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("describes the latest factory status in one line", () => {
+  const stage = (name, status, current = false) => ({ name, code: name, status, statusLabel: status, current, assignedQuantity: 20, completedQuantity: 5, completedAt: null });
+  const ready = (stages, completedSteps) => ({ state: "ready", data: { status: "in_production", statusLabel: "ກຳລັງຜະລິດ", totalSteps: 3, completedSteps, currentStage: stages.find(s => s.current) ?? null, stages } });
+  assert.equal(describeFactoryOrderStatus("", undefined), "ບໍ່ມີບິນໂຮງງານ");
+  assert.equal(describeFactoryOrderStatus("26-1", { state: "loading" }), "ກຳລັງໂຫຼດ...");
+  assert.equal(describeFactoryOrderStatus("26-1", { state: "not_found" }), "ບໍ່ພົບໃນລະບົບໂຮງງານ");
+  assert.equal(describeFactoryOrderStatus("26-1", ready([stage("ພິມ", "completed"), stage("ຕັດ", "in_progress", true), stage("ຫຍິບ", "pending")], 1)), "ຕັດ (ຂັ້ນ 2/3)");
+  assert.equal(describeFactoryOrderStatus("26-1", ready([stage("ພິມ", "completed"), stage("ຕັດ", "completed"), stage("ຫຍິບ", "pending")], 2)), "ຕັດ (ຂັ້ນ 2/3)");
+  assert.equal(describeFactoryOrderStatus("26-1", ready([stage("ພິມ", "completed"), stage("ຕັດ", "completed"), stage("ຫຍິບ", "completed")], 3)), "ຜະລິດຄົບທຸກຂັ້ນຕອນແລ້ວ");
 });

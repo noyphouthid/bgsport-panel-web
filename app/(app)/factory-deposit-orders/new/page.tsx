@@ -28,7 +28,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { confirmOrderWorkCategory } from "@/lib/order-work-category-dialog";
 import type { AppRole } from "@/lib/access-control";
-import { isAdminRole, isGraphicRole } from "@/lib/role-groups";
+import { getOrderAdminOptionLabel, isGraphicRole, isOrderAdminOptionRole } from "@/lib/role-groups";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
 import {
   PRODUCTION_HEM_OPTIONS,
@@ -630,7 +630,7 @@ export default function FactoryDepositOrderFormPage() {
   const selectedFabric = useMemo(() => fabrics.find((item) => item.id === fabricId) ?? null, [fabrics, fabricId]);
   const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
-  const adminOptions = useMemo(() => users.filter((item) => isAdminRole(item.role)), [users]);
+  const adminOptions = useMemo(() => users.filter((item) => isOrderAdminOptionRole(item.role)), [users]);
   const plannerOptions = useMemo(() => users.filter((item) => isGraphicRole(item.role)), [users]);
   const roleCanEdit = viewerRole ? canEditFactoryDepositOrder(status, viewerRole) : false;
   const canEdit = canEditWithPermissions(viewerPermissions, "factory_deposit_orders", roleCanEdit)
@@ -2136,7 +2136,7 @@ export default function FactoryDepositOrderFormPage() {
               <input value={customerFacebook} onChange={(e) => setCustomerFacebook(e.target.value)} disabled={!canEdit} placeholder="Facebook" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50" />
               <select aria-label="ແອັດມິນ" value={adminUserId} onChange={(e) => setAdminUserId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
                 <option value="">ເລືອກແອັດມິນ</option>
-                {adminOptions.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}
+                {adminOptions.map((user) => <option key={user.id} value={user.id}>{getOrderAdminOptionLabel(user)}</option>)}
               </select>
               <select aria-label="ຜູ້ອອກແບບ" value={graphicUserId} onChange={(e) => setGraphicUserId(e.target.value)} disabled={!canEdit} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-50">
                 <option value="">ເລືອກຜູ້ອອກແບບ</option>

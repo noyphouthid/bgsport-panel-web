@@ -23,7 +23,7 @@ import {
   type PantsOrderItemDraft,
 } from "@/lib/order-items";
 import { getMissingOrderCollarFieldsMessage, isMissingOrderCollarFieldsError } from "@/lib/order-collar-fields";
-import { isAdminRole, isGraphicRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
+import { getOrderAdminOptionLabel, isGraphicRole, isOrderAdminOptionRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
 import { buildOrderCode, normalizeOrderNo, normalizeOrderType, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import { buildSafeStorageFileName, ORDER_MEDIA_BUCKET } from "@/lib/order-media";
@@ -207,7 +207,7 @@ export default function NewOrderPage() {
 
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
   const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
-  const adminOptions = useMemo(() => users.filter((u) => isAdminRole(u.role)), [users]);
+  const adminOptions = useMemo(() => users.filter((u) => isOrderAdminOptionRole(u.role)), [users]);
   const graphicOptions = useMemo(() => users.filter((u) => isGraphicRole(u.role)), [users]);
   const canEditOrders = canEditWithPermissions(viewerPermissions, "orders", true);
 
@@ -846,7 +846,7 @@ export default function NewOrderPage() {
                   <option value="">ເລືອກ admin</option>
                   {adminOptions.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.full_name}
+                      {getOrderAdminOptionLabel(u)}
                     </option>
                   ))}
                 </select>
