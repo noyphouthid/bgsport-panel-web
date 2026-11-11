@@ -24,17 +24,23 @@ export type OrderAlertReportRow = {
 export const ORDER_ALERT_REPORT_HEADERS = [
   "ລຳດັບ", "ລະຫັດອໍເດີ້ BG", "ລະຫັດບິນໂຮງງານ", "ຈຳນວນ",
   "ວັນທີ່ສົ່ງຜະລິດ", "ກຳນົດສົ່ງລູກຄ້າ", "ເກີນກຳນົດຈັກວັນ", "ປະເພດງານ (ງານດ່ວນ/ປົກກະຕິ)",
+  "ສະຖານະການຜະລິດລ່າສຸດ",
 ];
+
+// The factory status API is keyed by bill code; rows without one show "-".
+export function getOrderAlertReportFactoryCode(row: Pick<OrderAlertReportRow, "factoryBillCode">) {
+  return row.factoryBillCode === "-" ? "" : row.factoryBillCode;
+}
 
 export function formatOrderAlertReportDate(value: string) {
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
 }
 
-export function getOrderAlertReportCells(row: OrderAlertReportRow, index: number) {
+export function getOrderAlertReportCells(row: OrderAlertReportRow, index: number, productionStatus = "-") {
   return [index + 1, row.orderCode, row.factoryBillCode, row.quantity,
     formatOrderAlertReportDate(row.productionSentDate), formatOrderAlertReportDate(row.deliveryDate),
-    row.overdueDays, row.priority === "urgent" ? "ງານດ່ວນ" : "ປົກກະຕິ"];
+    row.overdueDays, row.priority === "urgent" ? "ງານດ່ວນ" : "ປົກກະຕິ", productionStatus];
 }
 
 export async function fetchOrderAlertReportWithClient(client: SupabaseClient, today = getOrderAlertToday()) {

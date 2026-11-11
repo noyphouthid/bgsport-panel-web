@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { BellRing, Download, FileSpreadsheet, RefreshCw, Search, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BellRing, Download, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Search, TriangleAlert } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { getOrderAlertErrorMessage, getOrderAlertToday } from "@/lib/order-alerts";
-import { fetchOrderAlertReportWithClient, formatOrderAlertReportDate, getOrderAlertReportCells, ORDER_ALERT_REPORT_HEADERS, type OrderAlertReportRow } from "@/lib/order-alert-report";
+import { fetchOrderAlertReportWithClient, formatOrderAlertReportDate, getOrderAlertReportCells, getOrderAlertReportFactoryCode, ORDER_ALERT_REPORT_HEADERS, type OrderAlertReportRow } from "@/lib/order-alert-report";
+import { exportOrderAlertReportPdf } from "./export-pdf";
+import { describeFactoryOrderStatus, fetchFactoryOrderStatuses, type FactoryOrderStatusResult } from "@/lib/factory-order-status";
 
 export default function OrderAlertReportPage() {
   const [rows, setRows] = useState<OrderAlertReportRow[]>([]);
@@ -21,6 +23,22 @@ export default function OrderAlertReportPage() {
   const [minDays, setMinDays] = useState("");
   const [maxDays, setMaxDays] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [factoryStatuses, setFactoryStatuses] = useState<ReadonlyMap<string, FactoryOrderStatusResult>>(() => new Map());
+  const factoryStatusAbortRef = useRef<AbortController | null>(null);
+
+  // Factory progress loads after the report so the table never waits on the factory API.
+  const loadFactoryStatuses = useCallback((reportRows: OrderAlertReportRow[]) => {
+    factoryStatusAbortRef.current?.abort();
+    const controller = new AbortController();
+    factoryStatusAbortRef.current = controller;
+    const codes = [...new Set(reportRows.map(getOrderAlertReportFactoryCode).filter(Boolean))];
+    setFactoryStatuses(new Map(codes.map(code => [code, { state: "loading" } as const])));
+    fetchFactoryOrderStatuses(codes, (code, result) => setFactoryStatuses(previous => new Map(previous).set(code, result)), controller.signal)
+      .catch(() => { /* Aborted by a newer reload; that run owns the state now. */ });
+  }, []);
+
+  useEffect(() => () => factoryStatusAbortRef.current?.abort(), []);
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -31,13 +49,14 @@ export default function OrderAlertReportPage() {
       const data = await fetchOrderAlertReportWithClient(supabase, today);
       setRows(data);
       setReportDate(today);
+      loadFactoryStatuses(data);
     } catch (err) {
       setRows([]);
       setError(getOrderAlertErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadFactoryStatuses]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 
@@ -60,6 +79,15 @@ export default function OrderAlertReportPage() {
   // Export is always limited to the current filters, even when other rows were selected earlier.
   const selectedRows = useMemo(() => filteredRows.filter(row => selectedIds.has(row.id)), [filteredRows, selectedIds]);
   const allSelected = filteredRows.length > 0 && selectedRows.length === filteredRows.length;
+  const getProductionStatus = (row: OrderAlertReportRow) => {
+    const code = getOrderAlertReportFactoryCode(row);
+    return { code, result: factoryStatuses.get(code), text: describeFactoryOrderStatus(code, factoryStatuses.get(code)) };
+  };
+  // Wait for the factory statuses of the selected rows, so Excel never says "loading".
+  const statusesLoading = selectedRows.some(row => {
+    const { code, result } = getProductionStatus(row);
+    return code !== "" && (!result || result.state === "loading");
+  });
 
   const toggleRow = (id: string) => setSelectedIds(current => {
     const next = new Set(current);
@@ -88,16 +116,38 @@ export default function OrderAlertReportPage() {
   };
 
   const exportExcel = () => {
-    if (loading || error || filterError || !selectedRows.length) return;
+    if (loading || error || filterError || !selectedRows.length || statusesLoading) return;
     try {
-      const sheet = XLSX.utils.aoa_to_sheet([ORDER_ALERT_REPORT_HEADERS, ...selectedRows.map(getOrderAlertReportCells)]);
-      sheet["!cols"] = [8, 24, 24, 12, 22, 22, 22, 38].map(wch => ({ wch }));
+      const sheet = XLSX.utils.aoa_to_sheet([ORDER_ALERT_REPORT_HEADERS, ...selectedRows.map((row, index) => getOrderAlertReportCells(row, index, getProductionStatus(row).text))]);
+      sheet["!cols"] = [8, 24, 24, 12, 22, 22, 22, 38, 40].map(wch => ({ wch }));
       sheet["!autofilter"] = { ref: sheet["!ref"]! };
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, "Order Alerts");
       XLSX.writeFile(workbook, `order-alerts-report-${reportDate}.xlsx`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "ດາວໂຫຼດ Excel ບໍ່ສຳເລັດ");
+    }
+  };
+
+  const exportPdf = async () => {
+    if (loading || error || filterError || !selectedRows.length || statusesLoading || exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      const selectedQuantity = selectedRows.reduce((sum, row) => sum + row.quantity, 0);
+      await exportOrderAlertReportPdf({
+        title: "ລາຍງານອໍເດີ້ເກີນກຳນົດ",
+        summary: [
+          `ຈຳນວນອໍເດີ້ ${selectedRows.length.toLocaleString()} ລາຍການ`,
+          `ຈຳນວນລວມ ${selectedQuantity.toLocaleString()} ຕົວ`,
+        ],
+        headers: ORDER_ALERT_REPORT_HEADERS,
+        numericColumns: [0, 3, 6],
+        rows: selectedRows.map((row, index) => getOrderAlertReportCells(row, index, getProductionStatus(row).text).map(cell => typeof cell === "number" ? cell.toLocaleString() : cell)),
+      }, `order-alerts-report-${reportDate}.pdf`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ດາວໂຫຼດ PDF ບໍ່ສຳເລັດ");
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -156,15 +206,16 @@ export default function OrderAlertReportPage() {
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p aria-live="polite" className="text-sm font-bold text-slate-900">ເລືອກແລ້ວ {loading || error ? 0 : selectedRows.length} / {loading || error ? 0 : filteredRows.length} ລາຍການ</p>
-            <p className="mt-1 text-xs text-slate-500">Export ສະເພາະລາຍການທີ່ເລືອກໃນຕົວກອງປັດຈຸບັນ</p>
+            <p className="mt-1 text-xs text-slate-500">Excel / PDF ສະເພາະລາຍການທີ່ເລືອກໃນຕົວກອງປັດຈຸບັນ</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setSelectedIds(new Set())} disabled={!selectedIds.size || loading} className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">ຍົກເລີກການເລືອກ</button>
-            <button type="button" onClick={exportExcel} disabled={loading || !!error || !!filterError || !selectedRows.length} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"><Download size={16} /> ດາວໂຫຼດ Excel ({loading || error ? 0 : selectedRows.length})</button>
+            <button type="button" onClick={exportExcel} disabled={loading || !!error || !!filterError || !selectedRows.length || statusesLoading} title={statusesLoading ? "ກຳລັງໂຫຼດສະຖານະການຜະລິດ..." : undefined} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"><Download size={16} /> ດາວໂຫຼດ Excel ({loading || error ? 0 : selectedRows.length})</button>
+            <button type="button" onClick={() => void exportPdf()} disabled={loading || !!error || !!filterError || !selectedRows.length || statusesLoading || exportingPdf} title={statusesLoading ? "ກຳລັງໂຫຼດສະຖານະການຜະລິດ..." : undefined} className="inline-flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-50">{exportingPdf ? <LoaderCircle size={16} className="animate-spin" /> : <FileText size={16} />} ດາວໂຫຼດ PDF A4 ({loading || error ? 0 : selectedRows.length})</button>
           </div>
         </div>
         <div role="region" aria-label="ຕາລາງອໍເດີ້ເກີນກຳນົດ" tabIndex={0} className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] border-collapse text-sm">
+          <table className="w-full min-w-[1400px] border-collapse text-sm">
             <caption className="sr-only">ລາຍງານອໍເດີ້ເກີນກຳນົດ</caption>
             <thead className="bg-slate-100 text-slate-600">
               <tr>
@@ -176,19 +227,25 @@ export default function OrderAlertReportPage() {
             </thead>
             <tbody>
               {loading || error || !filteredRows.length ? (
-                <tr><td colSpan={9} className="px-4 py-14 text-center text-slate-500" role="status">{loading ? "ກຳລັງໂຫຼດລາຍງານ..." : error ? "ໂຫຼດລາຍງານບໍ່ສຳເລັດ — ກົດໂຫຼດໃໝ່" : filterError ? "ກະລຸນາກວດສອບຕົວກອງ" : rows.length ? "ບໍ່ພົບລາຍການທີ່ຄົ້ນຫາ" : "ບໍ່ມີອໍເດີ້ເກີນກຳນົດ"}</td></tr>
-              ) : filteredRows.map((row, index) => (
+                <tr><td colSpan={10} className="px-4 py-14 text-center text-slate-500" role="status">{loading ? "ກຳລັງໂຫຼດລາຍງານ..." : error ? "ໂຫຼດລາຍງານບໍ່ສຳເລັດ — ກົດໂຫຼດໃໝ່" : filterError ? "ກະລຸນາກວດສອບຕົວກອງ" : rows.length ? "ບໍ່ພົບລາຍການທີ່ຄົ້ນຫາ" : "ບໍ່ມີອໍເດີ້ເກີນກຳນົດ"}</td></tr>
+              ) : filteredRows.map((row, index) => {
+                const status = getProductionStatus(row);
+                const statusTone = status.result?.state === "ready"
+                  ? status.text === "ຜະລິດຄົບທຸກຂັ້ນຕອນແລ້ວ" ? "bg-emerald-50 text-emerald-700" : "bg-amber-100 text-amber-800"
+                  : "text-slate-400";
+                return (
                 <tr key={row.id} className="odd:bg-white even:bg-slate-50/60 hover:bg-blue-50/50">
                   <td className="border-b border-r border-slate-200 px-4 py-3 text-center"><input type="checkbox" aria-label={`ເລືອກ ${row.orderCode}`} checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} className="h-4 w-4 cursor-pointer accent-emerald-600" /></td>
-                  {getOrderAlertReportCells(row, index).map((cell, column) => (
+                  {getOrderAlertReportCells(row, index, status.text).map((cell, column) => (
                     <td key={column} className={`border-b border-r border-slate-200 px-4 py-3 last:border-r-0 ${column === 3 || column === 6 ? "text-right font-semibold tabular-nums" : ""} ${column === 6 ? "text-rose-600" : ""}`}>
-                      {column === 1 ? <Link href={`/orders/${row.orderId}/edit`} className="font-mono font-bold text-blue-700 hover:underline">{cell}</Link> : column === 7 ? <span className={`inline-block whitespace-nowrap rounded-md px-2 py-1 text-xs font-bold ${row.priority === "urgent" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{cell}</span> : typeof cell === "number" ? cell.toLocaleString() : cell}
+                      {column === 1 ? <Link href={`/orders/${row.orderId}/edit`} className="font-mono font-bold text-blue-700 hover:underline">{cell}</Link> : column === 8 ? <span className={`inline-block whitespace-nowrap rounded-md px-2 py-1 text-xs font-bold ${statusTone}`}>{cell}</span> : column === 7 ? <span className={`inline-block whitespace-nowrap rounded-md px-2 py-1 text-xs font-bold ${row.priority === "urgent" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{cell}</span> : typeof cell === "number" ? cell.toLocaleString() : cell}
                     </td>
                   ))}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
-            {!loading && !error && filteredRows.length > 0 && <tfoot className="bg-slate-100 font-bold"><tr><td colSpan={4} className="border-r border-slate-200 px-4 py-3">ລວມ {filteredRows.length.toLocaleString()} ລາຍການ</td><td className="border-r border-slate-200 px-4 py-3 text-right tabular-nums">{totalQuantity.toLocaleString()}</td><td colSpan={4} /></tr></tfoot>}
+            {!loading && !error && filteredRows.length > 0 && <tfoot className="bg-slate-100 font-bold"><tr><td colSpan={4} className="border-r border-slate-200 px-4 py-3">ລວມ {filteredRows.length.toLocaleString()} ລາຍການ</td><td className="border-r border-slate-200 px-4 py-3 text-right tabular-nums">{totalQuantity.toLocaleString()}</td><td colSpan={5} /></tr></tfoot>}
           </table>
         </div>
       </div>

@@ -61,8 +61,9 @@ test("report excludes due-today, future, invalid, unconverted, received and fini
   assert.deepEqual(rows.map(row => row.overdueDays), [5, 1]);
   assert.equal(rows[0].factoryBillCode, "000123");
   assert.equal(rows[1].factoryBillCode, "DEP-BILL");
-  assert.equal(ORDER_ALERT_REPORT_HEADERS.length, 8);
-  assert.deepEqual(getOrderAlertReportCells(rows[0], 0), [1, "BG-001", "000123", 17, "01/10/2026", "23/10/2026", 5, "ງານດ່ວນ"]);
+  assert.equal(ORDER_ALERT_REPORT_HEADERS.length, 9);
+  assert.deepEqual(getOrderAlertReportCells(rows[0], 0), [1, "BG-001", "000123", 17, "01/10/2026", "23/10/2026", 5, "ງານດ່ວນ", "-"]);
+  assert.equal(getOrderAlertReportCells(rows[0], 0, "ກຳລັງຫຍິບ (ຂັ້ນ 3/5)")[8], "ກຳລັງຫຍິບ (ຂັ້ນ 3/5)");
   assert.equal(getOrderAlertReportCells(rows[1], 1)[7], "ປົກກະຕິ");
 });
 

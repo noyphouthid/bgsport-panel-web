@@ -105,3 +105,20 @@ export async function fetchFactoryOrderStatuses(
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
 }
+
+// One-line summary of where an order is in the factory, for report tables and Excel.
+export function describeFactoryOrderStatus(billCode: string, result: FactoryOrderStatusResult | undefined) {
+  if (!billCode) return "ບໍ່ມີບິນໂຮງງານ";
+  if (!result || result.state === "loading") return "ກຳລັງໂຫຼດ...";
+  if (result.state === "not_found") return "ບໍ່ພົບໃນລະບົບໂຮງງານ";
+  if (result.state === "error") return "ໂຫຼດສະຖານະໂຮງງານບໍ່ສຳເລັດ";
+  const { data } = result;
+  const current = data.currentStage;
+  if (data.totalSteps > 0 && data.completedSteps >= data.totalSteps) return "ຜະລິດຄົບທຸກຂັ້ນຕອນແລ້ວ";
+  if (current) {
+    const step = Math.min(data.completedSteps + 1, data.totalSteps);
+    return `${current.name} (ຂັ້ນ ${step}/${data.totalSteps})`;
+  }
+  const lastDone = [...data.stages].reverse().find((stage) => stage.status === "completed");
+  return lastDone ? `${lastDone.name} (ຂັ້ນ ${data.completedSteps}/${data.totalSteps})` : data.statusLabel;
+}
