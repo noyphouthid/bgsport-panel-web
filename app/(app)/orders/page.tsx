@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { getOrderAdminOptionLabel } from "@/lib/role-groups";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Eye, MessageCircleMore } from "lucide-react";
@@ -502,7 +503,7 @@ export default function OrdersPage() {
               <option value="all">ທັງໝົດ</option>
               {adminOptions.map((user) => (
                 <option key={user.id} value={user.id}>
-                  {user.full_name}
+                  {getOrderAdminOptionLabel(user)}
                 </option>
               ))}
             </select>

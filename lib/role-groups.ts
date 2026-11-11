@@ -18,6 +18,19 @@ export function isAdminRole(role: string | null | undefined) {
   return ADMIN_ROLE_ALIASES.has(normalizeRole(role));
 }
 
+export function isAgentRole(role: string | null | undefined) {
+  return normalizeRole(role) === "agent";
+}
+
+// The order "Admin" picker also lists sales agents, so an agent can own an order.
+export function isOrderAdminOptionRole(role: string | null | undefined) {
+  return isAdminRole(role) || isAgentRole(role);
+}
+
+export function getOrderAdminOptionLabel(user: { full_name: string; role?: string | null }) {
+  return isAgentRole(user.role) ? `${user.full_name} (ຕົວແທນ)` : user.full_name;
+}
+
 export function isGraphicRole(role: string | null | undefined) {
   return GRAPHIC_ROLE_ALIASES.has(normalizeRole(role));
 }

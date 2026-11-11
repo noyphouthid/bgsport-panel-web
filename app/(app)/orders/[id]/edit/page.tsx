@@ -28,7 +28,7 @@ import {
   type OrderItemRow,
   type PantsOrderItemDraft,
 } from "@/lib/order-items";
-import { isAdminRole, isGraphicRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
+import { getOrderAdminOptionLabel, isGraphicRole, isOrderAdminOptionRole, ORDER_ASSIGNABLE_USER_ROLES } from "@/lib/role-groups";
 import { buildOrderCode, normalizeOrderNo, normalizeOrderType, parseOrderCode, type OrderType } from "@/lib/order-code";
 import { useOrderTypeOptions } from "@/lib/order-code-options";
 import { useUnsavedChangesGuard } from "@/lib/use-unsaved-changes-guard";
@@ -888,7 +888,7 @@ export default function EditOrderPage() {
     void loadViewerRole();
   }, []);
 
-  const adminOptions = useMemo(() => users.filter((u) => isAdminRole(u.role)), [users]);
+  const adminOptions = useMemo(() => users.filter((u) => isOrderAdminOptionRole(u.role)), [users]);
   const graphicOptions = useMemo(() => users.filter((u) => isGraphicRole(u.role)), [users]);
   const selectedFabric = useMemo(() => fabrics.find((f) => f.id === fabricId) ?? null, [fabrics, fabricId]);
   const fabricsById = useMemo(() => new Map(fabrics.map((fabric) => [fabric.id, fabric])), [fabrics]);
@@ -1876,7 +1876,7 @@ export default function EditOrderPage() {
                 <label className="mb-1 block text-xs font-bold text-slate-700">Admin</label>
                 <select value={adminUserId} onChange={(e) => setAdminUserId(e.target.value)} className={`${inputClassName} bg-white font-bold`} disabled={loadingUsers}>
                   <option value="">ເລືອກ admin</option>
-                  {adminOptions.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                  {adminOptions.map((u) => <option key={u.id} value={u.id}>{getOrderAdminOptionLabel(u)}</option>)}
                 </select>
               </div>
               <div>
