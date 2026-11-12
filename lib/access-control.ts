@@ -21,6 +21,8 @@ const ROLE_LOCKED_PATHS = [
 const STAFF_ALLOWED_PATHS = new Set([
   "/factory-deposit-orders",
   "/factory-deposit-orders/new",
+  // Print-only: staff download, print and confirm printing of agent deposits.
+  "/factory-deposit-orders/agents",
   "/inventory-qr",
   "/factory-receipts",
   "/factory-receipts/orders",
@@ -44,7 +46,8 @@ const AGENT_ALLOWED_PATHS = new Set([
 
 const ROUTE_RULES: RouteRule[] = [
   { prefix: "/reports/agent-sales", roles: ["superadmin", "manager", "accountant"] },
-  // Only a superadmin reviews, approves and converts agent deposits.
+  // Only a superadmin reviews, approves and converts agent deposits; staff get a
+  // print-only view through STAFF_ALLOWED_PATHS.
   { prefix: "/factory-deposit-orders/agents", roles: ["superadmin"] },
   { prefix: "/users", roles: ["superadmin"] },
   { prefix: "/shipments/approvals", roles: ["superadmin"] },

@@ -154,12 +154,16 @@ type BulkSkip = {
   reason: string;
 };
 
-type ListFilter = FactoryDepositOrderStatus | "all" | "print:done" | "print:pending";
+type ListFilter = FactoryDepositOrderStatus | "all" | "print:printed" | "print:done" | "print:pending";
 
-type PrintConfirmationRow = {
+// A deposit with no row has not been printed yet.
+type PrintStatusRow = {
   deposit_order_id: string;
-  confirmed_by_user_id: string;
-  confirmed_at: string;
+  status: "printed" | "confirmed";
+  printed_by_user_id: string | null;
+  printed_at: string | null;
+  confirmed_by_user_id: string | null;
+  confirmed_at: string | null;
 };
 
 // Keep search and totals available for every order without loading production details.
@@ -172,7 +176,7 @@ const ROW_FETCH_CHUNK_SIZE = 100;
 const ROW_ICON_BUTTON_CLASS = "inline-flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-slate-200 bg-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-40";
 const ROW_ICON_CAPTION_CLASS = "text-[10px] font-black leading-none";
 const PRINT_CONFIRMATIONS_TABLE = "factory_deposit_order_print_confirmations";
-const PRINT_MIGRATION_MESSAGE = "ກະລຸນາລັນ 20261111_add_deposit_print_confirmations.sql ໃນ Supabase SQL Editor";
+const PRINT_MIGRATION_MESSAGE = "ກະລຸນາລັນ 20261111_add_deposit_print_confirmations.sql ແລະ 20261121_deposit_print_stages.sql ໃນ Supabase SQL Editor";
 const BULK_BUTTON_CLASS = "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40";
 
 function isMissingPrintConfirmationsTable(error: { message?: string } | null | undefined) {
@@ -586,7 +590,7 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
   const [viewerPermissions, setViewerPermissions] = useState<UserPermissionSettings | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkProgress, setBulkProgress] = useState<string | null>(null);
-  const [printConfirmations, setPrintConfirmations] = useState<Map<string, PrintConfirmationRow>>(new Map());
+  const [printStatuses, setPrintStatuses] = useState<Map<string, PrintStatusRow>>(new Map());
   const [printTrackingReady, setPrintTrackingReady] = useState(false);
   const [previewRow, setPreviewRow] = useState<DepositRow | null>(null);
   const [quotationPreviewRow, setQuotationPreviewRow] = useState<DepositRow | null>(null);
@@ -602,23 +606,26 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
   const [historyRows, setHistoryRows] = useState<DepositHistoryRow[] | null>(null);
 
   // The list stays usable before the migration runs; only the print status is hidden.
-  const loadPrintConfirmations = async () => {
-    const { data, error } = await fetchAllReportRows<PrintConfirmationRow>((from, to) =>
-      supabase.from(PRINT_CONFIRMATIONS_TABLE).select("deposit_order_id,confirmed_by_user_id,confirmed_at").order("deposit_order_id").range(from, to)
+  const loadPrintStatuses = async () => {
+    const { data, error } = await fetchAllReportRows<PrintStatusRow>((from, to) =>
+      supabase.from(PRINT_CONFIRMATIONS_TABLE)
+        .select("deposit_order_id,status,printed_by_user_id,printed_at,confirmed_by_user_id,confirmed_at")
+        .order("deposit_order_id")
+        .range(from, to)
     );
     if (error) {
       setPrintTrackingReady(false);
       if (!isMissingPrintConfirmationsTable(error)) toast.error(getErrorMessage(error, "ໂຫຼດສະຖານະການພິມບໍ່ສຳເລັດ"));
       return;
     }
-    setPrintConfirmations(new Map((data ?? []).map((row) => [row.deposit_order_id, row])));
+    setPrintStatuses(new Map((data ?? []).map((row) => [row.deposit_order_id, row])));
     setPrintTrackingReady(true);
   };
 
   const load = async () => {
     setLoading(true);
     setErr(null);
-    void loadPrintConfirmations();
+    void loadPrintStatuses();
     try {
       const [
         { data: depositData, error: depositError },
@@ -684,10 +691,11 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
       } else if (viewerRole !== "agent" && row.agent_user_id) {
         return false;
       }
-      if (statusFilter === "print:done") {
-        if (!printConfirmations.has(row.id)) return false;
-      } else if (statusFilter === "print:pending") {
-        if (printConfirmations.has(row.id)) return false;
+      if (statusFilter.startsWith("print:")) {
+        const printStatus = printStatuses.get(row.id)?.status;
+        if (statusFilter === "print:pending" && printStatus) return false;
+        if (statusFilter === "print:printed" && printStatus !== "printed") return false;
+        if (statusFilter === "print:done" && printStatus !== "confirmed") return false;
       } else if (statusFilter !== "all" && row.status !== statusFilter) {
         return false;
       }
@@ -697,7 +705,7 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
         .toLowerCase()
         .includes(keyword);
     });
-  }, [query, orderIndex, statusFilter, printConfirmations, viewerRole, viewerUserId, scope, agentFilter]);
+  }, [query, orderIndex, statusFilter, printStatuses, viewerRole, viewerUserId, scope, agentFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -738,11 +746,33 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
     return () => { cancelled = true; };
   }, [pageIndexRows]);
 
+  // Printing or downloading a sheet records the first print stage. Rows already
+  // printed or confirmed are left alone, so a reprint never moves a status back.
+  const markPrinted = async (jobRows: DepositRow[]) => {
+    if (!viewerUserId || jobRows.length === 0) return;
+    const { error } = await supabase
+      .from(PRINT_CONFIRMATIONS_TABLE)
+      .upsert(
+        jobRows.map((row) => ({ deposit_order_id: row.id, status: "printed", printed_by_user_id: viewerUserId })),
+        { onConflict: "deposit_order_id", ignoreDuplicates: true }
+      );
+    if (error) {
+      if (!isMissingPrintConfirmationsTable(error)) toast.error(getErrorMessage(error, "ບັນທຶກສະຖານະພິມບໍ່ສຳເລັດ"));
+      return;
+    }
+    await loadPrintStatuses();
+  };
+  const markPrintedRef = useRef(markPrinted);
+  markPrintedRef.current = markPrinted;
+
   // Sheets are mounted off-screen for the job, then printed or captured from the same markup.
   useEffect(() => {
     if (!sheetJob) return;
     let cancelled = false;
-    const finishPrint = () => setSheetJob(null);
+    const finishPrint = () => {
+      setSheetJob(null);
+      void markPrintedRef.current(sheetJob.rows);
+    };
 
     const run = async () => {
       const shell = sheetShellRef.current;
@@ -767,7 +797,10 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
           })),
           setSheetProgress
         );
-        if (!cancelled) toast.success("ດາວໂຫຼດ PDF ສຳເລັດ");
+        if (!cancelled) {
+          toast.success("ດາວໂຫຼດ PDF ສຳເລັດ");
+          void markPrintedRef.current(sheetJob.rows);
+        }
       } catch (error) {
         if (!cancelled) toast.error(getErrorMessage(error, "ດາວໂຫຼດ PDF ບໍ່ສຳເລັດ"));
       } finally {
@@ -802,7 +835,10 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
   const showAgentColumn = viewerRole !== "agent" && scope === "agents";
   const getAgentName = (row: Pick<DepositRow, "agent_user_id">) =>
     row.agent_user_id ? userNamesById.get(row.agent_user_id) || "ຕົວແທນ" : "";
-  const printUnconfirmedCount = selectedIndexRows.filter((row) => !printConfirmations.has(row.id)).length;
+  const isPrintConfirmed = (row: Pick<DepositRow, "id">) => printStatuses.get(row.id)?.status === "confirmed";
+  const printUnconfirmedCount = selectedIndexRows.filter((row) => !isPrintConfirmed(row)).length;
+  // Staff only print agent deposits; review, editing and exports stay with the superadmin.
+  const printOnly = scope === "agents" && viewerRole === "staff";
   const canConvertAsViewer = !!viewerRole && canConvertFactoryDepositOrder(viewerRole);
   const documentJobRunning = sheetJob?.action === "pdf";
   const bulkBusy = documentJobRunning || bulkProgress !== null;
@@ -905,25 +941,38 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
     return result.isConfirmed;
   };
 
-  const handleBulkConfirmPrinted = async () => {
+  const handleConfirmPrinted = async (targetRows: DepositIndexRow[]) => {
     if (!viewerUserId) return toast.error("ບໍ່ພົບຂໍ້ມູນຜູ້ໃຊ້");
-    const pending = selectedIndexRows.filter((row) => !printConfirmations.has(row.id));
-    const skipped = selectedIndexRows
-      .filter((row) => printConfirmations.has(row.id))
+    const pending = targetRows.filter((row) => !isPrintConfirmed(row));
+    const skipped = targetRows
+      .filter(isPrintConfirmed)
       .map((row) => ({ row, reason: "ຢືນຢັນການພິມແລ້ວ" }));
     if (!(await confirmBulk("ຢືນຢັນວ່າພິມສຳເລັດແລ້ວ?", pending.length, skipped, "ຢືນຢັນພິມສຳເລັດ"))) return;
 
     setBulkProgress("ກຳລັງບັນທຶກ...");
     try {
-      const { error } = await supabase
-        .from(PRINT_CONFIRMATIONS_TABLE)
-        .upsert(
-          pending.map((row) => ({ deposit_order_id: row.id, confirmed_by_user_id: viewerUserId })),
-          { onConflict: "deposit_order_id", ignoreDuplicates: true }
-        );
-      if (error) throw isMissingPrintConfirmationsTable(error) ? new Error(PRINT_MIGRATION_MESSAGE) : error;
-      setRowsSelected(selectedIndexRows.map((row) => row.id), false);
-      await loadPrintConfirmations();
+      // Rows at "ພິມ" move forward; rows never printed here are confirmed directly.
+      const printedIds = pending.filter((row) => printStatuses.has(row.id)).map((row) => row.id);
+      const newRows = pending.filter((row) => !printStatuses.has(row.id));
+      if (newRows.length > 0) {
+        const { error } = await supabase
+          .from(PRINT_CONFIRMATIONS_TABLE)
+          .upsert(
+            newRows.map((row) => ({ deposit_order_id: row.id, status: "confirmed", confirmed_by_user_id: viewerUserId })),
+            { onConflict: "deposit_order_id", ignoreDuplicates: true }
+          );
+        if (error) throw isMissingPrintConfirmationsTable(error) ? new Error(PRINT_MIGRATION_MESSAGE) : error;
+      }
+      if (printedIds.length > 0) {
+        const { error } = await supabase
+          .from(PRINT_CONFIRMATIONS_TABLE)
+          .update({ status: "confirmed", confirmed_by_user_id: viewerUserId })
+          .in("deposit_order_id", printedIds)
+          .eq("status", "printed");
+        if (error) throw isMissingPrintConfirmationsTable(error) ? new Error(PRINT_MIGRATION_MESSAGE) : error;
+      }
+      setRowsSelected(targetRows.map((row) => row.id), false);
+      await loadPrintStatuses();
       toast.success(`ຢືນຢັນການພິມ ${pending.length} ໃບສຳເລັດ`);
     } catch (error) {
       toast.error(getErrorMessage(error, "ຢືນຢັນການພິມບໍ່ສຳເລັດ"));
@@ -1596,7 +1645,9 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
             {scope === "agents" ? "ໃບມັດຈຳຈາກຕົວແທນ" : "ລາຍການໃບມັດຈຳສັ່ງຜະລິດ"}
           </h1>
           <div className="mt-2 text-sm font-medium text-slate-500">
-            {scope === "agents"
+            {printOnly
+              ? "ດາວໂຫຼດ PDF ຫຼື ພິມໃບສັ່ງຜະລິດຂອງຕົວແທນ, ແລ້ວກົດຢືນຢັນເມື່ອພິມສຳເລັດ"
+              : scope === "agents"
               ? "ກວດຈຳນວນ ແລະ ສະລິບໂອນເງິນຂອງຕົວແທນ ກ່ອນອະນຸມັດ ແລະ ບັນທຶກເປັນອໍເດີ. ຖ້າບໍ່ຖືກຕ້ອງ ໃຫ້ສົ່ງກັບໃຫ້ແກ້ໄຂ"
               : viewerRole === "agent"
                 ? "ໃບມັດຈຳຂອງທ່ານ. ເມື່ອສົ່ງແລ້ວ BG SPORT ຈະກວດ ແລະ ອະນຸມັດ"
@@ -1656,8 +1707,9 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
               <option value="converted">ບັນທຶກເປັນອໍເດີແລ້ວ</option>
             </optgroup>
             <optgroup label="ສະຖານະການພິມ">
-              <option value="print:done" disabled={!printTrackingReady}>ພິມສຳເລັດ</option>
               <option value="print:pending" disabled={!printTrackingReady}>ຍັງບໍ່ທັນພິມ</option>
+              <option value="print:printed" disabled={!printTrackingReady}>ພິມ</option>
+              <option value="print:done" disabled={!printTrackingReady}>ຢືນຢັນພິມສຳເລັດ</option>
             </optgroup>
           </select>
           {showAgentColumn ? (
@@ -1781,14 +1833,27 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
                     <td className="p-3 text-center">
                       {(() => {
                         if (!printTrackingReady) return <span title={PRINT_MIGRATION_MESSAGE} className="text-xs font-bold text-slate-400">-</span>;
-                        const confirmation = printConfirmations.get(row.id);
-                        return confirmation ? (
+                        const printStatus = printStatuses.get(row.id);
+                        const stampTitle = (userId: string | null, at: string | null) =>
+                          `${(userId && userNamesById.get(userId)) || "-"} • ${at ? new Date(at).toLocaleString("en-GB") : "-"}`;
+                        if (printStatus?.status === "confirmed") {
+                          return (
+                            <span
+                              title={stampTitle(printStatus.confirmed_by_user_id, printStatus.confirmed_at)}
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700"
+                            >
+                              <CheckCircle2 size={12} />
+                              ຢືນຢັນພິມສຳເລັດ
+                            </span>
+                          );
+                        }
+                        return printStatus?.status === "printed" ? (
                           <span
-                            title={`${userNamesById.get(confirmation.confirmed_by_user_id) || "-"} • ${new Date(confirmation.confirmed_at).toLocaleString("en-GB")}`}
-                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700"
+                            title={stampTitle(printStatus.printed_by_user_id, printStatus.printed_at)}
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-sky-200 bg-sky-100 px-3 py-1 text-xs font-black text-sky-700"
                           >
-                            <CheckCircle2 size={12} />
-                            ພິມສຳເລັດ
+                            <Printer size={12} />
+                            ພິມ
                           </span>
                         ) : (
                           <span className="whitespace-nowrap rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-black text-slate-500">ຍັງບໍ່ທັນພິມ</span>
@@ -1797,13 +1862,13 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
                     </td>
                     <td className="p-3">
                       <div className="flex flex-col items-end gap-1.5">
-                        {viewerRole && canConvertFactoryDepositOrder(viewerRole) && row.status === "approved" && (
+                        {!printOnly && viewerRole && canConvertFactoryDepositOrder(viewerRole) && row.status === "approved" && (
                           <button onClick={() => handleConvert(row)} disabled={workingId === row.id} className="h-10 whitespace-nowrap rounded-lg bg-violet-50 px-3 text-xs font-black text-violet-700 transition hover:bg-violet-100 disabled:opacity-50">
                             {workingId === row.id ? "ກຳລັງບັນທຶກ..." : "ບັນທຶກເປັນອໍເດີ"}
                           </button>
                         )}
                         <div className="flex items-center justify-end gap-1.5">
-                          {canApproveRow(row) && row.status === "submitted" && (
+                          {!printOnly && canApproveRow(row) && row.status === "submitted" && (
                             <button onClick={() => handleApprove(row)} disabled={workingId === row.id} className="mr-1 h-10 whitespace-nowrap rounded-lg bg-emerald-50 px-3 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
                               {workingId === row.id ? "ກຳລັງອະນຸມັດ..." : "ອະນຸມັດ"}
                             </button>
@@ -1830,30 +1895,46 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
                             <Printer size={20} />
                             <span className={ROW_ICON_CAPTION_CLASS}>ພິມ</span>
                           </button>
-                          <button
-                            type="button"
-                            title="Export CSV"
-                            aria-label={`Export CSV ${getRowLabel(row)}`}
-                            onClick={() => handleExportCsv(row)}
-                            disabled={exportingId === row.id}
-                            className={`${ROW_ICON_BUTTON_CLASS} text-emerald-700 hover:bg-emerald-50 focus-visible:ring-emerald-400`}
-                          >
-                            <FileSpreadsheet size={20} />
-                            <span className={ROW_ICON_CAPTION_CLASS}>CSV</span>
-                          </button>
-                          <button
-                            type="button"
-                            title="ເບິ່ງສະລິບ"
-                            aria-label={`ເບິ່ງສະລິບ ${getRowLabel(row)}`}
-                            onClick={() => void handleOpenSlipPreview(row)}
-                            className={`${ROW_ICON_BUTTON_CLASS} text-amber-700 hover:bg-amber-50 focus-visible:ring-amber-400`}
-                          >
-                            <ReceiptText size={20} />
-                            <span className={ROW_ICON_CAPTION_CLASS}>ສະລິບ</span>
-                          </button>
-                          <span className="ml-1">
-                            <RowActionMenu items={buildRowMenuItems(row)} />
-                          </span>
+                          {printOnly ? (
+                            <button
+                              type="button"
+                              title="ຢືນຢັນພິມສຳເລັດ"
+                              aria-label={`ຢືນຢັນພິມສຳເລັດ ${getRowLabel(row)}`}
+                              onClick={() => void handleConfirmPrinted([row])}
+                              disabled={bulkBusy || !printTrackingReady || isPrintConfirmed(row)}
+                              className={`${ROW_ICON_BUTTON_CLASS} text-emerald-700 hover:bg-emerald-50 focus-visible:ring-emerald-400`}
+                            >
+                              <CheckCircle2 size={20} />
+                              <span className={ROW_ICON_CAPTION_CLASS}>ຢືນຢັນ</span>
+                            </button>
+                          ) : (
+                            <>
+                            <button
+                              type="button"
+                              title="Export CSV"
+                              aria-label={`Export CSV ${getRowLabel(row)}`}
+                              onClick={() => handleExportCsv(row)}
+                              disabled={exportingId === row.id}
+                              className={`${ROW_ICON_BUTTON_CLASS} text-emerald-700 hover:bg-emerald-50 focus-visible:ring-emerald-400`}
+                            >
+                              <FileSpreadsheet size={20} />
+                              <span className={ROW_ICON_CAPTION_CLASS}>CSV</span>
+                            </button>
+                            <button
+                              type="button"
+                              title="ເບິ່ງສະລິບ"
+                              aria-label={`ເບິ່ງສະລິບ ${getRowLabel(row)}`}
+                              onClick={() => void handleOpenSlipPreview(row)}
+                              className={`${ROW_ICON_BUTTON_CLASS} text-amber-700 hover:bg-amber-50 focus-visible:ring-amber-400`}
+                            >
+                              <ReceiptText size={20} />
+                              <span className={ROW_ICON_CAPTION_CLASS}>ສະລິບ</span>
+                            </button>
+                            <span className="ml-1">
+                              <RowActionMenu items={buildRowMenuItems(row)} />
+                            </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -1920,23 +2001,25 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
               <button
                 type="button"
                 disabled={bulkBusy || printUnconfirmedCount === 0}
-                onClick={() => void handleBulkConfirmPrinted()}
+                onClick={() => void handleConfirmPrinted(selectedIndexRows)}
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <CheckCircle2 size={15} />
                 ຢືນຢັນພິມສຳເລັດ{printUnconfirmedCount > 0 ? ` (${printUnconfirmedCount})` : ""}
               </button>
-              <button type="button" disabled={bulkBusy || submittableCount === 0} onClick={() => void handleBulkSubmit()} className={BULK_BUTTON_CLASS}>
-                <Send size={15} />
-                ບັນທຶກ ແລະ ສົ່ງ{submittableCount > 0 ? ` (${submittableCount})` : ""}
-              </button>
-              {selectedIndexRows.some(canApproveRow) ? (
+              {!printOnly ? (
+                <button type="button" disabled={bulkBusy || submittableCount === 0} onClick={() => void handleBulkSubmit()} className={BULK_BUTTON_CLASS}>
+                  <Send size={15} />
+                  ບັນທຶກ ແລະ ສົ່ງ{submittableCount > 0 ? ` (${submittableCount})` : ""}
+                </button>
+              ) : null}
+              {!printOnly && selectedIndexRows.some(canApproveRow) ? (
                 <button type="button" disabled={bulkBusy || approvableCount === 0} onClick={() => void handleBulkApprove()} className={BULK_BUTTON_CLASS}>
                   <BadgeCheck size={15} />
                   ອະນຸມັດທັງໝົດ{approvableCount > 0 ? ` (${approvableCount})` : ""}
                 </button>
               ) : null}
-              {canConvertAsViewer ? (
+              {!printOnly && canConvertAsViewer ? (
                 <button type="button" disabled={bulkBusy || convertibleCount === 0} onClick={() => void handleBulkConvert()} className={BULK_BUTTON_CLASS}>
                   <ClipboardCheck size={15} />
                   ບັນທຶກເປັນອໍເດີ້ທັງໝົດ{convertibleCount > 0 ? ` (${convertibleCount})` : ""}
