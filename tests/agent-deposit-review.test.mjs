@@ -18,9 +18,10 @@ const permissions = loadTs("../lib/user-permissions.ts", { "@/lib/app-navigation
 const access = loadTs("../lib/access-control.ts", { "@/lib/user-permissions": permissions });
 const deposits = loadTs("../lib/factory-deposit-orders.ts");
 
-test("only a superadmin can open the agent deposit review page", () => {
+test("only a superadmin and print-only staff can open the agent deposit review page", () => {
   assert.equal(access.canAccessPath("/factory-deposit-orders/agents", "superadmin"), true);
-  for (const role of ["admin", "manager", "staff", "accountant", "agent"]) {
+  assert.equal(access.canAccessPath("/factory-deposit-orders/agents", "staff"), true);
+  for (const role of ["admin", "manager", "accountant", "agent"]) {
     assert.equal(access.canAccessPath("/factory-deposit-orders/agents", role), false, role);
   }
   // Permission overrides cannot open it for other roles.
