@@ -56,6 +56,7 @@ export const ORDER_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   create_order: "ສ້າງອໍເດີ",
   update_order: "ແກ້ໄຂອໍເດີ",
   receive_customer_payment: "ຮັບເງິນລູກຄ້າ",
+  cancel_customer_payment: "ຍົກເລີກຮັບເງິນລູກຄ້າ",
   pay_factory: "ຈ່າຍເງິນໂຮງງານ",
   production_completed: "ຜະລິດສຳເລັດ",
   close_order: "ປິດອໍເດີ",
@@ -99,6 +100,14 @@ export function getOrderActivityDetail(detail: string | null | undefined) {
   if (Object.hasOwn(DETAIL_LABELS, text)) return DETAIL_LABELS[text];
   let match = text.match(/^Received ([\d.,-]+)$/);
   if (match) return `ຮັບເງິນລູກຄ້າ ${match[1]}`;
+  match = text.match(/^Canceled customer payment ([^;]+); paid_at=([^;]+); reason=([\s\S]*)$/);
+  if (match) {
+    const paidAt = new Date(match[2]);
+    const paidLabel = Number.isNaN(paidAt.getTime()) ? match[2] : paidAt.toLocaleDateString("en-GB");
+    return `ຍົກເລີກຮັບເງິນລູກຄ້າ ${Number(match[1]).toLocaleString()}; ວັນທີຮັບເງິນ: ${paidLabel}; ເຫດຜົນ: ${match[3]}`;
+  }
+  match = text.match(/^Marked production completed on (\d{4}-\d{2}-\d{2})$/);
+  if (match) return `ບັນທຶກຜະລິດສຳເລັດ ວັນທີ ${match[1].split("-").reverse().join("/")}`;
   match = text.match(/^Paid factory ([\d.,-]+)$/);
   if (match) return `ຈ່າຍເງິນໂຮງງານ ${match[1]}`;
   match = text.match(/^Approved delivery request ([^;]+); method=(pickup|transport); payment_amount=([^;]+); shipped_at=(.+)$/);
