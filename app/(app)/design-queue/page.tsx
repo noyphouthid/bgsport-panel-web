@@ -45,6 +45,7 @@ type DesignQueueRow = {
 
 type WorkTypeFilter = "ALL" | "URGENT" | "NORMAL";
 type ShirtCategoryFilter = "ALL" | "UNSPECIFIED" | OrderWorkCategory;
+type DesignPaymentFilter = "ALL" | "UNSPECIFIED" | DesignPaymentType;
 type GraphicUserRow = {
   id: string;
   full_name: string;
@@ -190,6 +191,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
   const [yearFilter, setYearFilter] = useState(today.getFullYear());
   const [workTypeFilter, setWorkTypeFilter] = useState<WorkTypeFilter>("ALL");
   const [shirtCategoryFilter, setShirtCategoryFilter] = useState<ShirtCategoryFilter>("ALL");
+  const [designPaymentFilter, setDesignPaymentFilter] = useState<DesignPaymentFilter>("ALL");
   const [graphicFilterUserId, setGraphicFilterUserId] = useState<string>(ALL_GRAPHIC_FILTER);
   const [dateFromFilter, setDateFromFilter] = useState("");
   const [dateToFilter, setDateToFilter] = useState("");
@@ -342,6 +344,8 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
       const category = normalizeOrderWorkCategory(row.work_category);
       if (shirtCategoryFilter === "UNSPECIFIED" && category !== null) return false;
       if (shirtCategoryFilter !== "ALL" && shirtCategoryFilter !== "UNSPECIFIED" && category !== shirtCategoryFilter) return false;
+      if (designPaymentFilter === "UNSPECIFIED" && row.design_payment_type) return false;
+      if (designPaymentFilter !== "ALL" && designPaymentFilter !== "UNSPECIFIED" && row.design_payment_type !== designPaymentFilter) return false;
 
       if (!search) return true;
 
@@ -369,7 +373,7 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
 
       return a.order_no.localeCompare(b.order_no);
     });
-  }, [activeGraphicFilterUserId, dateFromFilter, dateToFilter, graphicNameMap, isCompletedView, monthFilter, query, rows, shirtCategoryFilter, workTypeFilter, yearFilter]);
+  }, [activeGraphicFilterUserId, dateFromFilter, designPaymentFilter, dateToFilter, graphicNameMap, isCompletedView, monthFilter, query, rows, shirtCategoryFilter, workTypeFilter, yearFilter]);
 
   const summary = useMemo(() => {
     return filteredRows.reduce(
@@ -855,6 +859,20 @@ export function DesignQueuePageContent({ statusView = "pending" }: DesignQueuePa
                   {ORDER_WORK_CATEGORIES.map((category) => (
                     <option key={category.value} value={category.value}>{category.label}</option>
                   ))}
+                  <option value="UNSPECIFIED">ຍັງບໍ່ລະບຸ</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="queue-design-payment-filter" className="mb-1 block text-xs font-black text-slate-500">ຄ່າອອກແບບ</label>
+                <select
+                  id="queue-design-payment-filter"
+                  value={designPaymentFilter}
+                  onChange={(event) => setDesignPaymentFilter(event.target.value as DesignPaymentFilter)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-sky-400"
+                >
+                  <option value="ALL">ທຸກຄ່າອອກແບບ</option>
+                  <option value="free">ອອກແບບຟຣີ</option>
+                  <option value="deposit">ມັດຈຳເຂົ້າຄິວອອກແບບ</option>
                   <option value="UNSPECIFIED">ຍັງບໍ່ລະບຸ</option>
                 </select>
               </div>
