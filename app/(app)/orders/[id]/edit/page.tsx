@@ -152,7 +152,33 @@ type CustomerPayment = {
   amount: number;
   paid_at: string;
   note: string | null;
+  // Set when another workflow created the payment; that workflow owns its undo.
+  shipment_id?: string | null;
+  cod_receipt_id?: string | null;
 };
+
+const CANCEL_PAYMENT_MIGRATION_MESSAGE = "ກະລຸນາລັນ 20261123_cancel_customer_payment.sql ໃນ Supabase SQL Editor";
+const CANCEL_PAYMENT_ERRORS: Record<string, string> = {
+  payment_cancel_forbidden: "ທ່ານບໍ່ມີສິດຍົກເລີກການຮັບເງິນ",
+  payment_cancel_reason_required: "ກະລຸນາໃສ່ເຫດຜົນ",
+  payment_not_found: "ບໍ່ພົບລາຍການຮັບເງິນນີ້ ອາດຖືກຍົກເລີກແລ້ວ",
+  payment_linked_to_shipment: "ລາຍການນີ້ມາຈາກການຈັດສົ່ງ ກະລຸນາຍົກເລີກທີ່ໜ້າຈັດສົ່ງ",
+  payment_linked_to_cod: "ລາຍການນີ້ມາຈາກການຮັບຍອດ COD ກະລຸນາຍົກເລີກທີ່ໜ້າ COD",
+  payment_order_closed: "ອໍເດີປິດງານແລ້ວ ກະລຸນາຍົກເລີກປິດງານກ່ອນ",
+};
+
+function getCancelPaymentErrorMessage(message: string) {
+  const key = Object.keys(CANCEL_PAYMENT_ERRORS).find((code) => message.includes(code));
+  if (key) return CANCEL_PAYMENT_ERRORS[key];
+  if (message.includes("cancel_customer_payment") && /(schema cache|does not exist)/i.test(message)) return CANCEL_PAYMENT_MIGRATION_MESSAGE;
+  return message;
+}
+
+function getPaymentSourceLabel(payment: CustomerPayment) {
+  if (payment.cod_receipt_id) return "COD";
+  if (payment.shipment_id) return "ຈັດສົ່ງ";
+  return null;
+}
 
 type FactoryPayment = {
   id: string;
@@ -284,6 +310,10 @@ export default function EditOrderPage() {
   const [factoryCost, setFactoryCost] = useState(0);
   const [factoryPaidFullDate, setFactoryPaidFullDate] = useState("");
   const [productionCompletedDate, setProductionCompletedDate] = useState("");
+  const [showProductionModal, setShowProductionModal] = useState(false);
+  const [productionModalDate, setProductionModalDate] = useState("");
+  const [savingProduction, setSavingProduction] = useState(false);
+  const [cancelingPaymentId, setCancelingPaymentId] = useState<string | null>(null);
   const { options: orderTypeOptions } = useOrderTypeOptions(true);
   const [pendingOrderImageFiles, setPendingOrderImageFiles] = useState<File[]>([]);
   const [pendingOrderImagePreviewUrls, setPendingOrderImagePreviewUrls] = useState<string[]>([]);
@@ -309,6 +339,8 @@ export default function EditOrderPage() {
   const orderTransferSlipCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const toDateInput = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 10) : "");
+  const toLocalDateInput = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   const dateInputToIso = (value: string) => (value ? new Date(`${value}T12:00:00`).toISOString() : null);
   const isCustomOrderType = useMemo(() => Boolean(orderType) && !orderTypeOptions.includes(orderType), [orderType, orderTypeOptions]);
   const orderTypeSelectValue = isCustomOrderType ? CUSTOM_ORDER_TYPE_VALUE : orderType;
@@ -492,12 +524,16 @@ export default function EditOrderPage() {
   };
 
   const loadCustomerPayments = async () => {
-    const { data, error } = await supabase.from("payment_transactions").select("id,amount,paid_at,note").eq("order_id", orderId).order("paid_at", { ascending: false });
+    const loadPayments = (columns: string) =>
+      supabase.from("payment_transactions").select(columns).eq("order_id", orderId).order("paid_at", { ascending: false });
+    let { data, error } = await loadPayments("id,amount,paid_at,note,shipment_id,cod_receipt_id");
+    // Older databases may lack the link columns; the list still loads without them.
+    if (error?.message.includes("does not exist")) ({ data, error } = await loadPayments("id,amount,paid_at,note"));
     if (error) {
       if (error.message.includes("Could not find the table")) return setCustomerPayments([]);
       throw error;
     }
-    setCustomerPayments((data ?? []) as CustomerPayment[]);
+    setCustomerPayments((data ?? []) as unknown as CustomerPayment[]);
   };
 
   const loadFactoryPayments = async () => {
@@ -1400,15 +1436,53 @@ export default function EditOrderPage() {
     await reloadAll();
   };
 
+  const openProductionModal = () => {
+    setProductionModalDate(toDateInput(order?.production_completed_at ?? null) || productionCompletedDate || toLocalDateInput(new Date()));
+    setShowProductionModal(true);
+  };
+
+  // Saves only the production date, so unsaved edits elsewhere on the form are left alone.
+  // Lists, reports, alerts and customer tracking all read orders.production_completed_at.
   const handleMarkProductionCompleted = async () => {
-    if (isReadOnlyAdmin) return;
-    if (!productionCompletedDate) return alert("ກະລຸນາເລືອກວັນທີຜະລິດສຳເລັດ");
-    const { error } = await supabase.from("orders").update({ production_completed_at: dateInputToIso(productionCompletedDate) }).eq("id", orderId);
+    if (isReadOnlyAdmin || savingProduction) return;
+    if (!productionModalDate) return toast.error("ກະລຸນາເລືອກວັນທີຜະລິດສຳເລັດ");
+    const completedAt = dateInputToIso(productionModalDate);
+    setSavingProduction(true);
+    const { error } = await supabase.from("orders").update({ production_completed_at: completedAt }).eq("id", orderId);
     if (error) {
+      setSavingProduction(false);
       setErr(error.message);
-      return;
+      return toast.error(`ບັນທຶກບໍ່ສຳເລັດ: ${error.message}`);
     }
-    await safeInsertAction("production_completed", "Marked production completed");
+    const previousDate = toDateInput(order?.production_completed_at ?? null);
+    await safeInsertAction(
+      "production_completed",
+      `Marked production completed on ${productionModalDate}`,
+      previousDate && previousDate !== productionModalDate
+        ? { changed_fields: [{ key: "production_completed_at", label: "production_completed_at", before: previousDate, after: productionModalDate }] }
+        : null
+    );
+    setProductionCompletedDate(productionModalDate);
+    setOrder((current) => (current ? { ...current, production_completed_at: completedAt } : current));
+    setShowProductionModal(false);
+    setSavingProduction(false);
+    void loadOrderHistory();
+    toast.success("ບັນທຶກຜະລິດສຳເລັດແລ້ວ");
+  };
+
+  const handleCancelCustomerPayment = async (payment: CustomerPayment) => {
+    if (isReadOnlyAdmin || isAgentViewer || cancelingPaymentId) return;
+    const reason = window.prompt(
+      `ຍົກເລີກການຮັບເງິນ ${Number(payment.amount).toLocaleString()} (${new Date(payment.paid_at).toLocaleDateString("en-GB")})?\n\nຍອດນີ້ຈະຖືກເພີ່ມຄືນເຂົ້າຍອດຄ້າງຊຳລະ. ກະລຸນາໃສ່ເຫດຜົນ:`
+    );
+    if (reason === null) return;
+    if (!reason.trim()) return toast.error("ກະລຸນາໃສ່ເຫດຜົນ");
+
+    setCancelingPaymentId(payment.id);
+    const { error } = await supabase.rpc("cancel_customer_payment", { p_payment_id: payment.id, p_reason: reason.trim() });
+    setCancelingPaymentId(null);
+    if (error) return toast.error(getCancelPaymentErrorMessage(error.message));
+    toast.success("ຍົກເລີກການຮັບເງິນແລ້ວ");
     await reloadAll();
   };
 
@@ -1636,11 +1710,13 @@ export default function EditOrderPage() {
           </Link>
           {!isReadOnlyAdmin && !isAgentViewer ? (
             <button
-              onClick={handleMarkProductionCompleted}
+              onClick={openProductionModal}
+              title={order.production_completed_at ? `ຜະລິດສຳເລັດ ${new Date(order.production_completed_at).toLocaleDateString("en-GB")} · ກົດເພື່ອປ່ຽນວັນທີ` : undefined}
               className={`${actionButtonClassName} border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}
             >
               <CheckCheck size={16} />
               ຜະລິດສຳເລັດ
+              {order.production_completed_at ? <span className="text-xs font-bold">({new Date(order.production_completed_at).toLocaleDateString("en-GB")})</span> : null}
             </button>
           ) : null}
           {!isReadOnlyAdmin && !isAgentViewer ? (
@@ -2291,12 +2367,44 @@ export default function EditOrderPage() {
               {!isReadOnlyAdmin && !isAgentViewer ? <button onClick={() => setShowCustomerPayModal(true)} className="rounded bg-blue-600 px-3 py-1.5 text-xs font-black text-white hover:bg-blue-700">ຮັບເງິນຊຳລະ</button> : null}
             </div>
             <div className="space-y-2">
-              {customerPayments.length === 0 ? <div className="text-sm text-slate-800 py-2 font-medium">ບໍ່ມີລາຍການ.</div> : customerPayments.map((p) => (
-                <div key={p.id} className="flex justify-between rounded border border-slate-200 bg-slate-50 p-2 text-xs">
-                  <div><div className="font-black text-slate-900">{new Date(p.paid_at).toLocaleString("en-US")}</div><div className="text-slate-800 font-medium">{p.note || "-"}</div></div>
-                  <div className="font-black text-emerald-700 text-sm">+{Number(p.amount).toLocaleString()}</div>
-                </div>
-              ))}
+              {customerPayments.length === 0 ? <div className="text-sm text-slate-800 py-2 font-medium">ບໍ່ມີລາຍການ.</div> : customerPayments.map((p) => {
+                const sourceLabel = getPaymentSourceLabel(p);
+                const orderClosed = order.status === "completed" || Boolean(order.closed_at);
+                return (
+                  <div key={p.id} className="flex items-center justify-between gap-3 rounded border border-slate-200 bg-slate-50 p-2 text-xs">
+                    <div>
+                      <div className="font-black text-slate-900">
+                        {new Date(p.paid_at).toLocaleString("en-US")}
+                        {sourceLabel ? <span className="ml-2 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-black text-indigo-700">{sourceLabel}</span> : null}
+                      </div>
+                      <div className="text-slate-800 font-medium">{p.note || "-"}</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="font-black text-emerald-700 text-sm">+{Number(p.amount).toLocaleString()}</div>
+                      {!isReadOnlyAdmin && !isAgentViewer ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleCancelCustomerPayment(p)}
+                          disabled={Boolean(sourceLabel) || orderClosed || cancelingPaymentId !== null}
+                          title={
+                            sourceLabel === "COD"
+                              ? "ລາຍການນີ້ມາຈາກການຮັບຍອດ COD ກະລຸນາຍົກເລີກທີ່ໜ້າ COD"
+                              : sourceLabel
+                                ? "ລາຍການນີ້ມາຈາກການຈັດສົ່ງ ກະລຸນາຍົກເລີກທີ່ໜ້າຈັດສົ່ງ"
+                                : orderClosed
+                                  ? "ອໍເດີປິດງານແລ້ວ ກະລຸນາຍົກເລີກປິດງານກ່ອນ"
+                                  : "ຍົກເລີກການຮັບເງິນ"
+                          }
+                          className="inline-flex items-center gap-1 rounded border border-rose-200 bg-white px-2 py-1 text-[11px] font-black text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Undo2 size={12} />
+                          {cancelingPaymentId === p.id ? "ກຳລັງຍົກເລີກ..." : "ຍົກເລີກ"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-900 shadow-sm space-y-2">
@@ -2400,6 +2508,33 @@ export default function EditOrderPage() {
           </div>
         </div>
       </div>
+
+      {showProductionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="production-modal-title" className="w-full max-w-md space-y-3 rounded-xl border border-slate-300 bg-white p-5 shadow-2xl">
+            <div id="production-modal-title" className="font-black text-slate-900 text-lg">ບັນທຶກຜະລິດສຳເລັດ</div>
+            {order.production_completed_at ? (
+              <div className="rounded bg-slate-100 p-2 text-sm font-bold text-slate-900">
+                ວັນທີປັດຈຸບັນ: {new Date(order.production_completed_at).toLocaleDateString("en-GB")}
+              </div>
+            ) : null}
+            <label className="block text-xs font-bold text-slate-700" htmlFor="production-completed-date">ວັນທີຜະລິດສຳເລັດ</label>
+            <input
+              id="production-completed-date"
+              type="date"
+              value={productionModalDate}
+              onChange={(e) => setProductionModalDate(e.target.value)}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm text-slate-900 font-bold"
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setShowProductionModal(false)} disabled={savingProduction} className="rounded border border-slate-400 px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50">ຍົກເລີກ</button>
+              <button onClick={() => void handleMarkProductionCompleted()} disabled={savingProduction || !productionModalDate} className="rounded bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50">
+                {savingProduction ? "ກຳລັງບັນທຶກ..." : "ຢືນຢັນ"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCustomerPayModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4">

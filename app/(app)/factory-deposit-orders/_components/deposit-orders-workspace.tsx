@@ -176,12 +176,19 @@ const ROW_FETCH_CHUNK_SIZE = 100;
 const ROW_ICON_BUTTON_CLASS = "inline-flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-slate-200 bg-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-40";
 const ROW_ICON_CAPTION_CLASS = "text-[10px] font-black leading-none";
 const PRINT_CONFIRMATIONS_TABLE = "factory_deposit_order_print_confirmations";
-const PRINT_MIGRATION_MESSAGE = "ກະລຸນາລັນ 20261111_add_deposit_print_confirmations.sql ແລະ 20261121_deposit_print_stages.sql ໃນ Supabase SQL Editor";
+const PRINT_MIGRATION_MESSAGE = "ກະລຸນາລັນ 20261111_add_deposit_print_confirmations.sql , 20261121_deposit_print_stages.sql ແລະ 20261122_deposit_print_stage_rpc.sql ໃນ Supabase SQL Editor";
 const BULK_BUTTON_CLASS = "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-black text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40";
+
+const PRINT_STAGE_RPC = "set_factory_deposit_print_stage";
 
 function isMissingPrintConfirmationsTable(error: { message?: string } | null | undefined) {
   const message = String(error?.message || "");
-  return message.includes(PRINT_CONFIRMATIONS_TABLE) && /(schema cache|does not exist)/i.test(message);
+  return (message.includes(PRINT_CONFIRMATIONS_TABLE) || message.includes(PRINT_STAGE_RPC)) && /(schema cache|does not exist)/i.test(message);
+}
+
+// The database function records the stage as the signed-in user and never moves a status back.
+function setPrintStage(depositIds: string[], stage: "printed" | "confirmed") {
+  return supabase.rpc(PRINT_STAGE_RPC, { p_deposit_ids: depositIds, p_stage: stage });
 }
 
 function getRowLabel(row: Pick<DepositRow, "order_code" | "deposit_no">) {
@@ -750,12 +757,7 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
   // printed or confirmed are left alone, so a reprint never moves a status back.
   const markPrinted = async (jobRows: DepositRow[]) => {
     if (!viewerUserId || jobRows.length === 0) return;
-    const { error } = await supabase
-      .from(PRINT_CONFIRMATIONS_TABLE)
-      .upsert(
-        jobRows.map((row) => ({ deposit_order_id: row.id, status: "printed", printed_by_user_id: viewerUserId })),
-        { onConflict: "deposit_order_id", ignoreDuplicates: true }
-      );
+    const { error } = await setPrintStage(jobRows.map((row) => row.id), "printed");
     if (error) {
       if (!isMissingPrintConfirmationsTable(error)) toast.error(getErrorMessage(error, "ບັນທຶກສະຖານະພິມບໍ່ສຳເລັດ"));
       return;
@@ -952,25 +954,8 @@ export function DepositOrdersWorkspace({ scope }: { scope: DepositWorkspaceScope
     setBulkProgress("ກຳລັງບັນທຶກ...");
     try {
       // Rows at "ພິມ" move forward; rows never printed here are confirmed directly.
-      const printedIds = pending.filter((row) => printStatuses.has(row.id)).map((row) => row.id);
-      const newRows = pending.filter((row) => !printStatuses.has(row.id));
-      if (newRows.length > 0) {
-        const { error } = await supabase
-          .from(PRINT_CONFIRMATIONS_TABLE)
-          .upsert(
-            newRows.map((row) => ({ deposit_order_id: row.id, status: "confirmed", confirmed_by_user_id: viewerUserId })),
-            { onConflict: "deposit_order_id", ignoreDuplicates: true }
-          );
-        if (error) throw isMissingPrintConfirmationsTable(error) ? new Error(PRINT_MIGRATION_MESSAGE) : error;
-      }
-      if (printedIds.length > 0) {
-        const { error } = await supabase
-          .from(PRINT_CONFIRMATIONS_TABLE)
-          .update({ status: "confirmed", confirmed_by_user_id: viewerUserId })
-          .in("deposit_order_id", printedIds)
-          .eq("status", "printed");
-        if (error) throw isMissingPrintConfirmationsTable(error) ? new Error(PRINT_MIGRATION_MESSAGE) : error;
-      }
+      const { error } = await setPrintStage(pending.map((row) => row.id), "confirmed");
+      if (error) throw isMissingPrintConfirmationsTable(error) ? new Error(PRINT_MIGRATION_MESSAGE) : error;
       setRowsSelected(targetRows.map((row) => row.id), false);
       await loadPrintStatuses();
       toast.success(`ຢືນຢັນການພິມ ${pending.length} ໃບສຳເລັດ`);
