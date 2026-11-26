@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchAllReportRows } from "@/lib/report-query";
+import { fetchAllReportRows, fetchReportRowsByIds } from "@/lib/report-query";
 import { profitDateKey, profitTimestampRange, profitRecognitionError } from "@/lib/profit-recognition";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
@@ -203,18 +203,15 @@ export default function DashboardPage() {
     setErr(null);
 
     try {
-      let query = supabase
-        .from("orders")
-        .select("id,order_code,order_date,fabric_name,net_total,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at, short_qty, long_qty, free_qty");
-
-      if (startDate) {
-        query = query.gte("order_date", startDate);
-      }
-      if (endDate) {
-        query = query.lte("order_date", endDate);
-      }
-
-      const { data: orders, error: ordersError } = await query;
+      // Page through every order: a long date range can pass the API's 1,000-row cap.
+      const { data: orders, error: ordersError } = await fetchAllReportRows((from, to) => {
+        let query = supabase
+          .from("orders")
+          .select("id,order_code,order_date,fabric_name,net_total,balance,factory_cost,status,production_completed_at,shipment_status,shipment_completed_at, short_qty, long_qty, free_qty");
+        if (startDate) query = query.gte("order_date", startDate);
+        if (endDate) query = query.lte("order_date", endDate);
+        return query.order("order_date").order("id").range(from, to);
+      });
       if (ordersError) throw ordersError;
 
       const orderRows = (orders ?? []) as Array<{
@@ -238,10 +235,10 @@ export default function DashboardPage() {
       const paidByOrder = new Map<string, number>();
 
       if (orderIds.length > 0) {
-        const { data: factoryPayments, error: factoryPaymentsError } = await supabase
-          .from("factory_payments")
-          .select("order_id,amount")
-          .in("order_id", orderIds);
+        // Batch the ids: one long `in` filter overflows the request URL on long date ranges.
+        const { data: factoryPayments, error: factoryPaymentsError } = await fetchReportRowsByIds(orderIds, (batchIds) =>
+          supabase.from("factory_payments").select("order_id,amount").in("order_id", batchIds)
+        );
 
         if (factoryPaymentsError && !factoryPaymentsError.message.includes("Could not find the table")) {
           throw factoryPaymentsError;
@@ -317,7 +314,9 @@ export default function DashboardPage() {
 
       setRecentOrders((recent as RecentOrder[]) || []);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Failed to load dashboard";
+      const message = error instanceof Error
+        ? error.message
+        : (error as { message?: string } | null)?.message || "Failed to load dashboard";
       setErr(message);
     } finally {
       setLoading(false);
